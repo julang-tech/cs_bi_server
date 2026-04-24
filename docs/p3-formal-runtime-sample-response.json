@@ -1,0 +1,137 @@
+{
+  "filters": {
+    "date_from": "2026-03-01",
+    "date_to": "2026-03-31",
+    "grain": "week",
+    "sku": null,
+    "skc": null,
+    "spu": null
+  },
+  "summary": {
+    "sales_qty": 227232,
+    "complaint_count": 523,
+    "complaint_rate": 0.002302
+  },
+  "trends": {
+    "sales_qty": [
+      {
+        "bucket": "2026-02-23",
+        "value": 7645
+      },
+      {
+        "bucket": "2026-03-02",
+        "value": 51820
+      },
+      {
+        "bucket": "2026-03-09",
+        "value": 52360
+      },
+      {
+        "bucket": "2026-03-16",
+        "value": 51201
+      },
+      {
+        "bucket": "2026-03-23",
+        "value": 49469
+      },
+      {
+        "bucket": "2026-03-30",
+        "value": 14737
+      }
+    ],
+    "complaint_count": [
+      {
+        "bucket": "2026-02-23",
+        "value": 51
+      },
+      {
+        "bucket": "2026-03-02",
+        "value": 252
+      },
+      {
+        "bucket": "2026-03-09",
+        "value": 164
+      },
+      {
+        "bucket": "2026-03-16",
+        "value": 53
+      },
+      {
+        "bucket": "2026-03-23",
+        "value": 3
+      },
+      {
+        "bucket": "2026-03-30",
+        "value": 0
+      }
+    ],
+    "complaint_rate": [
+      {
+        "bucket": "2026-02-23",
+        "value": 0.006671
+      },
+      {
+        "bucket": "2026-03-02",
+        "value": 0.004856
+      },
+      {
+        "bucket": "2026-03-09",
+        "value": 0.003132
+      },
+      {
+        "bucket": "2026-03-16",
+        "value": 0.001034
+      },
+      {
+        "bucket": "2026-03-23",
+        "value": 6.1e-05
+      },
+      {
+        "bucket": "2026-03-30",
+        "value": 0.0
+      }
+    ]
+  },
+  "issue_share": [
+    {
+      "major_issue_type": "product",
+      "label": "产品问题",
+      "count": 498,
+      "ratio": 0.952199
+    },
+    {
+      "major_issue_type": "warehouse",
+      "label": "仓库问题",
+      "count": 25,
+      "ratio": 0.047801
+    },
+    {
+      "major_issue_type": "logistics",
+      "label": "物流问题",
+      "count": 0,
+      "ratio": 0.0
+    }
+  ],
+  "meta": {
+    "version": "p3-formal-runtime",
+    "complaint_definition": "standardized_issue_records",
+    "source_modes": [
+      "feishu/openclaw runtime fetch",
+      "shopify bigquery enrichment"
+    ],
+    "partial_data": false,
+    "notes": [
+      "Ignored 188 records that did not map to product/warehouse/logistics issues."
+    ],
+    "stable_fields": [
+      "filters",
+      "summary",
+      "trends",
+      "issue_share",
+      "meta"
+    ],
+    "upgradable_fields": [
+      "meta.notes"
+    ]
+  }
+}
