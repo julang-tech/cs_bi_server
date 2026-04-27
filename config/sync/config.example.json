@@ -1,0 +1,42 @@
+{
+  "feishu": {
+    "app_id": "cli_xxx",
+    "app_secret": "your_secret_here"
+  },
+  "source": {
+    "app_token": "source_app_token_here",
+    "table_id": "source_table_id_here",
+    "view_id": "source_view_id_here"
+  },
+  "target": {
+    "app_token": "target_app_token_here",
+    "table_id": "target_table_id_here",
+    "view_id": "target_view_id_here"
+  },
+  "runtime": {
+    "state_path": "./data/state.json",
+    "log_path": "./logs/sync.log"
+  },
+  "shopify": {
+    "sites": {
+      "lc": {
+        "url": "https://your-lc-shop.myshopify.com/admin/api/2025-10/graphql.json",
+        "token": "lc_admin_token_here",
+        "currency": "USD",
+        "site_name": "主站(USD)"
+      },
+      "fr": {
+        "url": "https://your-fr-shop.myshopify.com/admin/api/2025-10/graphql.json",
+        "token": "fr_admin_token_here",
+        "currency": "EUR",
+        "site_name": "法国站(EUR)"
+      },
+      "uk": {
+        "url": "https://your-uk-shop.myshopify.com/admin/api/2025-10/graphql.json",
+        "token": "uk_admin_token_here",
+        "currency": "GBP",
+        "site_name": "英国站(GBP)"
+      }
+    }
+  }
+}

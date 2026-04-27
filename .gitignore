@@ -11,6 +11,17 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
+config/sync/config.json
+config/gcp/*.json
+config/data/*
+!config/data/.gitkeep
+config/logs/*
+!config/logs/.gitkeep
+server-dist
+server-data
+*.tsbuildinfo
 
 # Editor directories and files
 .vscode/*

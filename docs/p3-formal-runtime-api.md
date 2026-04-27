@@ -18,7 +18,7 @@
 
 ```bash
 set GOOGLE_APPLICATION_CREDENTIALS=openclaw_followup_sync\config\julang-dev-database-876c2efba122.json
-.\.venv\Scripts\python.exe -m cs_bi_server
+npm.cmd run dev
 ```
 
 默认地址：`http://127.0.0.1:8000`
