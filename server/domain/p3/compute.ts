@@ -10,6 +10,9 @@ import {
   type Grain,
   type IssueSharePoint,
   type P3Filters,
+  type ProductRankingEntry,
+  type ProductRankingResponse,
+  type ProductSalesPoint,
   type StandardIssueRecord,
   type SummaryMetrics,
   type TrendPoint,
@@ -347,6 +350,133 @@ export function buildDrilldownPreviewPayload(
       top_skcs,
       sample_orders,
     },
+    meta: {
+      partial_data: partialData,
+      notes,
+    },
+  }
+}
+
+function sortRankingRows<T extends { complaint_count: number; complaint_rate: number }>(
+  leftKey: string,
+  rightKey: string,
+  left: T,
+  right: T,
+) {
+  return (
+    right.complaint_count - left.complaint_count ||
+    right.complaint_rate - left.complaint_rate ||
+    leftKey.localeCompare(rightKey)
+  )
+}
+
+export function computeProductRanking(
+  salesRows: ProductSalesPoint[],
+  issues: StandardIssueRecord[],
+): ProductRankingEntry[] {
+  const spuSales = new Map<string, number>()
+  const skcSales = new Map<string, number>()
+
+  for (const row of salesRows) {
+    if (!row.spu || !row.skc) {
+      continue
+    }
+    spuSales.set(row.spu, (spuSales.get(row.spu) ?? 0) + row.sales_qty)
+    skcSales.set(`${row.spu}__${row.skc}`, (skcSales.get(`${row.spu}__${row.skc}`) ?? 0) + row.sales_qty)
+  }
+
+  const spuComplaints = new Map<string, number>()
+  const skcComplaints = new Map<string, number>()
+
+  for (const issue of issues) {
+    if (issue.major_issue_type === 'logistics') {
+      const seenPairs = new Set<string>()
+      for (const lineItem of issue.order_line_contexts) {
+        if (!lineItem.spu || !lineItem.skc) {
+          continue
+        }
+        const pairKey = `${lineItem.spu}__${lineItem.skc}`
+        if (seenPairs.has(pairKey)) {
+          continue
+        }
+        seenPairs.add(pairKey)
+        spuComplaints.set(lineItem.spu, (spuComplaints.get(lineItem.spu) ?? 0) + 1)
+        skcComplaints.set(pairKey, (skcComplaints.get(pairKey) ?? 0) + 1)
+      }
+      continue
+    }
+
+    if (!issue.spu || !issue.skc) {
+      continue
+    }
+
+    spuComplaints.set(issue.spu, (spuComplaints.get(issue.spu) ?? 0) + 1)
+    skcComplaints.set(`${issue.spu}__${issue.skc}`, (skcComplaints.get(`${issue.spu}__${issue.skc}`) ?? 0) + 1)
+  }
+
+  const spus = new Set<string>([...spuSales.keys(), ...spuComplaints.keys()])
+  const ranking: ProductRankingEntry[] = [...spus]
+    .map((spu) => {
+      const childPairs = new Set<string>()
+      for (const key of skcSales.keys()) {
+        if (key.startsWith(`${spu}__`)) {
+          childPairs.add(key)
+        }
+      }
+      for (const key of skcComplaints.keys()) {
+        if (key.startsWith(`${spu}__`)) {
+          childPairs.add(key)
+        }
+      }
+
+      const children = [...childPairs]
+        .map((pairKey) => {
+          const skc = pairKey.slice(spu.length + 2)
+          const sales_qty = skcSales.get(pairKey) ?? 0
+          const complaint_count = skcComplaints.get(pairKey) ?? 0
+          return {
+            skc,
+            sales_qty,
+            complaint_count,
+            complaint_rate: safeRate(complaint_count, sales_qty),
+          }
+        })
+        .sort((left, right) => sortRankingRows(left.skc, right.skc, left, right))
+
+      const sales_qty = spuSales.get(spu) ?? children.reduce((sum, child) => sum + child.sales_qty, 0)
+      const complaint_count =
+        spuComplaints.get(spu) ?? children.reduce((sum, child) => sum + child.complaint_count, 0)
+
+      return {
+        spu,
+        sales_qty,
+        complaint_count,
+        complaint_rate: safeRate(complaint_count, sales_qty),
+        children,
+      }
+    })
+    .sort((left, right) => sortRankingRows(left.spu, right.spu, left, right))
+
+  return ranking
+}
+
+export function buildProductRankingPayload(
+  filters: P3Filters,
+  ranking: ProductRankingEntry[],
+  notes: string[],
+  partialData: boolean,
+): ProductRankingResponse {
+  return {
+    filters: {
+      date_from: filters.date_from,
+      date_to: filters.date_to,
+      grain: filters.grain,
+      date_basis: filters.date_basis,
+      sku: filters.sku ?? null,
+      skc: filters.skc ?? null,
+      spu: filters.spu ?? null,
+    },
+    ranking,
     meta: {
       partial_data: partialData,
       notes,

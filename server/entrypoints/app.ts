@@ -62,6 +62,17 @@ export async function buildApp(overrides?: {
     return service.getDrilldownPreview(parsed.data)
   })
 
+  app.get('/api/bi/p3/product-ranking', async (request, reply) => {
+    const parsed = filterSchema.safeParse(request.query)
+    if (!parsed.success) {
+      return reply.status(422).send({ detail: parsed.error.flatten() })
+    }
+    if (parsed.data.date_from > parsed.data.date_to) {
+      return reply.status(422).send({ detail: 'date_from cannot be later than date_to.' })
+    }
+    return service.getProductRanking(parsed.data)
+  })
+
   const distPath = path.join(env.repoRoot, 'dist')
   if (fs.existsSync(distPath)) {
     await app.register(fastifyStatic, {

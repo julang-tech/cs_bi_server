@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import {
   buildDashboardPayload,
   buildDrilldownPreviewPayload,
+  buildProductRankingPayload,
+  computeProductRanking,
   computeDashboard,
   filterIssues,
   resolveIssueQueryDate,
@@ -151,6 +153,35 @@ function run() {
   assert.equal(previewPayload.preview.sample_orders[0]?.order_no, 'LC3')
   assert.deepEqual(previewPayload.preview.top_spus, [])
   assert.equal(previewPayload.filters.date_basis, 'order_date')
+
+  const ranking = computeProductRanking(
+    [
+      { spu: 'SPU-1', skc: 'SKC-1', sales_qty: 10 },
+      { spu: 'SPU-2', skc: 'SKC-2', sales_qty: 6 },
+      { spu: 'SPU-3', skc: 'SKC-3', sales_qty: 4 },
+      { spu: 'SPU-4', skc: 'SKC-4', sales_qty: 4 },
+    ],
+    filtered,
+  )
+  const rankingPayload = buildProductRankingPayload(baseFilters, ranking, [], false)
+  assert.equal(rankingPayload.ranking.length, 4)
+  assert.deepEqual(rankingPayload.ranking[0], {
+    spu: 'SPU-3',
+    sales_qty: 4,
+    complaint_count: 1,
+    complaint_rate: 0.25,
+    children: [
+      {
+        skc: 'SKC-3',
+        sales_qty: 4,
+        complaint_count: 1,
+        complaint_rate: 0.25,
+      },
+    ],
+  })
+  assert.equal(rankingPayload.ranking[1]?.spu, 'SPU-4')
+  assert.equal(rankingPayload.ranking[2]?.children[0]?.complaint_count, 1)
+  assert.equal(rankingPayload.ranking[3]?.children[0]?.skc, 'SKC-1')
 
   console.log('P3 compute tests passed')
 }

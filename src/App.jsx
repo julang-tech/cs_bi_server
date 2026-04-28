@@ -1,10 +1,31 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import {
   fetchDashboard,
   fetchDrilldownOptions,
-  fetchDrilldownPreview,
+  fetchProductRanking,
 } from './api/p3'
+
+const PAGE_OPTIONS = [
+  {
+    value: 'p1',
+    code: 'P1',
+    title: '聊天数据看板',
+    description: '查看客服接待规模与响应效率',
+  },
+  {
+    value: 'p2',
+    code: 'P2',
+    title: '退款情况看板',
+    description: '查看退款规模、占比与商品分布',
+  },
+  {
+    value: 'p3',
+    code: 'P3',
+    title: '客诉总览看板',
+    description: '查看销量、客诉量、客诉率和整体问题规模',
+  },
+]
 
 const GRAIN_OPTIONS = [
   { value: 'day', label: '按天' },
@@ -17,25 +38,21 @@ const DATE_BASIS_OPTIONS = [
   { value: 'refund_date', label: '退款时间' },
 ]
 
+const P3_FIXED_START_DATE = '2026-01-01'
+
 const ISSUE_ORDER = ['product', 'logistics', 'warehouse']
 
 const ISSUE_COPY = {
   product: {
     label: '产品问题',
-    previewTitle: '产品问题预览表',
-    badgeTone: 'warm',
     accent: 'issue-row--product',
   },
   logistics: {
     label: '物流问题',
-    previewTitle: '物流问题预览表',
-    badgeTone: 'cool',
     accent: 'issue-row--logistics',
   },
   warehouse: {
     label: '仓库问题',
-    previewTitle: '仓库问题预览表',
-    badgeTone: 'deep',
     accent: 'issue-row--warehouse',
   },
 }
@@ -51,9 +68,6 @@ function createDefaultFilters() {
   return {
     grain: 'week',
     date_basis: 'order_date',
-    sku: '',
-    skc: '',
-    spu: '',
   }
 }
 
@@ -128,10 +142,6 @@ function getResolvedDateWindow(grain) {
     },
     label: '截至昨日近30天',
   }
-}
-
-function getDateBasisLabel(dateBasis) {
-  return DATE_BASIS_OPTIONS.find((option) => option.value === dateBasis)?.label ?? '订单时间'
 }
 
 function buildDelta(currentValue, previousValue, mode = 'percent') {
@@ -210,22 +220,6 @@ function sortIssueShare(items, options, salesQty) {
       target_page: option?.target_page ?? null,
     }
   })
-}
-
-function selectProductRows(preview) {
-  if (preview?.top_spus?.length) {
-    return {
-      title: 'SPU 预览',
-      valueKey: 'spu',
-      rows: preview.top_spus,
-    }
-  }
-
-  return {
-    title: 'SKC 预览',
-    valueKey: 'skc',
-    rows: preview?.top_skcs ?? [],
-  }
 }
 
 function MiniSparkline({ items }) {
@@ -319,133 +313,216 @@ function TableSection({ title, hint, columns, rows, emptyCopy, rowTone, onRowCli
   )
 }
 
-function App() {
+function PlaceholderPage({ title, description }) {
+  return (
+    <main className="placeholder-shell">
+      <section className="placeholder-shell__body" aria-label={`${title} 页面占位`} />
+    </main>
+  )
+}
+
+function ProductRankingSection({ rows, loading, error }) {
+  const [expandedSpus, setExpandedSpus] = useState(() => new Set())
+  const [showAllRows, setShowAllRows] = useState(false)
+
+  useEffect(() => {
+    setExpandedSpus(new Set())
+    setShowAllRows(false)
+  }, [rows])
+
+  function toggleSpu(spu) {
+    setExpandedSpus((current) => {
+      const next = new Set(current)
+      if (next.has(spu)) {
+        next.delete(spu)
+      } else {
+        next.add(spu)
+      }
+      return next
+      })
+  }
+
+  const visibleRows = showAllRows ? rows : rows.slice(0, 3)
+  const hasMoreRows = rows.length > 3
+
+  return (
+    <section className="table-card ranking-card">
+      <div className="table-card__header">
+        <div>
+          <h3>商品客诉表现表</h3>
+          <p className="table-card__hint">默认按客诉量排序，先展示前 3 个 SPU，可按需展开全部并查看对应 SKC 明细。</p>
+        </div>
+        {hasMoreRows ? (
+          <button
+            type="button"
+            className="toolbar-button ranking-action"
+            onClick={() => setShowAllRows((current) => !current)}
+          >
+            {showAllRows ? '收起' : '展开全部'}
+          </button>
+        ) : (
+          <span className="summary-badge summary-badge--warm">SPU / SKC</span>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="empty-state">正在加载商品排行...</div>
+      ) : error ? (
+        <div className="empty-state empty-state--error">{error}</div>
+      ) : rows.length ? (
+        <div className="table-scroll">
+          <table className="data-table ranking-table">
+            <thead>
+              <tr>
+                <th>排名</th>
+                <th>SPU</th>
+                <th>SKC</th>
+                <th>销量</th>
+                <th>客诉量</th>
+                <th>客诉率</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRows.flatMap((row, index) => {
+                const expanded = expandedSpus.has(row.spu)
+                const parentRow = (
+                  <tr key={`spu-${row.spu}`} className="ranking-row ranking-row--parent">
+                    <td data-label="排名">
+                      <span className="rank-pill">{index + 1}</span>
+                    </td>
+                    <td data-label="SPU"><strong>{row.spu}</strong></td>
+                    <td data-label="SKC">
+                      <button type="button" className="ranking-toggle" onClick={() => toggleSpu(row.spu)}>
+                        <span>全部</span>
+                        <span className={`ranking-chevron ${expanded ? 'ranking-chevron--open' : ''}`}>
+                          ▾
+                        </span>
+                      </button>
+                    </td>
+                    <td data-label="销量">{formatInteger(row.sales_qty)}</td>
+                    <td data-label="客诉量">{formatInteger(row.complaint_count)}</td>
+                    <td data-label="客诉率">{formatPercent(row.complaint_rate)}</td>
+                  </tr>
+                )
+
+                if (!expanded) {
+                  return [parentRow]
+                }
+
+                const children = row.children.map((child) => (
+                  <tr key={`skc-${row.spu}-${child.skc}`} className="ranking-row ranking-row--child">
+                    <td data-label="排名">-</td>
+                    <td data-label="SPU">{row.spu}</td>
+                    <td data-label="SKC">{child.skc}</td>
+                    <td data-label="销量">{formatInteger(child.sales_qty)}</td>
+                    <td data-label="客诉量">{formatInteger(child.complaint_count)}</td>
+                    <td data-label="客诉率">{formatPercent(child.complaint_rate)}</td>
+                  </tr>
+                ))
+
+                return [parentRow, ...children]
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="empty-state empty-state--table">暂无商品排行数据</div>
+      )}
+
+      {hasMoreRows ? (
+        <div className="ranking-footer">
+          <button
+            type="button"
+            className="toolbar-button ranking-action"
+            onClick={() => setShowAllRows((current) => !current)}
+          >
+            {showAllRows ? '收起' : `展开全部（${rows.length}）`}
+          </button>
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function P3Dashboard() {
   const defaultFilters = useMemo(() => createDefaultFilters(), [])
-  const previewRef = useRef(null)
   const [filters, setFilters] = useState(defaultFilters)
-  const [submittedFilters, setSubmittedFilters] = useState(defaultFilters)
   const [dashboard, setDashboard] = useState(null)
   const [previousDashboard, setPreviousDashboard] = useState(null)
+  const [trendDashboard, setTrendDashboard] = useState(null)
   const [options, setOptions] = useState([])
-  const [preview, setPreview] = useState(null)
-  const [activeIssueType, setActiveIssueType] = useState('product')
+  const [ranking, setRanking] = useState([])
   const [dashboardLoading, setDashboardLoading] = useState(true)
-  const [previewLoading, setPreviewLoading] = useState(false)
+  const [rankingLoading, setRankingLoading] = useState(true)
   const [dashboardError, setDashboardError] = useState('')
-  const [previewError, setPreviewError] = useState('')
+  const [rankingError, setRankingError] = useState('')
 
   useEffect(() => {
     const controller = new AbortController()
 
     async function loadDashboard() {
       setDashboardLoading(true)
+      setRankingLoading(true)
       setDashboardError('')
-      const resolvedWindow = getResolvedDateWindow(submittedFilters.grain)
-      const currentFilters = { ...submittedFilters, ...resolvedWindow.current }
-      const previousFilters = { ...submittedFilters, ...resolvedWindow.previous }
+      setRankingError('')
+      const resolvedWindow = getResolvedDateWindow(filters.grain)
+      const currentFilters = { ...filters, ...resolvedWindow.current }
+      const previousFilters = { ...filters, ...resolvedWindow.previous }
+      const trendFilters = {
+        ...filters,
+        date_from: P3_FIXED_START_DATE,
+        date_to: resolvedWindow.current.date_to,
+      }
 
       try {
-        const [dashboardResponse, previousDashboardResponse] = await Promise.all([
+        const [
+          dashboardResponse,
+          previousDashboardResponse,
+          trendDashboardResponse,
+          drilldownOptionsResponse,
+          rankingResponse,
+        ] = await Promise.all([
           fetchDashboard(currentFilters, controller.signal),
           fetchDashboard(previousFilters, controller.signal),
+          fetchDashboard(trendFilters, controller.signal),
+          fetchDrilldownOptions(currentFilters, controller.signal),
+          fetchProductRanking(currentFilters, controller.signal),
         ])
+
         setDashboard(dashboardResponse)
         setPreviousDashboard(previousDashboardResponse)
-
-        try {
-          const drilldownOptions = await fetchDrilldownOptions(
-            currentFilters,
-            controller.signal,
-          )
-          setOptions(drilldownOptions.options ?? [])
-        } catch (error) {
-          if (error.name !== 'AbortError') {
-            setOptions([])
-          }
-        }
-
-        setPreview(null)
-        setPreviewError('')
+        setTrendDashboard(trendDashboardResponse)
+        setOptions(drilldownOptionsResponse.options ?? [])
+        setRanking(rankingResponse.ranking ?? [])
       } catch (error) {
         if (error.name !== 'AbortError') {
           setDashboard(null)
           setPreviousDashboard(null)
+          setTrendDashboard(null)
           setOptions([])
-          setPreview(null)
+          setRanking([])
           setDashboardError(error.message || 'P3 总览加载失败，请稍后重试。')
+          setRankingError(error.message || '商品排行加载失败，请稍后重试。')
         }
       } finally {
         if (!controller.signal.aborted) {
           setDashboardLoading(false)
+          setRankingLoading(false)
         }
       }
     }
 
     loadDashboard()
-
     return () => controller.abort()
-  }, [submittedFilters])
-
-  useEffect(() => {
-    if (!activeIssueType) {
-      return undefined
-    }
-
-    const controller = new AbortController()
-
-    async function loadPreview() {
-      setPreviewLoading(true)
-      setPreviewError('')
-      const resolvedWindow = getResolvedDateWindow(submittedFilters.grain)
-
-      try {
-        const previewResponse = await fetchDrilldownPreview(
-          {
-            ...submittedFilters,
-            ...resolvedWindow.current,
-            major_issue_type: activeIssueType,
-          },
-          controller.signal,
-        )
-        setPreview(previewResponse.preview ?? null)
-      } catch (error) {
-        if (error.name !== 'AbortError') {
-          setPreview(null)
-          setPreviewError(error.message || '下钻预览加载失败，请稍后重试。')
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setPreviewLoading(false)
-        }
-      }
-    }
-
-    loadPreview()
-
-    return () => controller.abort()
-  }, [activeIssueType, submittedFilters])
-
-  useEffect(() => {
-    if (activeIssueType && previewRef.current) {
-      previewRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }
-  }, [activeIssueType])
+  }, [filters])
 
   const summary = dashboard?.summary
   const previousSummary = previousDashboard?.summary
-  const meta = dashboard?.meta
-  const resolvedWindow = useMemo(
-    () => getResolvedDateWindow(submittedFilters.grain),
-    [submittedFilters.grain],
-  )
 
   const issueRows = useMemo(
     () => sortIssueShare(dashboard?.issue_share, options, dashboard?.summary?.sales_qty ?? 0),
     [dashboard?.issue_share, options, dashboard?.summary?.sales_qty],
   )
-
-  const productRows = useMemo(() => selectProductRows(preview), [preview])
-  const activeIssueMeta = ISSUE_COPY[activeIssueType] ?? ISSUE_COPY.product
   const salesDelta = buildDelta(summary?.sales_qty, previousSummary?.sales_qty, 'percent')
   const complaintDelta = buildDelta(
     summary?.complaint_count,
@@ -463,9 +540,7 @@ function App() {
       key: 'label',
       label: '客诉原因',
       render: (row) => (
-        <span className={`issue-label ${ISSUE_COPY[row.major_issue_type].accent}`}>
-          {row.label}
-        </span>
+        <span className={`issue-label ${ISSUE_COPY[row.major_issue_type].accent}`}>{row.label}</span>
       ),
     },
     {
@@ -480,174 +555,54 @@ function App() {
     },
   ]
 
-  const reasonColumns = [
-    {
-      key: 'rank',
-      label: '排名',
-      render: (_, index) => <span className="rank-pill">{index + 1}</span>,
-    },
-    {
-      key: 'reason',
-      label: '原因',
-    },
-    {
-      key: 'count',
-      label: '客诉量',
-      render: (row) => formatInteger(row.count),
-    },
-  ]
-
-  const productColumns = [
-    {
-      key: 'rank',
-      label: '排名',
-      render: (_, index) => <span className="rank-pill">{index + 1}</span>,
-    },
-    {
-      key: 'item',
-      label: productRows.title,
-      render: (row) => row[productRows.valueKey] ?? '--',
-    },
-    {
-      key: 'count',
-      label: '客诉量',
-      render: (row) => formatInteger(row.count),
-    },
-  ]
-
-  const orderColumns = [
-    {
-      key: 'rank',
-      label: '排名',
-      render: (_, index) => <span className="rank-pill">{index + 1}</span>,
-    },
-    {
-      key: 'order_no',
-      label: '订单号',
-    },
-    {
-      key: 'reason',
-      label: '原因',
-    },
-  ]
-
-  function handleFilterChange(event) {
-    const { name, value } = event.target
-    setFilters((current) => ({ ...current, [name]: value }))
-  }
-
-  function handleSubmit(event) {
-    event.preventDefault()
-    setSubmittedFilters({ ...filters })
-  }
-
-  function handleReset() {
-    setFilters(defaultFilters)
-    setSubmittedFilters(defaultFilters)
-  }
-
-  function handleGrainChange(grain) {
-    const nextFilters = { ...filters, grain }
-    setFilters(nextFilters)
-    setSubmittedFilters(nextFilters)
-  }
-
-  function handleDateBasisChange(dateBasis) {
-    const nextFilters = { ...filters, date_basis: dateBasis }
-    setFilters(nextFilters)
-    setSubmittedFilters(nextFilters)
-  }
-
   return (
     <main className="dashboard-shell">
       <section className="toolbar-panel">
-        <div className="segmented-control" role="tablist" aria-label="粒度切换">
-          {GRAIN_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`segment-button ${
-                submittedFilters.grain === option.value ? 'segment-button--active' : ''
-              }`}
-              onClick={() => handleGrainChange(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className="toolbar-group">
+          <span className="toolbar-label">时间粒度</span>
+          <div className="segmented-control" role="tablist" aria-label="粒度切换">
+            {GRAIN_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`segment-button ${filters.grain === option.value ? 'segment-button--active' : ''}`}
+                onClick={() => setFilters((current) => ({ ...current, grain: option.value }))}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="segmented-control" role="tablist" aria-label="时间口径切换">
-          {DATE_BASIS_OPTIONS.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              className={`segment-button ${
-                submittedFilters.date_basis === option.value ? 'segment-button--active' : ''
-              }`}
-              onClick={() => handleDateBasisChange(option.value)}
-            >
-              {option.label}
-            </button>
-          ))}
+        <div className="toolbar-group">
+          <span className="toolbar-label">时间口径</span>
+          <div className="segmented-control" role="tablist" aria-label="时间口径切换">
+            {DATE_BASIS_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`segment-button ${
+                  filters.date_basis === option.value ? 'segment-button--active' : ''
+                }`}
+                onClick={() => setFilters((current) => ({ ...current, date_basis: option.value }))}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         </div>
-
-        <form className="toolbar-form" onSubmit={handleSubmit}>
-          <input
-            type="text"
-            name="sku"
-            value={filters.sku}
-            onChange={handleFilterChange}
-            placeholder="SKU"
-            aria-label="SKU"
-          />
-          <input
-            type="text"
-            name="skc"
-            value={filters.skc}
-            onChange={handleFilterChange}
-            placeholder="SKC"
-            aria-label="SKC"
-          />
-          <input
-            type="text"
-            name="spu"
-            value={filters.spu}
-            onChange={handleFilterChange}
-            placeholder="SPU"
-            aria-label="SPU"
-          />
-          <button type="submit" className="toolbar-button toolbar-button--primary">
-            查询
-          </button>
-          <button type="button" className="toolbar-button" onClick={handleReset}>
-            重置
-          </button>
-        </form>
-      </section>
-
-      <section className="scope-strip">
-        <span>当前时间口径</span>
-        <strong>{`${resolvedWindow.label} / ${getDateBasisLabel(submittedFilters.date_basis)}`}</strong>
       </section>
 
       {dashboardError ? <section className="status-banner status-banner--error">{dashboardError}</section> : null}
-      {meta?.partial_data ? (
-        <section className="status-banner status-banner--warning">
-          当前结果含部分数据缺口，请结合运行时备注判断是否需要回查源数据。
-        </section>
-      ) : null}
 
       <section className="summary-grid">
         <SummaryCard
           title="订单数"
           value={dashboardLoading ? '--' : formatInteger(summary?.sales_qty)}
           description="按订单时间窗统计的订单量，用于观察客诉规模对应的订单基数。"
-          badge={{
-            label: dashboardLoading ? '计算中' : salesDelta.text,
-            tone: salesDelta.tone,
-          }}
+          badge={{ label: dashboardLoading ? '计算中' : salesDelta.text, tone: salesDelta.tone }}
           tone="sales"
-          trendItems={dashboard?.trends?.sales_qty ?? []}
+          trendItems={trendDashboard?.trends?.sales_qty ?? []}
         />
         <SummaryCard
           title="客诉量"
@@ -658,7 +613,7 @@ function App() {
             tone: complaintDelta.tone,
           }}
           tone="complaints"
-          trendItems={dashboard?.trends?.complaint_count ?? []}
+          trendItems={trendDashboard?.trends?.complaint_count ?? []}
         />
         <SummaryCard
           title="客诉率"
@@ -669,7 +624,7 @@ function App() {
             tone: complaintRateDelta.tone,
           }}
           tone="rate"
-          trendItems={dashboard?.trends?.complaint_rate ?? []}
+          trendItems={trendDashboard?.trends?.complaint_rate ?? []}
         />
       </section>
 
@@ -679,74 +634,68 @@ function App() {
         columns={issueColumns}
         rows={issueRows}
         emptyCopy="暂无问题结构数据"
-        rowTone={(row) => ISSUE_COPY[row.major_issue_type].accent}
-        onRowClick={(row) => setActiveIssueType(row.major_issue_type)}
       />
 
-      <section className="preview-panel" ref={previewRef}>
-        <div className="preview-panel__header">
-          <div>
-            <h3>{activeIssueMeta.previewTitle}</h3>
-            <p>
-              点击上方问题结构表行即可切换预览分类。当前仅展示现有 P3 能力可直接支持的原因、商品或订单样本数据。
-            </p>
-          </div>
-          <span className={`summary-badge summary-badge--${activeIssueMeta.badgeTone}`}>
-            {activeIssueMeta.label}
-          </span>
-        </div>
+      <ProductRankingSection rows={ranking} loading={rankingLoading} error={rankingError} />
+    </main>
+  )
+}
 
-        {previewLoading ? (
-          <div className="empty-state">正在加载预览数据...</div>
-        ) : previewError ? (
-          <div className="empty-state empty-state--error">{previewError}</div>
-        ) : activeIssueType === 'logistics' ? (
-          <div className="preview-grid">
-            <TableSection
-              title="原因预览"
-              columns={reasonColumns}
-              rows={preview?.top_reasons ?? []}
-              emptyCopy="暂无物流问题原因数据"
-            />
-            <TableSection
-              title="订单样本"
-              columns={orderColumns}
-              rows={preview?.sample_orders ?? []}
-              emptyCopy="暂无订单样本"
-            />
+function App() {
+  const [activePage, setActivePage] = useState('p3')
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const activePageMeta = PAGE_OPTIONS.find((item) => item.value === activePage) ?? PAGE_OPTIONS[2]
+
+  return (
+    <div className={`app-shell ${isSidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''}`}>
+      <aside className={`side-nav ${isSidebarCollapsed ? 'side-nav--collapsed' : ''}`}>
+        <div className="side-nav__brand">
+          <div className="side-nav__brand-copy">
+            {!isSidebarCollapsed ? (
+              <>
+                <span className="eyebrow">Julang BI</span>
+                <strong>客服看板</strong>
+              </>
+            ) : null}
           </div>
+          <button
+            type="button"
+            className="side-nav__toggle"
+            onClick={() => setIsSidebarCollapsed((current) => !current)}
+            aria-label={isSidebarCollapsed ? '展开导航栏' : '收起导航栏'}
+            title={isSidebarCollapsed ? '展开导航栏' : '收起导航栏'}
+          >
+            {isSidebarCollapsed ? '›' : '‹'}
+          </button>
+        </div>
+        <nav className="side-nav__menu" aria-label="看板导航">
+          {PAGE_OPTIONS.map((page) => (
+            <button
+              key={page.value}
+              type="button"
+              className={`side-nav__item ${activePage === page.value ? 'side-nav__item--active' : ''}`}
+              onClick={() => setActivePage(page.value)}
+            >
+              <span className="side-nav__code">{page.code}</span>
+              {!isSidebarCollapsed ? (
+                <span className="side-nav__text">
+                  <strong>{page.title}</strong>
+                  <small>{page.description}</small>
+                </span>
+              ) : null}
+            </button>
+          ))}
+        </nav>
+      </aside>
+
+      <section className="app-content">
+        {activePage === 'p3' ? (
+          <P3Dashboard />
         ) : (
-          <div className="preview-grid">
-            <TableSection
-              title="原因预览"
-              columns={reasonColumns}
-              rows={preview?.top_reasons ?? []}
-              emptyCopy={`暂无${activeIssueMeta.label}原因数据`}
-            />
-            <TableSection
-              title="商品预览"
-              hint="当前展示接口可返回的商品聚合"
-              columns={productColumns}
-              rows={productRows.rows ?? []}
-              emptyCopy={`暂无${activeIssueMeta.label}商品数据`}
-            />
-          </div>
+          <PlaceholderPage title={activePageMeta.title} description={activePageMeta.description} />
         )}
       </section>
-
-      <section className="meta-strip">
-        <div className="meta-strip__item">
-          <span>接口版本</span>
-          <strong>{meta?.version ?? 'p3-formal-runtime'}</strong>
-        </div>
-        <div className="meta-strip__item">
-          <span>数据源模式</span>
-          <strong>
-            {meta?.source_modes?.length ? meta.source_modes.join(' / ') : '暂无 source mode 信息'}
-          </strong>
-        </div>
-      </section>
-    </main>
+    </div>
   )
 }
 

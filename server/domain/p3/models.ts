@@ -44,6 +44,12 @@ export type TrendPoint = {
   complaint_count: number
 }
 
+export type ProductSalesPoint = {
+  spu: string
+  skc: string
+  sales_qty: number
+}
+
 export type IssueSharePoint = {
   major_issue_type: MajorIssueType
   count: number
@@ -104,6 +110,21 @@ export type DashboardComputation = {
   partial_data: boolean
 }
 
+export type ProductRankingChild = {
+  skc: string
+  sales_qty: number
+  complaint_count: number
+  complaint_rate: number
+}
+
+export type ProductRankingEntry = {
+  spu: string
+  sales_qty: number
+  complaint_count: number
+  complaint_rate: number
+  children: ProductRankingChild[]
+}
+
 export type DashboardResponse = {
   filters: Record<string, unknown>
   summary: SummaryMetrics & {
@@ -160,9 +181,19 @@ export type DrilldownPreviewResponse = {
   }
 }
 
+export type ProductRankingResponse = {
+  filters: Record<string, unknown>
+  ranking: ProductRankingEntry[]
+  meta: {
+    partial_data: boolean
+    notes: string[]
+  }
+}
+
 export interface SalesRepository {
   fetchSummary(filters: P3Filters): Promise<SummaryMetrics>
   fetchTrends(filters: P3Filters): Promise<TrendPoint[]>
+  fetchProductSales(filters: P3Filters): Promise<ProductSalesPoint[]>
 }
 
 export interface OrderEnrichmentRepository {

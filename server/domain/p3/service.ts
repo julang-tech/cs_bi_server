@@ -2,9 +2,11 @@ import fs from 'node:fs'
 import { BigQuery } from '@google-cloud/bigquery'
 import { TtlCache } from './cache.js'
 import {
+  buildProductRankingPayload,
   buildDashboardPayload,
   buildDrilldownOptionsPayload,
   buildDrilldownPreviewPayload,
+  computeProductRanking,
   computeDashboard,
   filterIssues,
 } from './compute.js'
@@ -16,6 +18,7 @@ import type {
   IssueProvider,
   OrderEnrichmentRepository,
   P3Filters,
+  ProductRankingResponse,
   SalesRepository,
 } from './models.js'
 import {
@@ -55,6 +58,7 @@ export class P3Service {
   private readonly dashboardCache = new TtlCache<DashboardResponse>(300_000)
   private readonly drilldownOptionsCache = new TtlCache<DrilldownOptionsResponse>(300_000)
   private readonly drilldownPreviewCache = new TtlCache<DrilldownPreviewResponse>(300_000)
+  private readonly productRankingCache = new TtlCache<ProductRankingResponse>(300_000)
 
   constructor(
     private readonly salesRepository: SalesRepository,
@@ -104,6 +108,28 @@ export class P3Service {
       filtered.partial_data,
     )
     return this.drilldownPreviewCache.set(cacheKey, payload)
+  }
+
+  async getProductRanking(filters: P3Filters): Promise<ProductRankingResponse> {
+    const cacheKey = JSON.stringify(['product-ranking', filters])
+    const cached = this.productRankingCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
+    const [salesRows, filtered] = await Promise.all([
+      this.salesRepository.fetchProductSales(filters),
+      this.getFilteredIssues(filters),
+    ])
+
+    const ranking = computeProductRanking(salesRows, filtered.issues)
+    const payload = buildProductRankingPayload(
+      filters,
+      ranking,
+      filtered.notes,
+      filtered.partial_data,
+    )
+    return this.productRankingCache.set(cacheKey, payload)
   }
 
   private async computeDashboard(filters: P3Filters) {

@@ -168,6 +168,13 @@ async function testBigQueryOrderEnrichmentRepositoryUsesSkuRefundDate() {
 async function testBigQuerySalesRepository() {
   const repository = new BigQuerySalesRepository({
     async query(options: { query?: string }) {
+      if (String(options.query).includes('WITH order_sku_rows')) {
+        return [[
+          { spu: 'SPU-1', skc: 'SKC-1', sales_qty: 2 },
+          { spu: 'SPU-1', skc: 'SKC-2', sales_qty: 1 },
+        ]]
+      }
+
       if (String(options.query).includes('GROUP BY 1')) {
         return [[
           { bucket: '2026-03-10', sales_qty: 2 },
@@ -191,11 +198,16 @@ async function testBigQuerySalesRepository() {
 
   const summary = await repository.fetchSummary(filters)
   const trends = await repository.fetchTrends(filters)
+  const productSales = await repository.fetchProductSales(filters)
 
   assert.equal(summary.sales_qty, 5)
   assert.deepEqual(trends, [
     { bucket: '2026-03-10', sales_qty: 2, complaint_count: 0 },
     { bucket: '2026-03-11', sales_qty: 3, complaint_count: 0 },
+  ])
+  assert.deepEqual(productSales, [
+    { spu: 'SPU-1', skc: 'SKC-1', sales_qty: 2 },
+    { spu: 'SPU-1', skc: 'SKC-2', sales_qty: 1 },
   ])
 }
 

@@ -5,6 +5,7 @@ import type {
   OrderEnrichmentRepository,
   OrderLineContext,
   P3Filters,
+  ProductSalesPoint,
   SalesRepository,
   StandardIssueRecord,
   SummaryMetrics,
@@ -41,6 +42,10 @@ export class SampleSalesRepository implements SalesRepository {
       sales_qty: point.value,
       complaint_count: 0,
     }))
+  }
+
+  async fetchProductSales(): Promise<ProductSalesPoint[]> {
+    return []
   }
 }
 
@@ -109,6 +114,7 @@ function normalizeSku(value: unknown) {
 export class BigQuerySalesRepository implements SalesRepository {
   private readonly summaryCache = new TtlCache<SummaryMetrics>(300_000)
   private readonly trendCache = new TtlCache<TrendPoint[]>(300_000)
+  private readonly productSalesCache = new TtlCache<ProductSalesPoint[]>(300_000)
 
   constructor(private readonly client: BigQueryLike) {}
 
@@ -225,6 +231,58 @@ ORDER BY 1
       complaint_count: 0,
     }))
     return this.trendCache.set(cacheKey, result)
+  }
+
+  async fetchProductSales(filters: P3Filters): Promise<ProductSalesPoint[]> {
+    const cacheKey = JSON.stringify(['product-sales', filters])
+    const cached = this.productSalesCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
+    const rows = extractRows(await this.client.query({
+      query: `
+WITH order_sku_rows AS (
+  SELECT
+    o.order_name,
+    sku,
+    COALESCE(sku_dim.skc_id, skc) AS skc,
+    sku_dim.spu_id AS spu
+  FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
+  LEFT JOIN UNNEST(IFNULL(o.skus, [])) AS sku WITH OFFSET sku_offset
+  LEFT JOIN UNNEST(IFNULL(o.skcs, [])) AS skc WITH OFFSET skc_offset
+    ON skc_offset = sku_offset
+  LEFT JOIN \`julang-dev-database.product_information_database.dim_product_sku\` sku_dim
+    ON sku_dim.sku_id = sku
+  WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+    AND (@sku = '' OR sku = @sku)
+    AND (@skc = '' OR COALESCE(sku_dim.skc_id, skc) = @skc)
+    AND (@spu = '' OR sku_dim.spu_id = @spu)
+)
+SELECT
+  spu,
+  skc,
+  COUNT(DISTINCT order_name) AS sales_qty
+FROM order_sku_rows
+WHERE spu IS NOT NULL
+  AND skc IS NOT NULL
+GROUP BY 1, 2
+      `,
+      params: {
+        date_from: filters.date_from,
+        date_to: filters.date_to,
+        sku: filters.sku ?? '',
+        skc: filters.skc ?? '',
+        spu: filters.spu ?? '',
+      },
+    }))
+
+    const result = rows.map((row) => ({
+      spu: String(row.spu ?? ''),
+      skc: String(row.skc ?? ''),
+      sales_qty: Number(row.sales_qty ?? 0),
+    }))
+    return this.productSalesCache.set(cacheKey, result)
   }
 }
 

@@ -30,9 +30,9 @@
  */
 
 /**
- * @typedef {Object} DrilldownPreviewResponse
+ * @typedef {Object} ProductRankingResponse
  * @property {Object} filters
- * @property {Object} preview
+ * @property {Array<Object>} ranking
  * @property {Object} meta
  */
 
@@ -78,10 +78,10 @@ export function fetchDrilldownOptions(filters, signal) {
 }
 
 /**
- * @param {FiltersState & { major_issue_type: MajorIssueType }} filters
+ * @param {FiltersState} filters
  * @param {AbortSignal} [signal]
- * @returns {Promise<DrilldownPreviewResponse>}
+ * @returns {Promise<ProductRankingResponse>}
  */
-export function fetchDrilldownPreview(filters, signal) {
-  return request('/api/bi/p3/drilldown-preview', filters, signal)
+export function fetchProductRanking(filters, signal) {
+  return request('/api/bi/p3/product-ranking', filters, signal)
 }

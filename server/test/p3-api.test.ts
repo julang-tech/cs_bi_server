@@ -5,6 +5,7 @@ import type {
   IssueProvider,
   OrderEnrichmentRepository,
   P3Filters,
+  ProductSalesPoint,
   SalesRepository,
   StandardIssueRecord,
   SummaryMetrics,
@@ -20,6 +21,15 @@ class StubSalesRepository implements SalesRepository {
     return [
       { bucket: '2026-03-02', sales_qty: 70, complaint_count: 0 },
       { bucket: '2026-03-09', sales_qty: 50, complaint_count: 0 },
+    ]
+  }
+
+  async fetchProductSales(_filters: P3Filters): Promise<ProductSalesPoint[]> {
+    return [
+      { spu: 'SPU-1', skc: 'SKC-1', sales_qty: 10 },
+      { spu: 'SPU-2', skc: 'SKC-2', sales_qty: 8 },
+      { spu: 'SPU-3', skc: 'SKC-3', sales_qty: 5 },
+      { spu: 'SPU-4', skc: 'SKC-4', sales_qty: 4 },
     ]
   }
 }
@@ -170,6 +180,22 @@ async function run() {
   assert.equal(previewPayload.filters.date_basis, 'order_date')
   assert.equal(previewPayload.preview.top_reasons[0].reason, '货品瑕疵-其他')
   assert.equal(previewPayload.preview.top_spus[0].spu, 'SPU-1')
+
+  const rankingResponse = await app.inject({
+    method: 'GET',
+    url: '/api/bi/p3/product-ranking?date_from=2026-03-01&date_to=2026-03-31&grain=week&date_basis=order_date',
+  })
+  const rankingPayload = rankingResponse.json()
+  assert.equal(rankingResponse.statusCode, 200)
+  assert.deepEqual(Object.keys(rankingPayload), ['filters', 'ranking', 'meta'])
+  assert.equal(rankingPayload.ranking[0].spu, 'SPU-4')
+  assert.equal(rankingPayload.ranking[1].children[0].skc, 'SKC-3')
+
+  const invalidRankingResponse = await app.inject({
+    method: 'GET',
+    url: '/api/bi/p3/product-ranking?date_from=2026-03-31&date_to=2026-03-01',
+  })
+  assert.equal(invalidRankingResponse.statusCode, 422)
 
   const invalidResponse = await app.inject({
     method: 'GET',
