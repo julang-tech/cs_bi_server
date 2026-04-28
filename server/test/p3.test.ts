@@ -4,6 +4,7 @@ import {
   buildDrilldownPreviewPayload,
   computeDashboard,
   filterIssues,
+  resolveIssueQueryDate,
 } from '../domain/p3/compute.js'
 import type {
   DrilldownFilters,
@@ -17,6 +18,7 @@ const baseFilters: P3Filters = {
   date_from: '2026-03-01',
   date_to: '2026-03-31',
   grain: 'week',
+  date_basis: 'order_date',
 }
 
 const issues: StandardIssueRecord[] = [
@@ -29,6 +31,7 @@ const issues: StandardIssueRecord[] = [
     order_no: 'LC1',
     record_date: '2026-03-02',
     order_date: '2026-03-02',
+    refund_date: '2026-03-11',
     sku: 'SKU-1',
     skc: 'SKC-1',
     spu: 'SPU-1',
@@ -47,6 +50,7 @@ const issues: StandardIssueRecord[] = [
     order_no: 'LC2',
     record_date: '2026-03-05',
     order_date: '2026-03-09',
+    refund_date: null,
     sku: 'SKU-2',
     skc: 'SKC-2',
     spu: 'SPU-2',
@@ -65,6 +69,7 @@ const issues: StandardIssueRecord[] = [
     order_no: 'LC3',
     record_date: '2026-03-08',
     order_date: '2026-03-09',
+    refund_date: '2026-03-12',
     customer_email: 'c@example.com',
     country: 'CA',
     solution: '补发',
@@ -103,10 +108,39 @@ function run() {
     { bucket: '2026-03-09', value: 50 },
   ])
   assert.equal(payload.meta.version, 'p3-formal-runtime')
+  assert.equal(payload.filters.date_basis, 'order_date')
 
   const logisticsFiltered = filterIssues(issues, { ...baseFilters, sku: 'SKU-4' })
   assert.equal(logisticsFiltered.length, 1)
   assert.equal(logisticsFiltered[0]?.major_issue_type, 'logistics')
+
+  const refundFiltered = filterIssues(issues, {
+    ...baseFilters,
+    date_basis: 'refund_date',
+    date_from: '2026-03-11',
+    date_to: '2026-03-12',
+  })
+  assert.equal(refundFiltered.length, 2)
+  assert.equal(refundFiltered.some((issue) => issue.order_no === 'LC2'), false)
+  assert.equal(resolveIssueQueryDate(issues[0], { date_basis: 'refund_date' }), '2026-03-11')
+
+  const fallbackOrderFiltered = filterIssues(
+    [
+      {
+        ...issues[0],
+        source_record_id: 'rec-fallback-order',
+        order_no: 'LC4',
+        order_date: null,
+        record_date: '2026-03-20',
+      },
+    ],
+    {
+      ...baseFilters,
+      date_from: '2026-03-20',
+      date_to: '2026-03-20',
+    },
+  )
+  assert.equal(fallbackOrderFiltered.length, 1)
 
   const previewFilters: DrilldownFilters = {
     ...baseFilters,
@@ -116,6 +150,7 @@ function run() {
   assert.deepEqual(previewPayload.preview.top_reasons, [{ reason: '物流问题-超期', count: 1 }])
   assert.equal(previewPayload.preview.sample_orders[0]?.order_no, 'LC3')
   assert.deepEqual(previewPayload.preview.top_spus, [])
+  assert.equal(previewPayload.filters.date_basis, 'order_date')
 
   console.log('P3 compute tests passed')
 }

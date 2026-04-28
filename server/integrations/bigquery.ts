@@ -1,6 +1,5 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { BigQuery } from '@google-cloud/bigquery'
 import { TtlCache } from '../domain/p3/cache.js'
 import type {
   OrderEnrichmentRepository,
@@ -63,6 +62,7 @@ export class SampleOrderEnrichmentRepository implements OrderEnrichmentRepositor
       return {
         ...issue,
         order_date: issue.order_date ?? issue.record_date ?? null,
+        refund_date: issue.refund_date ?? null,
         order_line_contexts: fallbackLineItems,
         skc: issue.skc ?? fallbackLineItems[0]?.skc ?? null,
         spu: issue.spu ?? fallbackLineItems[0]?.spu ?? null,
@@ -79,6 +79,16 @@ type BigQueryLike = {
   query(options: unknown): Promise<unknown>
 }
 
+type OrderContextRow = {
+  order_date?: string | null
+  line_items: OrderLineContext[]
+}
+
+type RefundContextRow = {
+  earliest_refund_date: string | null
+  refund_date_by_sku: Map<string, string>
+}
+
 function extractRows(result: unknown): BigQueryRows {
   if (!Array.isArray(result)) {
     return []
@@ -86,6 +96,14 @@ function extractRows(result: unknown): BigQueryRows {
 
   const [rows] = result as [unknown, ...unknown[]]
   return Array.isArray(rows) ? (rows as BigQueryRows) : []
+}
+
+function normalizeText(value: unknown) {
+  return String(value ?? '').trim()
+}
+
+function normalizeSku(value: unknown) {
+  return normalizeText(value).toUpperCase()
 }
 
 export class BigQuerySalesRepository implements SalesRepository {
@@ -104,19 +122,31 @@ export class BigQuerySalesRepository implements SalesRepository {
     const rows = extractRows(await this.client.query({
       query: `
 SELECT
-  COALESCE(SUM(li.quantity), 0) AS sales_qty
-FROM \`julang-dev-database.shopify_ods.ods_shopify_order_line_items\` li
-JOIN \`julang-dev-database.shopify_ods.ods_shopify_orders\` o
-  ON li.order_id = o.order_id AND li.shop_domain = o.shop_domain
-LEFT JOIN \`julang-dev-database.shopify_intermediate.int_product_skc\` skc_map
-  ON skc_map.variant_sku = li.sku
-LEFT JOIN \`julang-dev-database.product_information_database.dim_product_sku\` sku_dim
-  ON sku_dim.sku_id = li.sku
-WHERE o.processed_at IS NOT NULL
-  AND DATE(o.processed_at) BETWEEN DATE(@date_from) AND DATE(@date_to)
-  AND (@sku = '' OR li.sku = @sku)
-  AND (@skc = '' OR COALESCE(skc_map.skc, sku_dim.skc_id) = @skc)
-  AND (@spu = '' OR sku_dim.spu_id = @spu)
+  COUNT(*) AS sales_qty
+FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
+WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+  AND (@sku = '' OR @sku IN UNNEST(IFNULL(o.skus, [])))
+  AND (
+    @skc = ''
+    OR @skc IN UNNEST(IFNULL(o.skcs, []))
+    OR EXISTS (
+      SELECT 1
+      FROM UNNEST(IFNULL(o.skus, [])) AS sku
+      LEFT JOIN \`julang-dev-database.product_information_database.dim_product_sku\` sku_dim
+        ON sku_dim.sku_id = sku
+      WHERE sku_dim.skc_id = @skc
+    )
+  )
+  AND (
+    @spu = ''
+    OR EXISTS (
+      SELECT 1
+      FROM UNNEST(IFNULL(o.skus, [])) AS sku
+      LEFT JOIN \`julang-dev-database.product_information_database.dim_product_sku\` sku_dim
+        ON sku_dim.sku_id = sku
+      WHERE sku_dim.spu_id = @spu
+    )
+  )
       `,
       params: {
         date_from: filters.date_from,
@@ -143,28 +173,40 @@ WHERE o.processed_at IS NOT NULL
 
     const bucketExpression =
       filters.grain === 'day'
-        ? 'DATE(o.processed_at)'
+        ? 'o.processed_date'
         : filters.grain === 'week'
-          ? 'DATE_TRUNC(DATE(o.processed_at), WEEK(MONDAY))'
-          : 'DATE_TRUNC(DATE(o.processed_at), MONTH)'
+          ? 'DATE_TRUNC(o.processed_date, WEEK(MONDAY))'
+          : 'DATE_TRUNC(o.processed_date, MONTH)'
 
     const rows = extractRows(await this.client.query({
       query: `
 SELECT
   CAST(${bucketExpression} AS STRING) AS bucket,
-  SUM(li.quantity) AS sales_qty
-FROM \`julang-dev-database.shopify_ods.ods_shopify_order_line_items\` li
-JOIN \`julang-dev-database.shopify_ods.ods_shopify_orders\` o
-  ON li.order_id = o.order_id AND li.shop_domain = o.shop_domain
-LEFT JOIN \`julang-dev-database.shopify_intermediate.int_product_skc\` skc_map
-  ON skc_map.variant_sku = li.sku
-LEFT JOIN \`julang-dev-database.product_information_database.dim_product_sku\` sku_dim
-  ON sku_dim.sku_id = li.sku
-WHERE o.processed_at IS NOT NULL
-  AND DATE(o.processed_at) BETWEEN DATE(@date_from) AND DATE(@date_to)
-  AND (@sku = '' OR li.sku = @sku)
-  AND (@skc = '' OR COALESCE(skc_map.skc, sku_dim.skc_id) = @skc)
-  AND (@spu = '' OR sku_dim.spu_id = @spu)
+  COUNT(*) AS sales_qty
+FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
+WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+  AND (@sku = '' OR @sku IN UNNEST(IFNULL(o.skus, [])))
+  AND (
+    @skc = ''
+    OR @skc IN UNNEST(IFNULL(o.skcs, []))
+    OR EXISTS (
+      SELECT 1
+      FROM UNNEST(IFNULL(o.skus, [])) AS sku
+      LEFT JOIN \`julang-dev-database.product_information_database.dim_product_sku\` sku_dim
+        ON sku_dim.sku_id = sku
+      WHERE sku_dim.skc_id = @skc
+    )
+  )
+  AND (
+    @spu = ''
+    OR EXISTS (
+      SELECT 1
+      FROM UNNEST(IFNULL(o.skus, [])) AS sku
+      LEFT JOIN \`julang-dev-database.product_information_database.dim_product_sku\` sku_dim
+        ON sku_dim.sku_id = sku
+      WHERE sku_dim.spu_id = @spu
+    )
+  )
 GROUP BY 1
 ORDER BY 1
       `,
@@ -187,11 +229,8 @@ ORDER BY 1
 }
 
 export class BigQueryOrderEnrichmentRepository implements OrderEnrichmentRepository {
-  private readonly cache = new TtlCache<Record<string, {
-    order_date?: string | null
-    country?: string | null
-    line_items: OrderLineContext[]
-  }>>(600_000)
+  private readonly orderCache = new TtlCache<Record<string, OrderContextRow>>(600_000)
+  private readonly refundCache = new TtlCache<Record<string, RefundContextRow>>(600_000)
 
   constructor(private readonly client: BigQueryLike) {}
 
@@ -201,25 +240,39 @@ export class BigQueryOrderEnrichmentRepository implements OrderEnrichmentReposit
       return { issues, notes: [] }
     }
 
-    const contexts = await this.fetchOrderContexts(orderNos)
+    const [orderContexts, refundContexts] = await Promise.all([
+      this.fetchOrderContexts(orderNos),
+      this.fetchRefundContexts(orderNos),
+    ])
+
     const notes: string[] = []
     const enriched: StandardIssueRecord[] = []
 
     for (const issue of issues) {
-      const context = contexts[issue.order_no]
-      if (!context) {
-        notes.push(`Missing order enrichment for ${issue.order_no}.`)
+      const orderContext = orderContexts[issue.order_no]
+      const refundContext = refundContexts[issue.order_no]
+
+      if (!orderContext) {
+        notes.push(
+          `Missing order enrichment for ${issue.order_no}; fell back to record_date when available.`,
+        )
+        enriched.push({
+          ...issue,
+          order_date: issue.order_date ?? issue.record_date ?? null,
+          refund_date: this.resolveRefundDate(issue, refundContext) ?? issue.refund_date ?? null,
+        })
         continue
       }
 
-      const matchedLine = this.matchLineItem(issue, context.line_items)
+      const matchedLine = this.matchLineItem(issue, orderContext.line_items)
       enriched.push({
         ...issue,
-        order_date: context.order_date ?? issue.order_date ?? null,
-        country: context.country ?? issue.country ?? null,
-        order_line_contexts: context.line_items,
-        skc: matchedLine?.skc ?? null,
-        spu: matchedLine?.spu ?? null,
+        order_date: orderContext.order_date ?? issue.order_date ?? issue.record_date ?? null,
+        refund_date: this.resolveRefundDate(issue, refundContext) ?? issue.refund_date ?? null,
+        country: issue.country ?? null,
+        order_line_contexts: orderContext.line_items,
+        skc: matchedLine?.skc ?? issue.skc ?? null,
+        spu: matchedLine?.spu ?? issue.spu ?? null,
       })
     }
 
@@ -228,7 +281,7 @@ export class BigQueryOrderEnrichmentRepository implements OrderEnrichmentReposit
 
   private async fetchOrderContexts(orderNos: string[]) {
     const cacheKey = JSON.stringify(orderNos)
-    const cached = this.cache.get(cacheKey)
+    const cached = this.orderCache.get(cacheKey)
     if (cached) {
       return cached
     }
@@ -236,22 +289,18 @@ export class BigQueryOrderEnrichmentRepository implements OrderEnrichmentReposit
     const rows = extractRows(await this.client.query({
       query: `
 SELECT
-  o.name AS order_no,
-  CAST(DATE(o.processed_at) AS STRING) AS order_date,
-  o.shipping_country AS country,
-  li.sku AS sku,
-  SUM(li.quantity) AS quantity,
-  COALESCE(skc_map.skc, sku_dim.skc_id) AS skc,
+  o.order_name AS order_no,
+  CAST(o.processed_date AS STRING) AS order_date,
+  sku AS sku,
+  COALESCE(sku_dim.skc_id, skc) AS skc,
   sku_dim.spu_id AS spu
-FROM \`julang-dev-database.shopify_ods.ods_shopify_orders\` o
-LEFT JOIN \`julang-dev-database.shopify_ods.ods_shopify_order_line_items\` li
-  ON li.order_id = o.order_id AND li.shop_domain = o.shop_domain
-LEFT JOIN \`julang-dev-database.shopify_intermediate.int_product_skc\` skc_map
-  ON skc_map.variant_sku = li.sku
+FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
+LEFT JOIN UNNEST(IFNULL(o.skus, [])) AS sku WITH OFFSET sku_offset
+LEFT JOIN UNNEST(IFNULL(o.skcs, [])) AS skc WITH OFFSET skc_offset
+  ON skc_offset = sku_offset
 LEFT JOIN \`julang-dev-database.product_information_database.dim_product_sku\` sku_dim
-  ON sku_dim.sku_id = li.sku
-WHERE o.name IN UNNEST(@order_nos)
-GROUP BY 1, 2, 3, 4, 6, 7
+  ON sku_dim.sku_id = sku
+WHERE o.order_name IN UNNEST(@order_nos)
       `,
       params: {
         order_nos: orderNos,
@@ -261,39 +310,117 @@ GROUP BY 1, 2, 3, 4, 6, 7
       },
     }))
 
-    const perOrder: Record<string, {
-      order_date?: string | null
-      country?: string | null
-      line_items: OrderLineContext[]
-    }> = {}
-
+    const perOrder: Record<string, OrderContextRow> = {}
     for (const row of rows) {
-      const orderNo = String(row.order_no)
+      const orderNo = normalizeText(row.order_no)
+      if (!orderNo) {
+        continue
+      }
+
       perOrder[orderNo] ??= {
         order_date: row.order_date ? String(row.order_date) : null,
-        country: row.country ? String(row.country) : null,
         line_items: [],
       }
 
-      if (row.sku) {
-        perOrder[orderNo].line_items.push({
-          sku: String(row.sku),
-          quantity: Number(row.quantity ?? 0),
-          skc: row.skc ? String(row.skc) : null,
-          spu: row.spu ? String(row.spu) : null,
-        })
+      const sku = normalizeText(row.sku)
+      if (!sku) {
+        continue
+      }
+
+      perOrder[orderNo].line_items.push({
+        sku,
+        quantity: 1,
+        skc: row.skc ? String(row.skc) : null,
+        spu: row.spu ? String(row.spu) : null,
+      })
+    }
+
+    return this.orderCache.set(cacheKey, perOrder)
+  }
+
+  private async fetchRefundContexts(orderNos: string[]) {
+    const cacheKey = JSON.stringify(orderNos)
+    const cached = this.refundCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
+    const rows = extractRows(await this.client.query({
+      query: `
+SELECT
+  order_name AS order_no,
+  sku,
+  CAST(MIN(refund_date) AS STRING) AS refund_date
+FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\`
+WHERE order_name IN UNNEST(@order_nos)
+GROUP BY 1, 2
+      `,
+      params: {
+        order_nos: orderNos,
+      },
+      types: {
+        order_nos: ['STRING'],
+      },
+    }))
+
+    const perOrder: Record<string, RefundContextRow> = {}
+    for (const row of rows) {
+      const orderNo = normalizeText(row.order_no)
+      const refundDate = row.refund_date ? String(row.refund_date) : null
+      if (!orderNo || !refundDate) {
+        continue
+      }
+
+      perOrder[orderNo] ??= {
+        earliest_refund_date: refundDate,
+        refund_date_by_sku: new Map<string, string>(),
+      }
+
+      if (
+        !perOrder[orderNo].earliest_refund_date ||
+        refundDate < perOrder[orderNo].earliest_refund_date
+      ) {
+        perOrder[orderNo].earliest_refund_date = refundDate
+      }
+
+      const skuKey = normalizeSku(row.sku)
+      if (!skuKey) {
+        continue
+      }
+
+      const current = perOrder[orderNo].refund_date_by_sku.get(skuKey)
+      if (!current || refundDate < current) {
+        perOrder[orderNo].refund_date_by_sku.set(skuKey, refundDate)
       }
     }
 
-    return this.cache.set(cacheKey, perOrder)
+    return this.refundCache.set(cacheKey, perOrder)
   }
 
-  private matchLineItem(
+  private resolveRefundDate(
     issue: StandardIssueRecord,
-    lineItems: OrderLineContext[],
-  ): OrderLineContext | undefined {
+    refundContext: RefundContextRow | undefined,
+  ) {
+    if (!refundContext) {
+      return null
+    }
+
+    if (issue.major_issue_type === 'logistics' || issue.is_order_level_only) {
+      return refundContext.earliest_refund_date
+    }
+
+    const skuKey = normalizeSku(issue.sku)
+    if (skuKey) {
+      return refundContext.refund_date_by_sku.get(skuKey) ?? refundContext.earliest_refund_date
+    }
+
+    return refundContext.earliest_refund_date
+  }
+
+  private matchLineItem(issue: StandardIssueRecord, lineItems: OrderLineContext[]) {
     if (issue.sku) {
-      const matched = lineItems.find((lineItem) => lineItem.sku === issue.sku)
+      const issueSku = normalizeSku(issue.sku)
+      const matched = lineItems.find((lineItem) => normalizeSku(lineItem.sku) === issueSku)
       if (matched) {
         return matched
       }

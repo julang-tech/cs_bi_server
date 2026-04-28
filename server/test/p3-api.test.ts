@@ -36,6 +36,7 @@ class StubIssueProvider implements IssueProvider {
         order_no: 'LC1',
         record_date: '2026-03-02',
         order_date: null,
+        refund_date: '2026-03-11',
         sku: 'SKU-1',
         skc: null,
         spu: null,
@@ -54,6 +55,7 @@ class StubIssueProvider implements IssueProvider {
         order_no: 'LC2',
         record_date: '2026-03-05',
         order_date: null,
+        refund_date: null,
         sku: 'SKU-2',
         skc: null,
         spu: null,
@@ -72,6 +74,7 @@ class StubIssueProvider implements IssueProvider {
         order_no: 'LC3',
         record_date: '2026-03-08',
         order_date: null,
+        refund_date: '2026-03-12',
         customer_email: 'c@example.com',
         country: null,
         solution: '补发',
@@ -114,6 +117,7 @@ class StubEnrichmentRepository implements OrderEnrichmentRepository {
         return {
           ...issue,
           order_date: context.order_date,
+          refund_date: issue.refund_date ?? null,
           country: context.country,
           order_line_contexts: context.lines,
           skc: issue.sku ? line?.skc ?? null : null,
@@ -136,22 +140,24 @@ async function run() {
 
   const dashboardResponse = await app.inject({
     method: 'GET',
-    url: '/api/bi/p3/dashboard?date_from=2026-03-01&date_to=2026-03-31&grain=week',
+    url: '/api/bi/p3/dashboard?date_from=2026-03-01&date_to=2026-03-31&grain=week&date_basis=order_date',
   })
   const dashboardPayload = dashboardResponse.json()
   assert.equal(dashboardResponse.statusCode, 200)
   assert.deepEqual(Object.keys(dashboardPayload), ['filters', 'summary', 'trends', 'issue_share', 'meta'])
   assert.equal(dashboardPayload.filters.grain, 'week')
+  assert.equal(dashboardPayload.filters.date_basis, 'order_date')
   assert.deepEqual(dashboardPayload.trends.sales_qty[0], { bucket: '2026-03-02', value: 70 })
   assert.equal(dashboardPayload.meta.version, 'p3-formal-runtime')
   assert.equal(dashboardPayload.issue_share.length, 3)
 
   const optionsResponse = await app.inject({
     method: 'GET',
-    url: '/api/bi/p3/drilldown-options?date_from=2026-03-01&date_to=2026-03-31',
+    url: '/api/bi/p3/drilldown-options?date_from=2026-03-01&date_to=2026-03-31&date_basis=refund_date',
   })
   const optionsPayload = optionsResponse.json()
   assert.equal(optionsResponse.statusCode, 200)
+  assert.equal(optionsPayload.filters.date_basis, 'refund_date')
   assert.equal(optionsPayload.options[0].target_page, 'p4')
   assert.equal(optionsPayload.options[2].major_issue_type, 'logistics')
 
@@ -161,6 +167,7 @@ async function run() {
   })
   const previewPayload = previewResponse.json()
   assert.equal(previewResponse.statusCode, 200)
+  assert.equal(previewPayload.filters.date_basis, 'order_date')
   assert.equal(previewPayload.preview.top_reasons[0].reason, '货品瑕疵-其他')
   assert.equal(previewPayload.preview.top_spus[0].spu, 'SPU-1')
 

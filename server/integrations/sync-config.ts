@@ -15,6 +15,13 @@ const shopifySiteConfigSchema = z.object({
   site_name: z.string(),
 })
 
+const bigQueryProxyConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  http_proxy: z.string().optional(),
+  https_proxy: z.string().optional(),
+  no_proxy: z.string().optional(),
+})
+
 const syncConfigSchema = z.object({
   feishu: z.object({
     app_id: z.string(),
@@ -25,6 +32,8 @@ const syncConfigSchema = z.object({
   runtime: z.object({
     state_path: z.string(),
     log_path: z.string(),
+    sqlite_path: z.string(),
+    refresh_interval_minutes: z.number().int().positive().optional(),
   }),
   shopify: z.object({
     sites: z.object({
@@ -32,6 +41,9 @@ const syncConfigSchema = z.object({
       fr: shopifySiteConfigSchema,
       uk: shopifySiteConfigSchema,
     }),
+  }).optional(),
+  bigquery: z.object({
+    proxy: bigQueryProxyConfigSchema.optional(),
   }).optional(),
 })
 
@@ -60,7 +72,11 @@ export function loadP3RuntimeConfig(configPath: string) {
     runtime: {
       statePath: resolveRuntimePath(configPath, config.runtime.state_path),
       logPath: resolveRuntimePath(configPath, config.runtime.log_path),
+      sqlitePath: resolveRuntimePath(configPath, config.runtime.sqlite_path),
+      refreshIntervalMinutes: config.runtime.refresh_interval_minutes ?? 120,
     },
+    shopify: config.shopify,
+    bigquery: config.bigquery,
     configPath,
   }
 }

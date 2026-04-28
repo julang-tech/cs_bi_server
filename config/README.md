@@ -14,6 +14,7 @@ config/
     julang-dev-database-876c2efba122.json
   data/
     state.json
+    issues.sqlite
   logs/
     sync.log
 ```
@@ -32,6 +33,21 @@ SYNC_CONFIG_PATH=config/sync/config.json
 GOOGLE_APPLICATION_CREDENTIALS=config/gcp/julang-dev-database-876c2efba122.json
 ```
 
+如果需要给 BigQuery 单独走代理，也可以放在 `config/sync/config.json`：
+
+```json
+{
+  "bigquery": {
+    "proxy": {
+      "enabled": true,
+      "http_proxy": "http://127.0.0.1:7890",
+      "https_proxy": "http://127.0.0.1:7890",
+      "no_proxy": "127.0.0.1,localhost"
+    }
+  }
+}
+```
+
 ## Feishu Fields
 
 - `feishu.app_id`: 飞书开放平台应用的 App ID
@@ -42,6 +58,20 @@ GOOGLE_APPLICATION_CREDENTIALS=config/gcp/julang-dev-database-876c2efba122.json
 - `target.app_token`: 目标多维表格的 app token
 - `target.table_id`: 目标表 table id
 - `target.view_id`: 目标表 view id
+
+## Runtime Fields
+
+- `runtime.state_path`: 源记录到目标记录的同步状态文件
+- `runtime.log_path`: `sync` / `sync:worker` 共用日志文件
+- `runtime.sqlite_path`: 本地 SQLite 镜像文件，P3 优先从这里读取 issue 数据
+- `runtime.refresh_interval_minutes`: `sync:worker` 刷新间隔，默认 `120`
+
+## BigQuery Proxy Fields
+
+- `bigquery.proxy.enabled`: 是否启用 BigQuery 代理注入
+- `bigquery.proxy.http_proxy`: 初始化 BigQuery 前写入 `HTTP_PROXY`
+- `bigquery.proxy.https_proxy`: 初始化 BigQuery 前写入 `HTTPS_PROXY`
+- `bigquery.proxy.no_proxy`: 初始化 BigQuery 前写入 `NO_PROXY`
 
 如果飞书链接像：
 
@@ -57,5 +87,7 @@ https://xxx.feishu.cn/base/AbCdEfGhIjKlMnOp?table=tbl123456789&view=vew987654321
 
 ## Notes
 
-- `P3` 读取客诉记录时当前使用的是 `target` 表配置。
+- `P3` 会优先读取 `runtime.sqlite_path` 指向的 SQLite 镜像；镜像不存在时才回退到飞书 `target` 表。
+- `sync:run` 会双写飞书目标表和 SQLite 镜像。
+- `sync:preview` 不会写 SQLite。
 - `config/sync/config.json`、`config/gcp/*.json`、`config/data/*`、`config/logs/*` 已加入 `.gitignore`。

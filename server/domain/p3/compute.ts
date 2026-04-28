@@ -1,4 +1,5 @@
 import {
+  type DateBasis,
   MAJOR_ISSUE_TYPES,
   MAJOR_TYPE_LABELS,
   TARGET_PAGE_MAP,
@@ -99,13 +100,29 @@ export function matchesDimensionFilters(issue: StandardIssueRecord, filters: P3F
   return true
 }
 
+export function resolveIssueQueryDate(
+  issue: StandardIssueRecord,
+  filters: Pick<P3Filters, 'date_basis'>,
+) {
+  return resolveIssueDateByBasis(issue, filters.date_basis)
+}
+
+function resolveIssueDateByBasis(issue: StandardIssueRecord, dateBasis: DateBasis) {
+  if (dateBasis === 'refund_date') {
+    return issue.refund_date ?? null
+  }
+
+  return issue.order_date ?? issue.record_date ?? null
+}
+
 export function filterIssues(issues: StandardIssueRecord[], filters: P3Filters) {
   const seen = new Set<string>()
   return issues.filter((issue) => {
-    if (!issue.order_date) {
+    const queryDate = resolveIssueQueryDate(issue, filters)
+    if (!queryDate) {
       return false
     }
-    if (issue.order_date < filters.date_from || issue.order_date > filters.date_to) {
+    if (queryDate < filters.date_from || queryDate > filters.date_to) {
       return false
     }
     if (!matchesDimensionFilters(issue, filters)) {
@@ -136,8 +153,9 @@ export function computeDashboard(
 
   const complaintByBucket = new Map<string, number>()
   for (const issue of issues) {
-    if (!issue.order_date) continue
-    const bucket = bucketDate(filters.grain, issue.order_date)
+    const queryDate = resolveIssueQueryDate(issue, filters)
+    if (!queryDate) continue
+    const bucket = bucketDate(filters.grain, queryDate)
     complaintByBucket.set(bucket, (complaintByBucket.get(bucket) ?? 0) + 1)
   }
 
@@ -170,12 +188,17 @@ export function computeDashboard(
   }
 }
 
-export function buildDashboardPayload(filters: P3Filters, result: DashboardComputation) {
+export function buildDashboardPayload(
+  filters: P3Filters,
+  result: DashboardComputation,
+  sourceModes: string[] = ['feishu/openclaw runtime fetch', 'shopify bigquery enrichment'],
+) {
   return {
     filters: {
       date_from: filters.date_from,
       date_to: filters.date_to,
       grain: filters.grain,
+      date_basis: filters.date_basis,
       sku: filters.sku ?? null,
       skc: filters.skc ?? null,
       spu: filters.spu ?? null,
@@ -205,7 +228,7 @@ export function buildDashboardPayload(filters: P3Filters, result: DashboardCompu
     meta: {
       version: 'p3-formal-runtime',
       complaint_definition: 'standardized_issue_records',
-      source_modes: ['feishu/openclaw runtime fetch', 'shopify bigquery enrichment'],
+      source_modes: sourceModes,
       partial_data: result.partial_data,
       notes: result.notes,
       stable_fields: ['filters', 'summary', 'trends', 'issue_share', 'meta'],
@@ -217,12 +240,14 @@ export function buildDashboardPayload(filters: P3Filters, result: DashboardCompu
 export function buildDrilldownOptionsPayload(
   filters: P3Filters,
   result: DashboardComputation,
+  sourceModes: string[] = ['feishu/openclaw runtime fetch', 'shopify bigquery enrichment'],
 ): DrilldownOptionsResponse {
   return {
     filters: {
       date_from: filters.date_from,
       date_to: filters.date_to,
       grain: filters.grain,
+      date_basis: filters.date_basis,
       sku: filters.sku ?? null,
       skc: filters.skc ?? null,
       spu: filters.spu ?? null,
@@ -236,7 +261,7 @@ export function buildDrilldownOptionsPayload(
     })),
     meta: {
       partial_data: result.partial_data,
-      notes: result.notes,
+      notes: [...sourceModes.map((mode) => `source_mode:${mode}`), ...result.notes],
     },
   }
 }
@@ -310,6 +335,7 @@ export function buildDrilldownPreviewPayload(
       date_from: filters.date_from,
       date_to: filters.date_to,
       grain: filters.grain,
+      date_basis: filters.date_basis,
       sku: filters.sku ?? null,
       skc: filters.skc ?? null,
       spu: filters.spu ?? null,

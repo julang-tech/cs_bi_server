@@ -7,6 +7,7 @@
  * @property {string} date_from
  * @property {string} date_to
  * @property {'day' | 'week' | 'month'} grain
+ * @property {'order_date' | 'refund_date'} date_basis
  * @property {string} sku
  * @property {string} skc
  * @property {string} spu

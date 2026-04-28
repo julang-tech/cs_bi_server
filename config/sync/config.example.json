@@ -15,7 +15,9 @@
   },
   "runtime": {
     "state_path": "./data/state.json",
-    "log_path": "./logs/sync.log"
+    "log_path": "./logs/sync.log",
+    "sqlite_path": "./data/issues.sqlite",
+    "refresh_interval_minutes": 120
   },
   "shopify": {
     "sites": {
@@ -37,6 +39,14 @@
         "currency": "GBP",
         "site_name": "英国站(GBP)"
       }
+    }
+  },
+  "bigquery": {
+    "proxy": {
+      "enabled": false,
+      "http_proxy": "http://127.0.0.1:7890",
+      "https_proxy": "http://127.0.0.1:7890",
+      "no_proxy": "127.0.0.1,localhost"
     }
   }
 }

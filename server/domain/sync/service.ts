@@ -3,6 +3,11 @@ import path from 'node:path'
 import { loadSyncConfig, resolveRuntimePath, type SyncConfig } from '../../integrations/sync-config.js'
 import { FeishuTableClient, type FeishuField, type FeishuRecord } from '../../integrations/feishu.js'
 import {
+  SqliteMirrorRepository,
+  type SqliteMirrorRecord,
+  type SqliteSyncStats,
+} from '../../integrations/sqlite.js'
+import {
   inferLogisticsStatusFromShopify,
   matchSkuAmount,
   ShopifyClient,
@@ -49,12 +54,23 @@ type FeishuSyncClient = Pick<FeishuTableClient, 'listRecords' | 'listFields' | '
 type SyncServiceDeps = {
   createClient?: (config: SyncConfig, logger: SyncLogger) => FeishuSyncClient
   createShopifyClient?: (config: SyncConfig, logger: SyncLogger) => ShopifyLikeClient | null
+  createSqliteRepository?: (dbPath: string) => SqliteMirrorRepository
 }
 
 type SyncLogger = {
   info: (message: string) => void
   warn: (message: string) => void
   error: (message: string) => void
+}
+
+type SyncSqliteSummary = {
+  enabled: boolean
+  ok: boolean
+  path: string | null
+  inserted: number
+  updated: number
+  deleted: number
+  sqlite_failed: number
 }
 
 type EnrichmentDiagnostic = {
@@ -118,7 +134,7 @@ function writeState(statePath: string, state: SyncState) {
   )
 }
 
-function createLogger(logPath: string): SyncLogger {
+export function createLogger(logPath: string): SyncLogger {
   ensureParentDir(logPath)
 
   function emit(level: 'INFO' | 'WARN' | 'ERROR', message: string) {
@@ -573,6 +589,7 @@ async function syncResults(
   }
 
   const diagnostics: Array<Record<string, unknown>> = []
+  const mirroredRecords: SqliteMirrorRecord[] = []
   logger.info(`Starting result sync loop (dry_run=${dryRun}).`)
 
   for (const [resultIndex, result] of results.entries()) {
@@ -627,6 +644,13 @@ async function syncResults(
         try {
           const updatedId = await client.updateRecord(config.target, existingId, sanitizedRecord)
           syncedIds.push(updatedId)
+          mirroredRecords.push({
+            record_id: updatedId,
+            source_record_id: result.source_key,
+            source_record_index: index,
+            synced_at: new Date().toISOString(),
+            fields: sanitizedRecord,
+          })
           counters.updated += 1
           logger.info(
             `${result.source_key} target ${index + 1}/${result.records.length} updated (${counters.created} created, ${counters.updated} updated).`,
@@ -644,6 +668,13 @@ async function syncResults(
 
       const createdId = await client.createRecord(config.target, sanitizedRecord)
       syncedIds.push(createdId)
+      mirroredRecords.push({
+        record_id: createdId,
+        source_record_id: result.source_key,
+        source_record_index: index,
+        synced_at: new Date().toISOString(),
+        fields: sanitizedRecord,
+      })
       counters.created += 1
       logger.info(
         `${result.source_key} target ${index + 1}/${result.records.length} created as ${createdId} (${counters.created} created, ${counters.updated} updated).`,
@@ -662,6 +693,7 @@ async function syncResults(
   return {
     counters,
     diagnostics,
+    mirroredRecords,
     state,
   }
 }
@@ -669,12 +701,15 @@ async function syncResults(
 export class SyncService {
   private readonly createClient: (config: SyncConfig, logger: SyncLogger) => FeishuSyncClient
   private readonly createShopifyClient: (config: SyncConfig, logger: SyncLogger) => ShopifyLikeClient | null
+  private readonly createSqliteRepository: (dbPath: string) => SqliteMirrorRepository
 
   constructor(deps: SyncServiceDeps = {}) {
     this.createClient =
       deps.createClient ?? ((config, logger) => new FeishuTableClient(config, logger))
     this.createShopifyClient =
       deps.createShopifyClient ?? ((config) => (config.shopify ? new ShopifyClient(config.shopify) : null))
+    this.createSqliteRepository =
+      deps.createSqliteRepository ?? ((dbPath) => new SqliteMirrorRepository(dbPath))
   }
 
   async preview(options: SyncCommandOptions) {
@@ -705,6 +740,15 @@ export class SyncService {
       dateFilter,
       summary: summarizeResults(enriched.results),
       enrichment_summary: enriched.summary,
+      sqlite: {
+        enabled: false,
+        ok: true,
+        path: null,
+        inserted: 0,
+        updated: 0,
+        deleted: 0,
+        sqlite_failed: 0,
+      },
       ...synced.counters,
       diagnostics: [...synced.diagnostics, ...enriched.diagnostics],
     }
@@ -718,6 +762,7 @@ export class SyncService {
     const dateFilter = buildDateFilter(options)
     const client = this.createClient(config, logger)
     const shopifyClient = this.createShopifyClient(config, logger)
+    const sqlitePath = resolveRuntimePath(options.config, config.runtime.sqlite_path)
     logger.info(`Starting sync with config ${options.config}.`)
     const filteredRows = filterRowsByDate(
       (await client.listRecords(config.source)).map((record) => [record.record_id, record.fields] as [string, Record<string, unknown>]),
@@ -727,8 +772,17 @@ export class SyncService {
     const enriched = await enrichResultsWithShopify(transformed, config, logger, shopifyClient)
     logger.info(`Filtered ${filteredRows.length} source rows for sync.`)
     const synced = await syncResults(enriched.results, config, statePath, false, client, logger)
+    const sqlite = this.syncToSqlite(
+      sqlitePath,
+      synced.mirroredRecords,
+      dateFilter === null,
+      logger,
+    )
+    if (!sqlite.ok) {
+      synced.counters.failed += 1
+    }
     logger.info(
-      `Sync finished: scanned=${synced.counters.scanned}, created=${synced.counters.created}, updated=${synced.counters.updated}, failed=${synced.counters.failed}.`,
+      `Sync finished: scanned=${synced.counters.scanned}, created=${synced.counters.created}, updated=${synced.counters.updated}, failed=${synced.counters.failed}, sqlite_inserted=${sqlite.inserted}, sqlite_updated=${sqlite.updated}, sqlite_deleted=${sqlite.deleted}, sqlite_failed=${sqlite.sqlite_failed}.`,
     )
 
     return {
@@ -738,9 +792,47 @@ export class SyncService {
       dateFilter,
       summary: summarizeResults(enriched.results),
       enrichment_summary: enriched.summary,
+      sqlite,
       ...synced.counters,
       diagnostics: [...synced.diagnostics, ...enriched.diagnostics],
       state: synced.state,
+    }
+  }
+
+  private syncToSqlite(
+    sqlitePath: string,
+    records: SqliteMirrorRecord[],
+    pruneMissing: boolean,
+    logger: SyncLogger,
+  ): SyncSqliteSummary {
+    let repository: SqliteMirrorRepository | null = null
+    try {
+      repository = this.createSqliteRepository(sqlitePath)
+      const stats = repository.syncRecords(records, { pruneMissing })
+      logger.info(
+        `SQLite mirror synced to ${sqlitePath}: inserted=${stats.inserted}, updated=${stats.updated}, deleted=${stats.deleted}, prune_missing=${pruneMissing}.`,
+      )
+      return {
+        enabled: true,
+        ok: true,
+        path: sqlitePath,
+        ...stats,
+      }
+    } catch (error) {
+      logger.error(
+        `SQLite mirror sync failed for ${sqlitePath}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return {
+        enabled: true,
+        ok: false,
+        path: sqlitePath,
+        inserted: 0,
+        updated: 0,
+        deleted: 0,
+        sqlite_failed: 1,
+      }
+    } finally {
+      repository?.close()
     }
   }
 

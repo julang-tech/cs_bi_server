@@ -12,7 +12,7 @@ dist
 dist-ssr
 *.local
 .env
-.env.*
+# .env.*
 config/sync/config.json
 config/gcp/*.json
 config/data/*

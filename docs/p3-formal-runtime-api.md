@@ -8,11 +8,10 @@
   - `OpenClaw / Feishu` 多维表实时拉取
 - 订单与商品补数
   - `Shopify BigQuery`
-- 不新增 BigQuery 新表
 - 服务内完成：
   - 标准化客诉记录
   - 三大类归类：`product / warehouse / logistics`
-  - 订单时间、SKU/SKC/SPU 补齐
+  - 订单时间、退款时间、SKU/SKC/SPU 补齐
 
 ## Run Locally
 
@@ -32,9 +31,10 @@ npm.cmd run dev
 
 | Name | Type | Required | Default | Notes |
 | --- | --- | --- | --- | --- |
-| `date_from` | `YYYY-MM-DD` | Yes | - | 按订单时间过滤，起始日含当日。 |
-| `date_to` | `YYYY-MM-DD` | Yes | - | 按订单时间过滤，结束日含当日。 |
+| `date_from` | `YYYY-MM-DD` | Yes | - | 按当前 `date_basis` 过滤，起始日含当日。 |
+| `date_to` | `YYYY-MM-DD` | Yes | - | 按当前 `date_basis` 过滤，结束日含当日。 |
 | `grain` | `day \| week \| month` | No | `week` | `week` 以周一为 bucket 起点。 |
+| `date_basis` | `order_date \| refund_date` | No | `order_date` | 控制客诉过滤与客诉趋势分桶使用订单时间还是退款时间。 |
 | `sku` | `string` | No | `null` | 商品维度过滤。 |
 | `skc` | `string` | No | `null` | 商品维度过滤。 |
 | `spu` | `string` | No | `null` | 商品维度过滤。 |
@@ -77,11 +77,11 @@ npm.cmd run dev
 ### Metric Definitions
 
 - `summary.sales_qty`
-  - Shopify 订单明细件数汇总
-  - 来源：`shopify_ods.ods_shopify_order_line_items + shopify_ods.ods_shopify_orders`
+  - Shopify 订单数汇总
+  - 来源：`shopify_dwd.dwd_orders_fact`
 - `trends.sales_qty`
-  - 按 `grain` 聚合后的销量趋势
-  - 与 `summary.sales_qty` 使用相同销量口径
+  - 按 `grain` 聚合后的订单数趋势
+  - 与 `summary.sales_qty` 使用相同订单数口径
 - `summary.complaint_count`
   - 标准化客诉记录数
   - 去重规则：
@@ -90,9 +90,22 @@ npm.cmd run dev
 - `summary.complaint_rate`
   - `complaint_count / sales_qty`
   - 当 `sales_qty = 0` 时返回 `0.0`
+  - 字段名 `sales_qty` 为兼容保留，但当前语义已改为“订单数”
 - `issue_share`
   - `product / warehouse / logistics` 三类占比
   - 分母为全部标准化客诉记录数
+
+### Date Basis Rules
+
+- `date_basis = order_date`
+  - 客诉过滤与客诉趋势按 `issue.order_date`
+  - 若 `order_date` 缺失，回退 `record_date`
+- `date_basis = refund_date`
+  - 客诉过滤与客诉趋势按 `issue.refund_date`
+  - 若 `refund_date` 缺失，该 issue 不进入当前统计
+- 分母 `sales_qty`
+  - 两种时间口径下都表示同一时间窗的订单数
+  - `refund_date` 模式下因此属于“退款时间客诉 / 订单数分母”的混合口径
 
 ### Filtering Rules
 

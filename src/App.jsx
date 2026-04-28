@@ -12,6 +12,11 @@ const GRAIN_OPTIONS = [
   { value: 'month', label: '按月' },
 ]
 
+const DATE_BASIS_OPTIONS = [
+  { value: 'order_date', label: '订单时间' },
+  { value: 'refund_date', label: '退款时间' },
+]
+
 const ISSUE_ORDER = ['product', 'logistics', 'warehouse']
 
 const ISSUE_COPY = {
@@ -45,6 +50,7 @@ function formatDateInput(date) {
 function createDefaultFilters() {
   return {
     grain: 'week',
+    date_basis: 'order_date',
     sku: '',
     skc: '',
     spu: '',
@@ -122,6 +128,10 @@ function getResolvedDateWindow(grain) {
     },
     label: '截至昨日近30天',
   }
+}
+
+function getDateBasisLabel(dateBasis) {
+  return DATE_BASIS_OPTIONS.find((option) => option.value === dateBasis)?.label ?? '订单时间'
 }
 
 function buildDelta(currentValue, previousValue, mode = 'percent') {
@@ -542,6 +552,12 @@ function App() {
     setSubmittedFilters(nextFilters)
   }
 
+  function handleDateBasisChange(dateBasis) {
+    const nextFilters = { ...filters, date_basis: dateBasis }
+    setFilters(nextFilters)
+    setSubmittedFilters(nextFilters)
+  }
+
   return (
     <main className="dashboard-shell">
       <section className="toolbar-panel">
@@ -554,6 +570,21 @@ function App() {
                 submittedFilters.grain === option.value ? 'segment-button--active' : ''
               }`}
               onClick={() => handleGrainChange(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="segmented-control" role="tablist" aria-label="时间口径切换">
+          {DATE_BASIS_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`segment-button ${
+                submittedFilters.date_basis === option.value ? 'segment-button--active' : ''
+              }`}
+              onClick={() => handleDateBasisChange(option.value)}
             >
               {option.label}
             </button>
@@ -596,7 +627,7 @@ function App() {
 
       <section className="scope-strip">
         <span>当前时间口径</span>
-        <strong>{resolvedWindow.label}</strong>
+        <strong>{`${resolvedWindow.label} / ${getDateBasisLabel(submittedFilters.date_basis)}`}</strong>
       </section>
 
       {dashboardError ? <section className="status-banner status-banner--error">{dashboardError}</section> : null}
@@ -608,9 +639,9 @@ function App() {
 
       <section className="summary-grid">
         <SummaryCard
-          title="销量"
+          title="订单数"
           value={dashboardLoading ? '--' : formatInteger(summary?.sales_qty)}
-          description="销售件数持续走高，需同步关注售后压力是否同步放大。"
+          description="按订单时间窗统计的订单量，用于观察客诉规模对应的订单基数。"
           badge={{
             label: dashboardLoading ? '计算中' : salesDelta.text,
             tone: salesDelta.tone,
@@ -621,7 +652,7 @@ function App() {
         <SummaryCard
           title="客诉量"
           value={dashboardLoading ? '--' : formatInteger(summary?.complaint_count)}
-          description="客诉量上升低于销量增速，整体仍处于可控区间。"
+          description="按当前时间口径统计进入面板的标准化客诉记录数。"
           badge={{
             label: dashboardLoading ? '计算中' : complaintDelta.text,
             tone: complaintDelta.tone,
@@ -632,7 +663,7 @@ function App() {
         <SummaryCard
           title="客诉率"
           value={dashboardLoading ? '--' : formatPercent(summary?.complaint_rate, 2)}
-          description="按总销量口径观察问题密度，优先识别异常商品与异常分类。"
+          description="按订单数口径观察问题密度，优先识别异常商品与异常分类。"
           badge={{
             label: dashboardLoading ? '计算中' : complaintRateDelta.text,
             tone: complaintRateDelta.tone,
@@ -644,7 +675,7 @@ function App() {
 
       <TableSection
         title="问题结构分析"
-        hint="客诉率为按总销量估算的分类客诉率"
+        hint="客诉率为按订单数估算的分类客诉率"
         columns={issueColumns}
         rows={issueRows}
         emptyCopy="暂无问题结构数据"

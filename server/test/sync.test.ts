@@ -5,6 +5,7 @@ import path from 'node:path'
 import { SyncService, sanitizeTargetRecord } from '../domain/sync/service.js'
 import { buildDateFilter, filterRowsByDate, transformSourceRecord } from '../domain/sync/transform.js'
 import type { FeishuField, FeishuRecord } from '../integrations/feishu.js'
+import { SqliteMirrorRepository } from '../integrations/sqlite.js'
 import {
   inferLogisticsStatusFromShopify,
   matchSkuAmount,
@@ -42,6 +43,8 @@ function createConfig(baseDir: string) {
     runtime: {
       state_path: './data/state.json',
       log_path: './data/sync.log',
+      sqlite_path: './data/issues.sqlite',
+      refresh_interval_minutes: 120,
     },
     shopify: {
       sites: {
@@ -313,6 +316,7 @@ async function testSyncPreviewAndRun() {
   assert.equal(preview.created, 1)
   assert.equal(preview.enrichment_summary.eligible_records, 1)
   assert.equal(preview.enrichment_summary.enriched_records, 1)
+  assert.equal(preview.sqlite.enabled, false)
   assert.ok(
     preview.diagnostics.some(
       (item) =>
@@ -324,6 +328,8 @@ async function testSyncPreviewAndRun() {
   const sync = await service.sync({ config: configPath })
   assert.equal(sync.mode, 'sync')
   assert.equal(sync.created, 1)
+  assert.equal(sync.sqlite.ok, true)
+  assert.equal(sync.sqlite.inserted, 1)
   assert.equal(createdRecords.length, 1)
   assert.equal(createdRecords[0]?.['客户姓名'], 'Alice Example')
   assert.equal(createdRecords[0]?.['客户邮箱'], 'alice@example.com')
@@ -338,7 +344,16 @@ async function testSyncPreviewAndRun() {
   }
   assert.deepEqual(state.source_to_target_ids['rec-1'], ['target-rec-1'])
 
-  await service.sync({ config: configPath })
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const sqliteRepo = new SqliteMirrorRepository(sqlitePath)
+  const sqliteRows = sqliteRepo.listActiveRows()
+  assert.equal(sqliteRows.length, 1)
+  assert.equal(sqliteRows[0]?.record_id, 'target-rec-1')
+  assert.equal(sqliteRows[0]?.fields['客户姓名'], 'Alice Example')
+  sqliteRepo.close()
+
+  const secondSync = await service.sync({ config: configPath })
+  assert.equal(secondSync.sqlite.updated, 1)
   assert.equal(updatedRecords.length, 1)
 }
 
@@ -523,6 +538,183 @@ async function testSyncCsv() {
   assert.equal(result.samples.length, 1)
 }
 
+async function testSqliteMirrorDeletesMissingRecords() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+  ]
+
+  const sourceRecords: FeishuRecord[] = [
+    {
+      record_id: 'rec-1',
+      fields: {
+        记录日期: '2026/04/24',
+        订单号: 'LC200',
+        具体操作要求: '退款',
+      },
+    },
+    {
+      record_id: 'rec-2',
+      fields: {
+        记录日期: '2026/04/24',
+        订单号: 'LC201',
+        具体操作要求: '退款',
+      },
+    },
+  ]
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return sourceRecords
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord(_table, fields) {
+        return `target-${String(fields['订单号'])}`
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+  })
+
+  const first = await service.sync({ config: configPath })
+  assert.equal(first.sqlite.inserted, 2)
+
+  sourceRecords.pop()
+
+  const second = await service.sync({ config: configPath })
+  assert.equal(second.sqlite.deleted, 1)
+
+  const sqliteRepo = new SqliteMirrorRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+  const sqliteRows = sqliteRepo.listActiveRows()
+  assert.equal(sqliteRows.length, 1)
+  assert.equal(sqliteRows[0]?.source_record_id, 'rec-1')
+  sqliteRepo.close()
+}
+
+async function testSqliteMirrorRangeSyncDoesNotDeleteMissingRecords() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+  ]
+
+  const sourceRecords: FeishuRecord[] = [
+    {
+      record_id: 'rec-1',
+      fields: {
+        记录日期: '2026/04/24',
+        订单号: 'LC200',
+        具体操作要求: '退款',
+      },
+    },
+    {
+      record_id: 'rec-2',
+      fields: {
+        记录日期: '2026/04/25',
+        订单号: 'LC201',
+        具体操作要求: '退款',
+      },
+    },
+  ]
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return sourceRecords
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord(_table, fields) {
+        return `target-${String(fields['订单号'])}`
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+  })
+
+  const first = await service.sync({ config: configPath })
+  assert.equal(first.sqlite.inserted, 2)
+
+  const second = await service.sync({
+    config: configPath,
+    from: '2026-04-24',
+    to: '2026-04-24',
+  })
+  assert.equal(second.sqlite.deleted, 0)
+
+  const sqliteRepo = new SqliteMirrorRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+  const sqliteRows = sqliteRepo.listActiveRows()
+  assert.equal(sqliteRows.length, 2)
+  assert.deepEqual(
+    sqliteRows.map((row) => row.source_record_id),
+    ['rec-1', 'rec-2'],
+  )
+  sqliteRepo.close()
+}
+
+async function testSyncSqliteFailureMarksRunFailed() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+  ]
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return [
+          {
+            record_id: 'rec-1',
+            fields: {
+              记录日期: '2026/04/24',
+              订单号: 'LC900',
+              具体操作要求: '退款',
+            },
+          },
+        ]
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord() {
+        return 'target-rec-1'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createSqliteRepository: () =>
+      ({
+        syncRecords() {
+          throw new Error('sqlite down')
+        },
+        close() {},
+      }) as unknown as SqliteMirrorRepository,
+  })
+
+  const result = await service.sync({ config: configPath })
+  assert.equal(result.sqlite.ok, false)
+  assert.equal(result.sqlite.sqlite_failed, 1)
+  assert.equal(result.failed, 1)
+}
+
 async function run() {
   testTransformBasicFields()
   testTransformSplitsMultiSkuRows()
@@ -538,6 +730,9 @@ async function run() {
   await testShopifyBackfillOnlyFillsEmptyFields()
   await testSkuAmountStaysEmptyWhenComplaintSkuMissingOnMultiProductOrder()
   await testSyncCsv()
+  await testSqliteMirrorDeletesMissingRecords()
+  await testSqliteMirrorRangeSyncDoesNotDeleteMissingRecords()
+  await testSyncSqliteFailureMarksRunFailed()
   console.log('Sync tests passed')
 }
 

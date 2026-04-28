@@ -36,6 +36,9 @@ program
   .option('--to <date>', 'End date')
   .action(async (options) => {
     const result = await service.sync(options)
+    if (!result.sqlite.ok) {
+      process.exitCode = 1
+    }
     console.log(
       JSON.stringify(
         {

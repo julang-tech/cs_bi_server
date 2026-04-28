@@ -15,11 +15,13 @@
     "test:p3-api": "npm run build:server --silent && node server-dist/server/test/p3-api.test.js",
     "test:integrations": "npm run build:server --silent && node server-dist/server/test/integrations.test.js",
     "test:sync": "npm run build:server --silent && node server-dist/server/test/sync.test.js",
+    "test:worker": "npm run build:server --silent && node server-dist/server/test/sync-worker.test.js",
     "preview": "vite preview",
     "start": "node server-dist/server/entrypoints/app.js",
     "sync:preview": "npm run build:server --silent && node server-dist/server/entrypoints/sync.js preview",
     "sync:run": "npm run build:server --silent && node server-dist/server/entrypoints/sync.js sync",
-    "sync:csv": "npm run build:server --silent && node server-dist/server/entrypoints/sync.js sync-csv"
+    "sync:csv": "npm run build:server --silent && node server-dist/server/entrypoints/sync.js sync-csv",
+    "sync:worker": "npm run build:server --silent && node server-dist/server/entrypoints/sync-worker.js"
   },
   "dependencies": {
     "@fastify/static": "^9.1.3",

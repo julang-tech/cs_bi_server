@@ -1,6 +1,9 @@
 export const GRAINS = ['day', 'week', 'month'] as const
 export type Grain = (typeof GRAINS)[number]
 
+export const DATE_BASES = ['order_date', 'refund_date'] as const
+export type DateBasis = (typeof DATE_BASES)[number]
+
 export const MAJOR_ISSUE_TYPES = ['product', 'warehouse', 'logistics'] as const
 export type MajorIssueType = (typeof MAJOR_ISSUE_TYPES)[number]
 
@@ -20,6 +23,7 @@ export type P3Filters = {
   date_from: string
   date_to: string
   grain: Grain
+  date_basis: DateBasis
   sku?: string | null
   skc?: string | null
   spu?: string | null
@@ -69,6 +73,7 @@ export type StandardIssueRecord = {
   order_no: string
   record_date?: string | null
   order_date?: string | null
+  refund_date?: string | null
   sku?: string | null
   skc?: string | null
   spu?: string | null
