@@ -381,13 +381,28 @@ function MultiLineTrendChart({ series }) {
     series[0],
   )
   const pointCount = longestSeries?.items.length ?? 0
+  const chartBounds = {
+    left: 4,
+    right: 96,
+    top: 8,
+    bottom: 92,
+  }
 
   function getPointData(items) {
+    const xRange = chartBounds.right - chartBounds.left
+    const yRange = chartBounds.bottom - chartBounds.top
+
     return items.map((item, index) => ({
       ...item,
-      x: items.length === 1 ? 50 : (index / (items.length - 1)) * 100,
-      y: 100 - (item.value / safeMax) * 100,
+      x: items.length === 1 ? 50 : chartBounds.left + (index / (items.length - 1)) * xRange,
+      y: chartBounds.bottom - (item.value / safeMax) * yRange,
     }))
+  }
+
+  function getTooltipClassName(point) {
+    const horizontal = point.x > 82 ? 'p1-trend-tooltip--left' : ''
+    const vertical = point.y < 24 ? 'p1-trend-tooltip--below' : ''
+    return ['trend-tooltip', 'p1-trend-tooltip', horizontal, vertical].filter(Boolean).join(' ')
   }
 
   if (!pointCount) {
@@ -429,7 +444,7 @@ function MultiLineTrendChart({ series }) {
         ))}
       </svg>
       {tooltip ? (
-        <div className="trend-tooltip p1-trend-tooltip" style={{ left: `${tooltip.x}%`, top: `${tooltip.y}%` }}>
+        <div className={getTooltipClassName(tooltip)} style={{ left: `${tooltip.x}%`, top: `${tooltip.y}%` }}>
           <span>{tooltip.bucket}</span>
           {series.map((line) => (
             <strong key={line.key}>{line.label}：{line.formatter(line.items[tooltip.index]?.value ?? 0)}</strong>
@@ -696,6 +711,7 @@ function P1Dashboard() {
   const defaultFilters = useMemo(() => createDefaultP1Filters(), [])
   const [filters, setFilters] = useState(defaultFilters)
   const [dashboard, setDashboard] = useState(null)
+  const [metricDashboard, setMetricDashboard] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -707,11 +723,18 @@ function P1Dashboard() {
       setError('')
 
       try {
-        const response = await fetchP1Dashboard(filters, controller.signal)
-        setDashboard(response)
+        const metricWindow = getMetricWindow(filters.grain, filters.date_to)
+        const metricFilters = { ...filters, ...metricWindow }
+        const [dashboardResponse, metricDashboardResponse] = await Promise.all([
+          fetchP1Dashboard(filters, controller.signal),
+          fetchP1Dashboard(metricFilters, controller.signal),
+        ])
+        setDashboard(dashboardResponse)
+        setMetricDashboard(metricDashboardResponse)
       } catch (loadError) {
         if (loadError.name !== 'AbortError') {
           setDashboard(null)
+          setMetricDashboard(null)
           setError(loadError.message || 'P1 聊天数据加载失败，请稍后重试。')
         }
       } finally {
@@ -739,7 +762,9 @@ function P1Dashboard() {
     })
   }
 
-  const summary = dashboard?.summary
+  const summary = metricDashboard?.summary
+  const rangeSummary = dashboard?.summary
+  const metricWindowLabel = getMetricWindowLabel(filters.grain)
   const agentRows = dashboard?.agent_workload ?? []
   const trendSeries = [
     {
@@ -862,6 +887,8 @@ function P1Dashboard() {
         <SummaryCard
           title="来邮数"
           value={loading ? '--' : formatInteger(summary?.inbound_email_count)}
+          rangeLabel="范围总量"
+          rangeValue={loading ? '--' : formatInteger(rangeSummary?.inbound_email_count)}
           description="客户发送邮件的封数，按自然日汇总后作为总体待处理规模口径。"
           badge={{ label: '客户邮件封数', tone: 'cool' }}
           tone="sales"
@@ -869,6 +896,8 @@ function P1Dashboard() {
         <SummaryCard
           title="回邮数"
           value={loading ? '--' : formatInteger(summary?.outbound_email_count)}
+          rangeLabel="范围总量"
+          rangeValue={loading ? '--' : formatInteger(rangeSummary?.outbound_email_count)}
           description="客服回复邮件的封数，反映坐席实际处理量。"
           badge={{ label: '客服回复封数', tone: 'rose' }}
           tone="complaints"
@@ -876,6 +905,8 @@ function P1Dashboard() {
         <SummaryCard
           title="平均会话排队时长"
           value={loading ? '--' : formatHours(summary?.avg_queue_hours, 1)}
+          rangeLabel="范围总量"
+          rangeValue={loading ? '--' : formatHours(rangeSummary?.avg_queue_hours, 1)}
           description="客户邮件到人工回复的时间差均值，用于衡量响应效率。"
           badge={{ label: '客户首封到人工首回', tone: 'cool' }}
           tone="rate"
@@ -883,11 +914,17 @@ function P1Dashboard() {
         <SummaryCard
           title="首次响应超时次数"
           value={loading ? '--' : formatInteger(summary?.first_response_timeout_count)}
+          rangeLabel="范围总量"
+          rangeValue={loading ? '--' : formatInteger(rangeSummary?.first_response_timeout_count)}
           description="客户首封邮件到人工首回时间差大于 24 小时的次数。"
           badge={{ label: '>24h', tone: 'deep' }}
           tone="complaints"
         />
       </section>
+
+      <div className="metric-window-note">
+        主数值为截至 {filters.date_to} 的{metricWindowLabel}；范围总量按当前日期范围计算。
+      </div>
 
       <section className="p1-main-grid">
         <section className="table-card p1-trend-card">
@@ -1161,7 +1198,7 @@ function P3Dashboard() {
 
 function App() {
   const [activePage, setActivePage] = useState('p1')
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true)
   const activePageMeta = PAGE_OPTIONS.find((item) => item.value === activePage) ?? PAGE_OPTIONS[2]
 
   return (

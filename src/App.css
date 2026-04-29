@@ -330,21 +330,21 @@
 }
 
 .p1-summary-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .p1-summary-grid .summary-card {
-  padding: 24px 24px 22px;
+  padding: 30px 30px 28px;
 }
 
 .p1-summary-grid .summary-card__value {
-  font-size: clamp(44px, 4.6vw, 60px);
+  font-size: clamp(52px, 5.4vw, 72px);
 }
 
 .p1-summary-grid .summary-card__description {
-  max-width: 100%;
-  min-height: 68px;
-  font-size: 15px;
+  max-width: 92%;
+  min-height: 0;
+  font-size: 17px;
 }
 
 .summary-card {
@@ -820,7 +820,7 @@
 
 .p1-main-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(460px, 0.95fr);
+  grid-template-columns: 1fr;
   gap: 20px;
   margin-top: 26px;
   align-items: start;
@@ -874,7 +874,7 @@
 
 .p1-trend-chart {
   position: relative;
-  height: 260px;
+  height: 320px;
   margin: 0 18px 22px;
   padding: 18px 18px 22px;
   border: 1px solid #e8dfd3;
@@ -920,6 +920,22 @@
 
 .p1-trend-tooltip strong + strong {
   margin-top: 2px;
+}
+
+.p1-trend-tooltip {
+  transform: translate(-50%, calc(-100% - 12px));
+}
+
+.p1-trend-tooltip--left {
+  transform: translate(calc(-100% + 12px), calc(-100% - 12px));
+}
+
+.p1-trend-tooltip--below {
+  transform: translate(-50%, 12px);
+}
+
+.p1-trend-tooltip--left.p1-trend-tooltip--below {
+  transform: translate(calc(-100% + 12px), 12px);
 }
 
 @media (max-width: 1200px) {
