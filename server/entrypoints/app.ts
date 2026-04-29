@@ -1,10 +1,11 @@
-import path from 'node:path'
+﻿import path from 'node:path'
 import fs from 'node:fs'
 import Fastify from 'fastify'
 import fastifyStatic from '@fastify/static'
 import { z } from 'zod'
 import { loadEnv } from '../config/env.js'
 import { createP3Service } from '../domain/p3/service.js'
+import { createP2Service } from '../domain/p2/service.js'
 
 const filterSchema = z.object({
   date_from: z.string(),
@@ -20,11 +21,28 @@ const previewSchema = filterSchema.extend({
   major_issue_type: z.enum(['product', 'warehouse', 'logistics']),
 })
 
+const p2FilterSchema = z.object({
+  date_from: z.string(),
+  date_to: z.string(),
+  grain: z.enum(['day', 'week', 'month']).default('month'),
+  category: z.string().optional(),
+  spu: z.string().optional(),
+  skc: z.string().optional(),
+  channel: z.string().optional(),
+  listing_date_from: z.string().optional(),
+  listing_date_to: z.string().optional(),
+})
+
+const p2SpuTableSchema = p2FilterSchema.extend({
+  top_n: z.coerce.number().int().min(1).max(30).default(5),
+})
+
 export async function buildApp(overrides?: {
   service?: ReturnType<typeof createP3Service>
 }) {
   const env = loadEnv()
   const service = overrides?.service ?? createP3Service(env.repoRoot, env.syncConfigPath)
+  const p2Service = createP2Service()
   const app = Fastify({ logger: true })
 
   app.get('/healthz', async () => ({ status: 'ok' }))
@@ -71,6 +89,46 @@ export async function buildApp(overrides?: {
       return reply.status(422).send({ detail: 'date_from cannot be later than date_to.' })
     }
     return service.getProductRanking(parsed.data)
+  })
+
+  app.get('/api/bi/p2/refund-dashboard/overview', async (request, reply) => {
+    const parsed = p2FilterSchema.safeParse(request.query)
+    if (!parsed.success) {
+      return reply.status(422).send({ detail: parsed.error.flatten() })
+    }
+    if (parsed.data.date_from > parsed.data.date_to) {
+      return reply.status(422).send({ detail: 'date_from cannot be later than date_to.' })
+    }
+    if (
+      parsed.data.listing_date_from &&
+      parsed.data.listing_date_to &&
+      parsed.data.listing_date_from > parsed.data.listing_date_to
+    ) {
+      return reply.status(422).send({
+        detail: 'listing_date_from cannot be later than listing_date_to.',
+      })
+    }
+    return p2Service.getOverview(parsed.data)
+  })
+
+  app.get('/api/bi/p2/refund-dashboard/spu-table', async (request, reply) => {
+    const parsed = p2SpuTableSchema.safeParse(request.query)
+    if (!parsed.success) {
+      return reply.status(422).send({ detail: parsed.error.flatten() })
+    }
+    if (parsed.data.date_from > parsed.data.date_to) {
+      return reply.status(422).send({ detail: 'date_from cannot be later than date_to.' })
+    }
+    if (
+      parsed.data.listing_date_from &&
+      parsed.data.listing_date_to &&
+      parsed.data.listing_date_from > parsed.data.listing_date_to
+    ) {
+      return reply.status(422).send({
+        detail: 'listing_date_from cannot be later than listing_date_to.',
+      })
+    }
+    return p2Service.getSpuTable(parsed.data, parsed.data.top_n)
   })
 
   const distPath = path.join(env.repoRoot, 'dist')
