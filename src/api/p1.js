@@ -87,28 +87,57 @@ function getDateRange(filters) {
   return { start, end, length }
 }
 
-function buildTrend(filters) {
+function buildDailyRows(filters) {
   const { start, length } = getDateRange(filters)
-  const step = getBucketStep(filters.grain)
-  const bucketCount = Math.max(1, Math.ceil(length / step))
 
-  return Array.from({ length: bucketCount }, (_, index) => {
-    const bucketDate = shiftDate(start, index * step)
-    const seasonal = 1 + Math.sin(index * 0.85) * 0.08
-    const growth = 1 + index * 0.045
-    const scale = step * seasonal * growth
-    const inbound = Math.round((238 + index * 11) * scale)
-    const outbound = Math.round(inbound * (0.78 + (index % 3) * 0.018))
-    const timeout = Math.max(2, Math.round(inbound * (0.013 + (index % 4) * 0.002)))
+  return Array.from({ length }, (_, index) => {
+    const bucketDate = shiftDate(start, index)
+    const daySeed = Math.round(bucketDate.getTime() / 86_400_000)
+    const seasonal = 1 + Math.sin(daySeed * 0.41) * 0.08
+    const weekday = bucketDate.getDay()
+    const weekdayFactor = weekday === 0 || weekday === 6 ? 0.78 : 1
+    const inbound = Math.round((238 + (daySeed % 17) * 5) * seasonal * weekdayFactor)
+    const outbound = Math.round(inbound * (0.78 + (daySeed % 3) * 0.018))
+    const timeout = Math.max(2, Math.round(inbound * (0.013 + (daySeed % 4) * 0.002)))
 
     return {
       bucket: formatDateInput(bucketDate),
       inbound_email_count: inbound,
       outbound_email_count: outbound,
-      avg_queue_hours: Number((2.15 + (index % 5) * 0.14).toFixed(2)),
+      avg_queue_hours: Number((2.15 + (daySeed % 5) * 0.14).toFixed(2)),
       first_response_timeout_count: timeout,
     }
   })
+}
+
+function aggregateRows(rows, bucketDate) {
+  const inboundTotal = sumTrend(rows, 'inbound_email_count')
+  const queueWeightedTotal = rows.reduce(
+    (total, item) => total + item.avg_queue_hours * item.inbound_email_count,
+    0,
+  )
+
+  return {
+    bucket: formatDateInput(bucketDate),
+    inbound_email_count: inboundTotal,
+    outbound_email_count: sumTrend(rows, 'outbound_email_count'),
+    avg_queue_hours: inboundTotal ? Number((queueWeightedTotal / inboundTotal).toFixed(2)) : 0,
+    first_response_timeout_count: sumTrend(rows, 'first_response_timeout_count'),
+  }
+}
+
+function buildTrend(filters) {
+  const dailyRows = buildDailyRows(filters)
+  const step = getBucketStep(filters.grain)
+  const trendRows = []
+
+  for (let endIndex = dailyRows.length - 1; endIndex >= 0; endIndex -= step) {
+    const startIndex = Math.max(0, endIndex - step + 1)
+    const bucketRows = dailyRows.slice(startIndex, endIndex + 1)
+    trendRows.unshift(aggregateRows(bucketRows, parseDateInput(bucketRows[0].bucket)))
+  }
+
+  return trendRows
 }
 
 function sumTrend(trend, key) {

@@ -10,6 +10,7 @@
 - 时间口径
   - 聊天模块按自然日统计。
   - 所有趋势最细粒度统一到天，并支持按天 / 周 / 月聚合。
+  - 周 / 月趋势 bucket 从 `date_to` 往前切分，不按自然周或自然月切分。
 - 坐席识别
   - 客服姓名按邮件正文落款识别。
   - 第一版使用既有姓名映射，不在页面内维护映射关系。
@@ -25,7 +26,7 @@
 | --- | --- | --- | --- | --- |
 | `date_from` | `YYYY-MM-DD` | Yes | - | 自然日统计起始日，含当日。 |
 | `date_to` | `YYYY-MM-DD` | Yes | - | 自然日统计结束日，含当日。 |
-| `grain` | `day \| week \| month` | No | `day` | `week` 建议以周一为 bucket 起点。 |
+| `grain` | `day \| week \| month` | No | `day` | `week` 为截至 `date_to` 往前 7 天一组；`month` 为截至 `date_to` 往前 30 天一组。 |
 | `agent_name` | `string` | No | `''` | 客服姓名筛选，空值表示全部客服。 |
 
 ### Response Shape
@@ -75,18 +76,22 @@
 
 - `summary.inbound_email_count`
   - 来邮数。
-  - 客户发送邮件的封数，按自然日统计。
+  - 请求日期范围内客户发送邮件的封数汇总。
 - `summary.outbound_email_count`
   - 回邮数。
-  - 客服回复邮件的封数，按自然日统计。
+  - 请求日期范围内客服回复邮件的封数汇总。
 - `summary.avg_queue_hours`
   - 平均会话排队时长。
-  - 客户邮件到人工回复的时间差均值，单位为小时。
+  - 请求日期范围内客户邮件到人工回复的时间差均值，单位为小时。
 - `summary.first_response_timeout_count`
   - 首次响应超时次数。
-  - 客户来邮件到人工回复的时间差大于 24 小时的次数。
+  - 请求日期范围内客户来邮件到人工回复的时间差大于 24 小时的次数。
 - `trends`
   - 按 `grain` 聚合后的来邮数、回邮数、首次响应超时次数趋势。
+  - `day` 为每天一个 bucket。
+  - `week` 从 `date_to` 往前每 7 天一组，最前面的 bucket 允许不足 7 天。
+  - `month` 从 `date_to` 往前每 30 天一组，最前面的 bucket 允许不足 30 天。
+  - `bucket` 使用该 bucket 的起始日期。
 - `agent_workload.outbound_email_count`
   - 坐席总回邮数。
 - `agent_workload.avg_outbound_emails_per_hour_by_span`
@@ -98,6 +103,16 @@
 - `agent_workload.qa_reply_counts`
   - 质检结果回邮数。
   - 第一版来自人工抽查，分为 `excellent`（优秀）、`pass`（达标）、`fail`（不合格）。
+
+## Frontend Display Rules
+
+- 若页面需要同时展示主数值和范围总量：
+  - 使用完整 `date_from/date_to` 请求作为趋势、范围总量、坐席工作量分析数据。
+  - 再按当前粒度窗口请求一次 summary 作为主数值。
+- 当前粒度窗口：
+  - `day`：`date_to` 当天。
+  - `week`：截至 `date_to` 的近 7 天。
+  - `month`：截至 `date_to` 的近 30 天。
 
 ## Empty / Partial Data Rules
 
