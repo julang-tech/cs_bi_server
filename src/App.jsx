@@ -586,6 +586,7 @@ function ProductRankingSection({ rows, loading, error }) {
   const [expandedSpus, setExpandedSpus] = useState(() => new Set())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(5)
+  const topRows = rows.slice(0, 20)
 
   function toggleSpu(spu) {
     setExpandedSpus((current) => {
@@ -599,19 +600,19 @@ function ProductRankingSection({ rows, loading, error }) {
       })
   }
 
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize))
+  const pageCount = Math.max(1, Math.ceil(topRows.length / pageSize))
   const safePage = Math.min(page, pageCount)
   const startIndex = (safePage - 1) * pageSize
-  const visibleRows = rows.slice(startIndex, startIndex + pageSize)
+  const visibleRows = topRows.slice(startIndex, startIndex + pageSize)
 
   return (
     <section className="table-card ranking-card">
       <div className="table-card__header">
         <div>
           <h3>商品客诉表现表</h3>
-          <p className="table-card__hint">默认按客诉量排序，每页展示 5 个 SPU，可展开查看对应 SKC 明细。</p>
+          <p className="table-card__hint">默认按客诉量排序，仅展示 Top20 SPU，可展开查看对应 SKC 明细。</p>
         </div>
-        {rows.length ? (
+        {topRows.length ? (
           <RankingPagination
             pageSize={pageSize}
             setPageSize={setPageSize}
@@ -628,7 +629,7 @@ function ProductRankingSection({ rows, loading, error }) {
         <div className="empty-state">正在加载商品排行...</div>
       ) : error ? (
         <div className="empty-state empty-state--error">{error}</div>
-      ) : rows.length ? (
+      ) : topRows.length ? (
         <div className="table-scroll">
           <table className="data-table ranking-table">
             <thead>
