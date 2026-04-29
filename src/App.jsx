@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
+import { fetchP1Dashboard } from './api/p1'
 import {
   fetchDashboard,
   fetchDrilldownOptions,
@@ -39,7 +40,18 @@ const DATE_BASIS_OPTIONS = [
 ]
 
 const P3_DEFAULT_START_DATE = '2026-01-01'
+const P1_DEFAULT_START_DATE = '2026-04-01'
 const RANKING_PAGE_SIZE_OPTIONS = [5, 10, 20, 50]
+
+const AGENT_OPTIONS = [
+  { value: '', label: '全部客服' },
+  { value: 'Mira', label: 'Mira' },
+  { value: 'Wendy', label: 'Wendy' },
+  { value: 'Lila', label: 'Lila' },
+  { value: 'Chloe', label: 'Chloe' },
+  { value: 'Mia', label: 'Mia' },
+  { value: 'Jovie', label: 'Jovie' },
+]
 
 const ISSUE_ORDER = ['product', 'logistics', 'warehouse']
 
@@ -74,12 +86,29 @@ function createDefaultFilters() {
   }
 }
 
+function createDefaultP1Filters() {
+  return {
+    grain: 'day',
+    date_from: P1_DEFAULT_START_DATE,
+    date_to: formatDateInput(shiftDate(new Date(), -1)),
+    agent_name: '',
+  }
+}
+
 function formatInteger(value) {
   return new Intl.NumberFormat('zh-CN').format(value ?? 0)
 }
 
 function formatPercent(value, digits = 2) {
   return `${((value ?? 0) * 100).toFixed(digits)}%`
+}
+
+function formatHours(value, digits = 1) {
+  return `${(value ?? 0).toFixed(digits)}h`
+}
+
+function formatDecimal(value, digits = 1) {
+  return (value ?? 0).toFixed(digits)
 }
 
 function formatDeltaPercent(value) {
@@ -262,10 +291,12 @@ function SummaryCard({ title, value, rangeValue, rangeLabel, description, badge,
         <span className={`summary-badge summary-badge--${badge.tone}`}>{badge.label}</span>
       </div>
       <div className="summary-card__value">{value}</div>
-      <div className="summary-card__secondary">
-        <span>{rangeLabel}</span>
-        <strong>{rangeValue}</strong>
-      </div>
+      {rangeLabel || rangeValue ? (
+        <div className="summary-card__secondary">
+          <span>{rangeLabel}</span>
+          <strong>{rangeValue}</strong>
+        </div>
+      ) : null}
       <p className="summary-card__description">{description}</p>
     </article>
   )
@@ -337,6 +368,75 @@ function TrendChart({ title, items, tone, formatter }) {
         ) : null}
       </div>
     </article>
+  )
+}
+
+function MultiLineTrendChart({ series }) {
+  const [tooltip, setTooltip] = useState(null)
+  const allValues = series.flatMap((item) => item.items.map((point) => point.value))
+  const max = Math.max(...allValues, 0)
+  const safeMax = max === 0 ? 1 : max
+  const longestSeries = series.reduce(
+    (current, item) => (item.items.length > current.items.length ? item : current),
+    series[0],
+  )
+  const pointCount = longestSeries?.items.length ?? 0
+
+  function getPointData(items) {
+    return items.map((item, index) => ({
+      ...item,
+      x: items.length === 1 ? 50 : (index / (items.length - 1)) * 100,
+      y: 100 - (item.value / safeMax) * 100,
+    }))
+  }
+
+  if (!pointCount) {
+    return <div className="empty-state">暂无趋势数据</div>
+  }
+
+  return (
+    <div className="p1-trend-chart" onMouseLeave={() => setTooltip(null)}>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="总览趋势">
+        <g className="p1-trend-gridlines" aria-hidden="true">
+          {[20, 40, 60, 80].map((line) => (
+            <line key={line} x1="0" x2="100" y1={line} y2={line} />
+          ))}
+        </g>
+        {series.map((line) => {
+          const pointData = getPointData(line.items)
+          const points = pointData.map((item) => `${item.x},${item.y}`).join(' ')
+
+          return (
+            <polyline
+              key={line.key}
+              className={`p1-trend-line p1-trend-line--${line.key}`}
+              fill="none"
+              points={points}
+            />
+          )
+        })}
+        {getPointData(longestSeries.items).map((item, index) => (
+          <g
+            key={item.bucket}
+            className="trend-chart__hit-area"
+            onMouseEnter={() => setTooltip({ bucket: item.bucket, index, x: item.x, y: item.y })}
+            onFocus={() => setTooltip({ bucket: item.bucket, index, x: item.x, y: item.y })}
+            tabIndex="0"
+          >
+            <line className="p1-trend-hit-line" x1={item.x} x2={item.x} y1="0" y2="100" />
+            <circle className="trend-chart__hit-circle" cx={item.x} cy={item.y} r="5.5" />
+          </g>
+        ))}
+      </svg>
+      {tooltip ? (
+        <div className="trend-tooltip p1-trend-tooltip" style={{ left: `${tooltip.x}%`, top: `${tooltip.y}%` }}>
+          <span>{tooltip.bucket}</span>
+          {series.map((line) => (
+            <strong key={line.key}>{line.label}：{line.formatter(line.items[tooltip.index]?.value ?? 0)}</strong>
+          ))}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -418,7 +518,7 @@ function TableSection({ title, hint, columns, rows, emptyCopy, rowTone, onRowCli
   )
 }
 
-function PlaceholderPage({ title, description }) {
+function PlaceholderPage({ title }) {
   return (
     <main className="placeholder-shell">
       <section className="placeholder-shell__body" aria-label={`${title} 页面占位`} />
@@ -486,11 +586,6 @@ function ProductRankingSection({ rows, loading, error }) {
   const [expandedSpus, setExpandedSpus] = useState(() => new Set())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(5)
-
-  useEffect(() => {
-    setExpandedSpus(new Set())
-    setPage(1)
-  }, [rows])
 
   function toggleSpu(spu) {
     setExpandedSpus((current) => {
@@ -593,6 +688,231 @@ function ProductRankingSection({ rows, loading, error }) {
         <div className="empty-state empty-state--table">暂无商品排行数据</div>
       )}
     </section>
+  )
+}
+
+function P1Dashboard() {
+  const defaultFilters = useMemo(() => createDefaultP1Filters(), [])
+  const [filters, setFilters] = useState(defaultFilters)
+  const [dashboard, setDashboard] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    async function loadDashboard() {
+      setLoading(true)
+      setError('')
+
+      try {
+        const response = await fetchP1Dashboard(filters, controller.signal)
+        setDashboard(response)
+      } catch (loadError) {
+        if (loadError.name !== 'AbortError') {
+          setDashboard(null)
+          setError(loadError.message || 'P1 聊天数据加载失败，请稍后重试。')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      }
+    }
+
+    loadDashboard()
+    return () => controller.abort()
+  }, [filters])
+
+  const updateDateFilter = (field, value) => {
+    if (!value) {
+      return
+    }
+
+    setFilters((current) => {
+      const next = { ...current, [field]: value }
+      if (next.date_from > next.date_to) {
+        return current
+      }
+      return next
+    })
+  }
+
+  const summary = dashboard?.summary
+  const agentRows = dashboard?.agent_workload ?? []
+  const trendSeries = [
+    {
+      key: 'inbound',
+      label: '来邮数',
+      items: dashboard?.trends?.inbound_email_count ?? [],
+      formatter: formatInteger,
+    },
+    {
+      key: 'outbound',
+      label: '回邮数',
+      items: dashboard?.trends?.outbound_email_count ?? [],
+      formatter: formatInteger,
+    },
+    {
+      key: 'timeout',
+      label: '超时次数',
+      items: dashboard?.trends?.first_response_timeout_count ?? [],
+      formatter: formatInteger,
+    },
+  ]
+
+  const workloadColumns = [
+    {
+      key: 'agent_name',
+      label: '客服姓名',
+      render: (row) => <strong>{row.agent_name}</strong>,
+    },
+    {
+      key: 'outbound_email_count',
+      label: '总回邮数',
+      render: (row) => formatInteger(row.outbound_email_count),
+    },
+    {
+      key: 'avg_outbound_emails_per_hour_by_span',
+      label: '每小时回邮数均值（首末封）',
+      render: (row) => formatDecimal(row.avg_outbound_emails_per_hour_by_span),
+    },
+    {
+      key: 'avg_outbound_emails_per_hour_by_schedule',
+      label: '每小时回邮数均值（工时表）',
+      render: (row) => formatDecimal(row.avg_outbound_emails_per_hour_by_schedule),
+    },
+    {
+      key: 'qa_reply_counts',
+      label: '质检结果回邮数',
+      render: (row) => {
+        const qa = row.qa_reply_counts ?? {}
+        return `${formatInteger(qa.excellent)} / ${formatInteger(qa.pass)} / ${formatInteger(qa.fail)}`
+      },
+    },
+  ]
+
+  return (
+    <main className="dashboard-shell p1-dashboard">
+      <section className="toolbar-panel">
+        <div className="toolbar-group">
+          <span className="toolbar-label">时间粒度</span>
+          <div className="segmented-control" role="tablist" aria-label="粒度切换">
+            {GRAIN_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`segment-button ${filters.grain === option.value ? 'segment-button--active' : ''}`}
+                onClick={() => setFilters((current) => ({ ...current, grain: option.value }))}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="toolbar-group">
+          <span className="toolbar-label">客服姓名</span>
+          <label className="select-control">
+            <select
+              value={filters.agent_name}
+              onChange={(event) => setFilters((current) => ({ ...current, agent_name: event.target.value }))}
+            >
+              {AGENT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="toolbar-group toolbar-group--dates">
+          <span className="toolbar-label">日期范围</span>
+          <div className="date-range-control">
+            <label className="date-field">
+              <span>开始</span>
+              <input
+                type="date"
+                value={filters.date_from}
+                max={filters.date_to}
+                onChange={(event) => updateDateFilter('date_from', event.target.value)}
+              />
+            </label>
+            <label className="date-field">
+              <span>结束</span>
+              <input
+                type="date"
+                value={filters.date_to}
+                min={filters.date_from}
+                onChange={(event) => updateDateFilter('date_to', event.target.value)}
+              />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      {error ? <section className="status-banner status-banner--error">{error}</section> : null}
+      {dashboard?.meta?.partial_data ? (
+        <section className="status-banner status-banner--info">
+          {dashboard.meta.notes?.[0] ?? '当前数据存在局部缺失。'}
+        </section>
+      ) : null}
+
+      <section className="summary-grid p1-summary-grid">
+        <SummaryCard
+          title="来邮数"
+          value={loading ? '--' : formatInteger(summary?.inbound_email_count)}
+          description="客户发送邮件的封数，按自然日汇总后作为总体待处理规模口径。"
+          badge={{ label: '客户邮件封数', tone: 'cool' }}
+          tone="sales"
+        />
+        <SummaryCard
+          title="回邮数"
+          value={loading ? '--' : formatInteger(summary?.outbound_email_count)}
+          description="客服回复邮件的封数，反映坐席实际处理量。"
+          badge={{ label: '客服回复封数', tone: 'rose' }}
+          tone="complaints"
+        />
+        <SummaryCard
+          title="平均会话排队时长"
+          value={loading ? '--' : formatHours(summary?.avg_queue_hours, 1)}
+          description="客户邮件到人工回复的时间差均值，用于衡量响应效率。"
+          badge={{ label: '客户首封到人工首回', tone: 'cool' }}
+          tone="rate"
+        />
+        <SummaryCard
+          title="首次响应超时次数"
+          value={loading ? '--' : formatInteger(summary?.first_response_timeout_count)}
+          description="客户首封邮件到人工首回时间差大于 24 小时的次数。"
+          badge={{ label: '>24h', tone: 'deep' }}
+          tone="complaints"
+        />
+      </section>
+
+      <section className="p1-main-grid">
+        <section className="table-card p1-trend-card">
+          <div className="table-card__header">
+            <div>
+              <h3>总览趋势</h3>
+              <p className="table-card__hint">展示来邮数、回邮数和首次响应超时次数。</p>
+            </div>
+            <div className="p1-trend-legend" aria-label="趋势图例">
+              <span className="p1-legend-item p1-legend-item--inbound">来邮数</span>
+              <span className="p1-legend-item p1-legend-item--outbound">回邮数</span>
+              <span className="p1-legend-item p1-legend-item--timeout">超时次数</span>
+            </div>
+          </div>
+          {loading ? <div className="empty-state">正在加载趋势数据...</div> : <MultiLineTrendChart series={trendSeries} />}
+        </section>
+
+        <TableSection
+          title="坐席工作量分析"
+          hint="质检结果回邮数展示顺序：优秀 / 达标 / 不合格"
+          columns={workloadColumns}
+          rows={loading ? [] : agentRows}
+          emptyCopy={loading ? '正在加载坐席数据...' : '暂无坐席工作量数据'}
+        />
+      </section>
+    </main>
   )
 }
 
@@ -839,7 +1159,7 @@ function P3Dashboard() {
 }
 
 function App() {
-  const [activePage, setActivePage] = useState('p3')
+  const [activePage, setActivePage] = useState('p1')
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const activePageMeta = PAGE_OPTIONS.find((item) => item.value === activePage) ?? PAGE_OPTIONS[2]
 
@@ -886,7 +1206,9 @@ function App() {
       </aside>
 
       <section className="app-content">
-        {activePage === 'p3' ? (
+        {activePage === 'p1' ? (
+          <P1Dashboard />
+        ) : activePage === 'p3' ? (
           <P3Dashboard />
         ) : (
           <PlaceholderPage title={activePageMeta.title} description={activePageMeta.description} />
