@@ -6,6 +6,7 @@ import {
   fetchDrilldownOptions,
   fetchProductRanking,
 } from './api/p3'
+import P2Dashboard from './P2Dashboard'
 
 const PAGE_OPTIONS = [
   {
@@ -1248,6 +1249,8 @@ function App() {
           <P1Dashboard />
         ) : activePage === 'p3' ? (
           <P3Dashboard />
+        ) : activePage === 'p2' ? (
+          <P2Dashboard />
         ) : (
           <PlaceholderPage title={activePageMeta.title} description={activePageMeta.description} />
         )}
@@ -1257,3 +1260,4 @@ function App() {
 }
 
 export default App
+
