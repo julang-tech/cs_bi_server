@@ -1,12 +1,13 @@
 # P1 Chat Dashboard API Contract
 
-当前文档描述 `P1 聊天数据看板` 的前后端契约。后端服务不在本项目实现，本项目仅保留前端页面和接口文档；开发期前端使用 mock 数据，但字段结构必须与本文档一致。
+当前文档描述 `P1 聊天数据看板` 的前后端契约。本项目通过 Node `app` 入口暴露 `/api/bi/p1/dashboard`，并在服务端代理真实邮件数据 API；前端只请求同源 `/api`，不会接触上游访问密钥。
 
 ## Runtime Model
 
 - 聊天数据来源
   - 一期只接入邮件数据，不包括 inbox 和 WhatsApp。
-  - 计划来源为 BQ 邮件数据或 mail_db_server 同步后的邮件数据。
+  - 当前来源为 `P1_API_BASE_URL` 指向的邮件数据服务。
+  - 服务端使用 `P1_API_KEY` 或 `CLOUD_ACCESS_KEY` 通过 `x-api-key` header 访问上游。
 - 时间口径
   - 聊天模块按自然日统计。
   - 所有趋势最细粒度统一到天，并支持按天 / 周 / 月聚合。

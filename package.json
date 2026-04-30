@@ -12,6 +12,7 @@
     "build:server": "tsc -p tsconfig.server.json",
     "lint": "eslint .",
     "test:p3": "npm run build:server --silent && node server-dist/server/test/p3.test.js",
+    "test:p1-api": "npm run build:server --silent && node server-dist/server/test/p1-api.test.js",
     "test:p3-api": "npm run build:server --silent && node server-dist/server/test/p3-api.test.js",
     "test:integrations": "npm run build:server --silent && node server-dist/server/test/integrations.test.js",
     "test:sync": "npm run build:server --silent && node server-dist/server/test/sync.test.js",

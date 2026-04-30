@@ -7,6 +7,8 @@ export type AppEnv = {
   host: string
   port: number
   syncConfigPath: string
+  p1ApiBaseUrl: string
+  p1ApiKey: string
   repoRoot: string
 }
 
@@ -24,6 +26,13 @@ export function loadEnv(): AppEnv {
         'sync',
         'config.example.json',
       ),
+    p1ApiBaseUrl:
+      process.env.P1_API_BASE_URL ??
+      'https://cs-mail.n8n-julang-tech-dev.com',
+    p1ApiKey:
+      process.env.P1_API_KEY ??
+      process.env.CLOUD_ACCESS_KEY ??
+      '',
     repoRoot,
   }
 }
