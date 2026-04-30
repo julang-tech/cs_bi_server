@@ -5,9 +5,9 @@
 ## Runtime Model
 
 - 客诉源
-  - `OpenClaw / Feishu` 多维表实时拉取
+  - 优先读取本地 SQLite 中的飞书目标表镜像，镜像不存在时回退到 `OpenClaw / Feishu` 目标表实时拉取
 - 订单与商品补数
-  - `Shopify BigQuery`
+  - 本地 SQLite BigQuery 缓存，由 `sync:run` / `sync:worker` 定时从 `Shopify BigQuery` 刷新
 - 服务内完成：
   - 标准化客诉记录
   - 三大类归类：`product / warehouse / logistics`
@@ -78,7 +78,7 @@ npm.cmd run dev
 
 - `summary.sales_qty`
   - Shopify 订单数汇总
-  - 来源：`shopify_dwd.dwd_orders_fact`
+  - 来源：本地 SQLite BigQuery 缓存中的订单行数据
 - `trends.sales_qty`
   - 按 `grain` 聚合后的订单数趋势
   - 与 `summary.sales_qty` 使用相同订单数口径

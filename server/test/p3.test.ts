@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import {
   buildDashboardPayload,
   buildDrilldownPreviewPayload,
@@ -15,6 +18,7 @@ import type {
   SummaryMetrics,
   TrendPoint,
 } from '../domain/p3/models.js'
+import { SqliteMirrorRepository, SqliteP3BigQueryCacheRepository } from '../integrations/sqlite.js'
 
 const baseFilters: P3Filters = {
   date_from: '2026-03-01',
@@ -90,7 +94,104 @@ const salesTrends: TrendPoint[] = [
   { bucket: '2026-03-09', sales_qty: 50, complaint_count: 0 },
 ]
 
-function run() {
+function createTempDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'bikanban-p3-'))
+}
+
+async function testSqliteBigQueryCacheRepository() {
+  const tmpDir = createTempDir()
+  const sqlitePath = path.join(tmpDir, 'issues.sqlite')
+  const repository = new SqliteMirrorRepository(sqlitePath)
+  repository.replaceBigQueryCacheWindow({
+    dateFrom: '2026-03-01',
+    dateTo: '2026-03-31',
+    orderLines: [
+      {
+        order_no: 'LC1',
+        processed_date: '2026-03-02',
+        sku: 'SKU-1',
+        skc: 'SKC-1',
+        spu: 'SPU-1',
+        quantity: 1,
+      },
+      {
+        order_no: 'LC2',
+        processed_date: '2026-03-03',
+        sku: 'SKU-2',
+        skc: 'SKC-2',
+        spu: 'SPU-2',
+        quantity: 1,
+      },
+      {
+        order_no: 'LC3',
+        processed_date: '2026-03-09',
+        sku: 'SKU-3',
+        skc: 'SKC-3',
+        spu: 'SPU-3',
+        quantity: 1,
+      },
+      {
+        order_no: 'LC3',
+        processed_date: '2026-03-09',
+        sku: 'SKU-4',
+        skc: 'SKC-4',
+        spu: 'SPU-4',
+        quantity: 1,
+      },
+    ],
+    refundEvents: [
+      { order_no: 'LC1', sku: 'SKU-1', refund_date: '2026-03-11' },
+      { order_no: 'LC3', sku: 'SKU-4', refund_date: '2026-03-12' },
+      { order_no: 'LC3', sku: 'SKU-3', refund_date: '2026-03-13' },
+    ],
+  })
+  repository.close()
+
+  const cache = new SqliteP3BigQueryCacheRepository(sqlitePath)
+  const summary = await cache.fetchSummary(baseFilters)
+  assert.equal(summary.sales_qty, 3)
+
+  const skuSummary = await cache.fetchSummary({ ...baseFilters, sku: 'SKU-4' })
+  assert.equal(skuSummary.sales_qty, 1)
+
+  const skcSummary = await cache.fetchSummary({ ...baseFilters, skc: 'SKC-1' })
+  assert.equal(skcSummary.sales_qty, 1)
+
+  const spuSummary = await cache.fetchSummary({ ...baseFilters, spu: 'SPU-3' })
+  assert.equal(spuSummary.sales_qty, 1)
+
+  const trends = await cache.fetchTrends(baseFilters)
+  assert.deepEqual(trends, [
+    { bucket: '2026-03-02', sales_qty: 2, complaint_count: 0 },
+    { bucket: '2026-03-09', sales_qty: 1, complaint_count: 0 },
+  ])
+
+  const productSales = await cache.fetchProductSales(baseFilters)
+  assert.deepEqual(
+    productSales.sort((left, right) => left.skc.localeCompare(right.skc)),
+    [
+      { spu: 'SPU-1', skc: 'SKC-1', sales_qty: 1 },
+      { spu: 'SPU-2', skc: 'SKC-2', sales_qty: 1 },
+      { spu: 'SPU-3', skc: 'SKC-3', sales_qty: 1 },
+      { spu: 'SPU-4', skc: 'SKC-4', sales_qty: 1 },
+    ],
+  )
+
+  const enriched = await cache.enrichIssues([
+    { ...issues[0], order_date: null, refund_date: null, skc: null, spu: null },
+    { ...issues[2], order_date: null, refund_date: null },
+  ])
+  assert.equal(enriched.issues[0]?.order_date, '2026-03-02')
+  assert.equal(enriched.issues[0]?.refund_date, '2026-03-11')
+  assert.equal(enriched.issues[0]?.skc, 'SKC-1')
+  assert.equal(enriched.issues[0]?.spu, 'SPU-1')
+  assert.equal(enriched.issues[1]?.order_date, '2026-03-09')
+  assert.equal(enriched.issues[1]?.refund_date, '2026-03-12')
+  assert.equal(enriched.issues[1]?.order_line_contexts.length, 2)
+}
+
+async function run() {
+  await testSqliteBigQueryCacheRepository()
   const filtered = filterIssues(issues, baseFilters)
   const result = computeDashboard(baseFilters, salesSummary, salesTrends, filtered, [], false)
   const payload = buildDashboardPayload(baseFilters, result)
@@ -186,4 +287,4 @@ function run() {
   console.log('P3 compute tests passed')
 }
 
-run()
+await run()

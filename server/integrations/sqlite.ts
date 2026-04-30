@@ -2,7 +2,18 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { TtlCache } from '../domain/p3/cache.js'
-import type { IssueProvider, SourceBundle, StandardIssueRecord } from '../domain/p3/models.js'
+import type {
+  IssueProvider,
+  OrderEnrichmentRepository,
+  OrderLineContext,
+  P3Filters,
+  ProductSalesPoint,
+  SalesRepository,
+  SourceBundle,
+  StandardIssueRecord,
+  SummaryMetrics,
+  TrendPoint,
+} from '../domain/p3/models.js'
 
 type SqliteLogger = {
   info?: (message: string) => void
@@ -35,6 +46,34 @@ type PersistedRow = {
   source_record_index: number
   synced_at: string
   fields_json: string
+}
+
+export type SqliteShopifyOrderLine = {
+  order_no: string
+  processed_date: string
+  sku: string | null
+  skc: string | null
+  spu: string | null
+  quantity: number
+}
+
+export type SqliteShopifyRefundEvent = {
+  order_no: string
+  sku: string | null
+  refund_date: string
+}
+
+export type BigQueryCacheSyncStats = {
+  order_lines_upserted: number
+  refund_events_upserted: number
+}
+
+type ShopifyOrderLineRow = SqliteShopifyOrderLine & {
+  synced_at: string
+}
+
+type ShopifyRefundEventRow = SqliteShopifyRefundEvent & {
+  synced_at: string
 }
 
 const ISSUE_VIEW_TO_MAJOR_TYPE = {
@@ -130,6 +169,35 @@ function stringifyJson(value: unknown) {
   return JSON.stringify(value ?? null)
 }
 
+function normalizeSku(value: unknown) {
+  return normalizeText(value)?.toUpperCase() ?? ''
+}
+
+function startOfWeekMonday(dateText: string) {
+  const date = new Date(`${dateText}T00:00:00Z`)
+  if (Number.isNaN(date.getTime())) {
+    return dateText
+  }
+  const day = date.getUTCDay()
+  const diff = day === 0 ? -6 : 1 - day
+  date.setUTCDate(date.getUTCDate() + diff)
+  return date.toISOString().slice(0, 10)
+}
+
+function bucketDate(dateText: string, grain: P3Filters['grain']) {
+  if (grain === 'day') {
+    return dateText
+  }
+  if (grain === 'week') {
+    return startOfWeekMonday(dateText)
+  }
+  return dateText.slice(0, 7) + '-01'
+}
+
+function uniqueOrderCount(rows: Array<{ order_no: string }>) {
+  return new Set(rows.map((row) => row.order_no)).size
+}
+
 export class SqliteMirrorRepository {
   private readonly db: DatabaseSync
 
@@ -175,6 +243,49 @@ export class SqliteMirrorRepository {
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS idx_feishu_target_records_active ON feishu_target_records(deleted_at, order_no);',
     )
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS shopify_order_lines (
+        order_no TEXT NOT NULL,
+        processed_date TEXT NOT NULL,
+        sku TEXT,
+        skc TEXT,
+        spu TEXT,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        synced_at TEXT NOT NULL,
+        PRIMARY KEY (order_no, sku, skc, spu)
+      );
+    `)
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_shopify_order_lines_date ON shopify_order_lines(processed_date);',
+    )
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_shopify_order_lines_product ON shopify_order_lines(sku, skc, spu);',
+    )
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS shopify_refund_events (
+        order_no TEXT NOT NULL,
+        sku TEXT,
+        refund_date TEXT NOT NULL,
+        synced_at TEXT NOT NULL,
+        PRIMARY KEY (order_no, sku, refund_date)
+      );
+    `)
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_shopify_refund_events_order ON shopify_refund_events(order_no);',
+    )
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS bigquery_cache_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        started_at TEXT NOT NULL,
+        finished_at TEXT,
+        date_from TEXT NOT NULL,
+        date_to TEXT NOT NULL,
+        ok INTEGER NOT NULL,
+        order_lines_upserted INTEGER NOT NULL DEFAULT 0,
+        refund_events_upserted INTEGER NOT NULL DEFAULT 0,
+        error TEXT
+      );
+    `)
   }
 
   syncRecords(records: SqliteMirrorRecord[], mode: SqliteSyncMode = { pruneMissing: true }): SqliteSyncStats {
@@ -341,8 +452,380 @@ export class SqliteMirrorRepository {
     }))
   }
 
+  replaceBigQueryCacheWindow(input: {
+    dateFrom: string
+    dateTo: string
+    orderLines: SqliteShopifyOrderLine[]
+    refundEvents: SqliteShopifyRefundEvent[]
+    startedAt?: string
+    finishedAt?: string
+  }): BigQueryCacheSyncStats {
+    const startedAt = input.startedAt ?? new Date().toISOString()
+    const finishedAt = input.finishedAt ?? new Date().toISOString()
+    const syncedAt = finishedAt
+    const deleteOrderLines = this.db.prepare(
+      'DELETE FROM shopify_order_lines WHERE processed_date BETWEEN ? AND ?',
+    )
+    const deleteRefundEvents = this.db.prepare(
+      'DELETE FROM shopify_refund_events WHERE refund_date BETWEEN ? AND ?',
+    )
+    const insertOrderLine = this.db.prepare(`
+      INSERT INTO shopify_order_lines (
+        order_no, processed_date, sku, skc, spu, quantity, synced_at
+      ) VALUES (
+        :order_no, :processed_date, :sku, :skc, :spu, :quantity, :synced_at
+      )
+      ON CONFLICT(order_no, sku, skc, spu) DO UPDATE SET
+        processed_date = excluded.processed_date,
+        quantity = excluded.quantity,
+        synced_at = excluded.synced_at;
+    `)
+    const insertRefundEvent = this.db.prepare(`
+      INSERT INTO shopify_refund_events (
+        order_no, sku, refund_date, synced_at
+      ) VALUES (
+        :order_no, :sku, :refund_date, :synced_at
+      )
+      ON CONFLICT(order_no, sku, refund_date) DO UPDATE SET
+        synced_at = excluded.synced_at;
+    `)
+    const insertRun = this.db.prepare(`
+      INSERT INTO bigquery_cache_runs (
+        started_at, finished_at, date_from, date_to, ok,
+        order_lines_upserted, refund_events_upserted, error
+      ) VALUES (?, ?, ?, ?, 1, ?, ?, NULL)
+    `)
+
+    this.db.exec('BEGIN')
+    try {
+      deleteOrderLines.run(input.dateFrom, input.dateTo)
+      deleteRefundEvents.run(input.dateFrom, input.dateTo)
+      for (const line of input.orderLines) {
+        if (!line.order_no || !line.processed_date) {
+          continue
+        }
+        insertOrderLine.run({
+          order_no: line.order_no,
+          processed_date: line.processed_date,
+          sku: line.sku,
+          skc: line.skc,
+          spu: line.spu,
+          quantity: line.quantity || 1,
+          synced_at: syncedAt,
+        })
+      }
+      for (const event of input.refundEvents) {
+        if (!event.order_no || !event.refund_date) {
+          continue
+        }
+        insertRefundEvent.run({
+          order_no: event.order_no,
+          sku: event.sku,
+          refund_date: event.refund_date,
+          synced_at: syncedAt,
+        })
+      }
+      insertRun.run(
+        startedAt,
+        finishedAt,
+        input.dateFrom,
+        input.dateTo,
+        input.orderLines.length,
+        input.refundEvents.length,
+      )
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
+    }
+
+    return {
+      order_lines_upserted: input.orderLines.length,
+      refund_events_upserted: input.refundEvents.length,
+    }
+  }
+
+  recordBigQueryCacheFailure(input: {
+    dateFrom: string
+    dateTo: string
+    startedAt?: string
+    finishedAt?: string
+    error: string
+  }) {
+    this.db
+      .prepare(`
+        INSERT INTO bigquery_cache_runs (
+          started_at, finished_at, date_from, date_to, ok, error
+        ) VALUES (?, ?, ?, ?, 0, ?)
+      `)
+      .run(
+        input.startedAt ?? new Date().toISOString(),
+        input.finishedAt ?? new Date().toISOString(),
+        input.dateFrom,
+        input.dateTo,
+        input.error,
+      )
+  }
+
+  listOrderLines(filters: P3Filters): ShopifyOrderLineRow[] {
+    const rows = this.db
+      .prepare(`
+        SELECT order_no, processed_date, sku, skc, spu, quantity, synced_at
+        FROM shopify_order_lines
+        WHERE processed_date BETWEEN ? AND ?
+        ORDER BY processed_date ASC, order_no ASC
+      `)
+      .all(filters.date_from, filters.date_to) as ShopifyOrderLineRow[]
+
+    return rows.filter((row) => {
+      if (filters.sku && row.sku !== filters.sku) {
+        return false
+      }
+      if (filters.skc && row.skc !== filters.skc) {
+        return false
+      }
+      if (filters.spu && row.spu !== filters.spu) {
+        return false
+      }
+      return true
+    })
+  }
+
+  listOrderLinesByOrderNos(orderNos: string[]): ShopifyOrderLineRow[] {
+    if (!orderNos.length) {
+      return []
+    }
+    const rows = this.db
+      .prepare('SELECT order_no, processed_date, sku, skc, spu, quantity, synced_at FROM shopify_order_lines')
+      .all() as ShopifyOrderLineRow[]
+    const allowed = new Set(orderNos)
+    return rows.filter((row) => allowed.has(row.order_no))
+  }
+
+  listRefundEventsByOrderNos(orderNos: string[]): ShopifyRefundEventRow[] {
+    if (!orderNos.length) {
+      return []
+    }
+    const rows = this.db
+      .prepare('SELECT order_no, sku, refund_date, synced_at FROM shopify_refund_events')
+      .all() as ShopifyRefundEventRow[]
+    const allowed = new Set(orderNos)
+    return rows.filter((row) => allowed.has(row.order_no))
+  }
+
+  hasBigQueryCacheRows() {
+    const row = this.db
+      .prepare(
+        'SELECT (SELECT COUNT(*) FROM shopify_order_lines) AS order_lines, (SELECT COUNT(*) FROM shopify_refund_events) AS refund_events',
+      )
+      .get() as { order_lines: number; refund_events: number }
+    return Number(row.order_lines ?? 0) > 0 || Number(row.refund_events ?? 0) > 0
+  }
+
   close() {
     this.db.close()
+  }
+}
+
+export class SqliteP3BigQueryCacheRepository implements SalesRepository, OrderEnrichmentRepository {
+  private readonly summaryCache = new TtlCache<SummaryMetrics>(300_000)
+  private readonly trendCache = new TtlCache<TrendPoint[]>(300_000)
+  private readonly productSalesCache = new TtlCache<ProductSalesPoint[]>(300_000)
+
+  constructor(
+    private readonly dbPath: string,
+    private readonly logger?: SqliteLogger,
+  ) {}
+
+  async fetchSummary(filters: P3Filters): Promise<SummaryMetrics> {
+    const cacheKey = JSON.stringify(['summary', filters])
+    const cached = this.summaryCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
+    const result = this.withRepository((repository) => ({
+      sales_qty: uniqueOrderCount(repository.listOrderLines(filters)),
+      complaint_count: 0,
+    }))
+    return this.summaryCache.set(cacheKey, result)
+  }
+
+  async fetchTrends(filters: P3Filters): Promise<TrendPoint[]> {
+    const cacheKey = JSON.stringify(['trends', filters])
+    const cached = this.trendCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
+    const result = this.withRepository((repository) => {
+      const buckets = new Map<string, Set<string>>()
+      for (const row of repository.listOrderLines(filters)) {
+        const bucket = bucketDate(row.processed_date, filters.grain)
+        buckets.set(bucket, (buckets.get(bucket) ?? new Set()).add(row.order_no))
+      }
+      return [...buckets.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([bucket, orderNos]) => ({
+          bucket,
+          sales_qty: orderNos.size,
+          complaint_count: 0,
+        }))
+    })
+    return this.trendCache.set(cacheKey, result)
+  }
+
+  async fetchProductSales(filters: P3Filters): Promise<ProductSalesPoint[]> {
+    const cacheKey = JSON.stringify(['product-sales', filters])
+    const cached = this.productSalesCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
+    const result = this.withRepository((repository) => {
+      const grouped = new Map<string, { spu: string; skc: string; orderNos: Set<string> }>()
+      for (const row of repository.listOrderLines(filters)) {
+        if (!row.spu || !row.skc) {
+          continue
+        }
+        const key = `${row.spu}\u0000${row.skc}`
+        grouped.set(
+          key,
+          grouped.get(key) ?? { spu: row.spu, skc: row.skc, orderNos: new Set<string>() },
+        )
+        grouped.get(key)?.orderNos.add(row.order_no)
+      }
+      return [...grouped.values()].map((item) => ({
+        spu: item.spu,
+        skc: item.skc,
+        sales_qty: item.orderNos.size,
+      }))
+    })
+    return this.productSalesCache.set(cacheKey, result)
+  }
+
+  async enrichIssues(issues: StandardIssueRecord[]) {
+    const orderNos = [...new Set(issues.map((issue) => issue.order_no).filter(Boolean))].sort()
+    if (!orderNos.length) {
+      return { issues, notes: [] }
+    }
+
+    return this.withRepository((repository) => {
+      if (!repository.hasBigQueryCacheRows()) {
+        return {
+          issues: issues.map((issue) => ({
+            ...issue,
+            order_date: issue.order_date ?? issue.record_date ?? null,
+          })),
+          notes: ['SQLite BigQuery cache has no Shopify order/refund rows.'],
+        }
+      }
+
+      const lineRows = repository.listOrderLinesByOrderNos(orderNos)
+      const refundRows = repository.listRefundEventsByOrderNos(orderNos)
+      const lineByOrder = new Map<string, OrderLineContext[]>()
+      const orderDateByOrder = new Map<string, string>()
+      const refundsByOrder = new Map<
+        string,
+        { earliest: string | null; bySku: Map<string, string> }
+      >()
+
+      for (const row of lineRows) {
+        const lineItems = lineByOrder.get(row.order_no) ?? []
+        if (row.sku) {
+          lineItems.push({
+            sku: row.sku,
+            quantity: Number(row.quantity ?? 1),
+            skc: row.skc,
+            spu: row.spu,
+          })
+        }
+        lineByOrder.set(row.order_no, lineItems)
+        if (!orderDateByOrder.has(row.order_no) || row.processed_date < orderDateByOrder.get(row.order_no)!) {
+          orderDateByOrder.set(row.order_no, row.processed_date)
+        }
+      }
+
+      for (const row of refundRows) {
+        const bucket = refundsByOrder.get(row.order_no) ?? {
+          earliest: null,
+          bySku: new Map<string, string>(),
+        }
+        if (!bucket.earliest || row.refund_date < bucket.earliest) {
+          bucket.earliest = row.refund_date
+        }
+        const skuKey = normalizeSku(row.sku)
+        if (skuKey) {
+          const current = bucket.bySku.get(skuKey)
+          if (!current || row.refund_date < current) {
+            bucket.bySku.set(skuKey, row.refund_date)
+          }
+        }
+        refundsByOrder.set(row.order_no, bucket)
+      }
+
+      const notes: string[] = []
+      const enriched = issues.map((issue) => {
+        const lineItems = lineByOrder.get(issue.order_no) ?? []
+        const matchedLine = this.matchLineItem(issue, lineItems)
+        const refundContext = refundsByOrder.get(issue.order_no)
+
+        if (!lineItems.length) {
+          notes.push(
+            `Missing SQLite BigQuery cache order enrichment for ${issue.order_no}; fell back to record_date when available.`,
+          )
+        }
+
+        return {
+          ...issue,
+          order_date: orderDateByOrder.get(issue.order_no) ?? issue.order_date ?? issue.record_date ?? null,
+          refund_date: this.resolveRefundDate(issue, refundContext) ?? issue.refund_date ?? null,
+          order_line_contexts: lineItems.length ? lineItems : issue.order_line_contexts,
+          skc: matchedLine?.skc ?? issue.skc ?? null,
+          spu: matchedLine?.spu ?? issue.spu ?? null,
+        }
+      })
+
+      this.logger?.info?.(`Enriched ${enriched.length} P3 issues from SQLite BigQuery cache.`)
+      return { issues: enriched, notes }
+    })
+  }
+
+  private resolveRefundDate(
+    issue: StandardIssueRecord,
+    refundContext: { earliest: string | null; bySku: Map<string, string> } | undefined,
+  ) {
+    if (!refundContext) {
+      return null
+    }
+    if (issue.major_issue_type === 'logistics' || issue.is_order_level_only) {
+      return refundContext.earliest
+    }
+    const skuKey = normalizeSku(issue.sku)
+    return (skuKey ? refundContext.bySku.get(skuKey) : null) ?? refundContext.earliest
+  }
+
+  private matchLineItem(issue: StandardIssueRecord, lineItems: OrderLineContext[]) {
+    if (issue.sku) {
+      const issueSku = normalizeSku(issue.sku)
+      const matched = lineItems.find((lineItem) => normalizeSku(lineItem.sku) === issueSku)
+      if (matched) {
+        return matched
+      }
+    }
+    return lineItems[0]
+  }
+
+  private withRepository<T>(callback: (repository: SqliteMirrorRepository) => T): T {
+    if (!fs.existsSync(this.dbPath)) {
+      this.logger?.warn?.(`SQLite BigQuery cache not found at ${this.dbPath}.`)
+    }
+    const repository = new SqliteMirrorRepository(this.dbPath)
+    try {
+      return callback(repository)
+    } finally {
+      repository.close()
+    }
   }
 }
 

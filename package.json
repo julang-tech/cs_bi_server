@@ -23,6 +23,7 @@
     "start": "node server-dist/server/entrypoints/app.js",
     "sync:preview": "npm run build:server --silent && node server-dist/server/entrypoints/sync.js preview",
     "sync:run": "npm run build:server --silent && node server-dist/server/entrypoints/sync.js sync",
+    "sync:source-to-target": "npm run build:server --silent && node server-dist/server/entrypoints/sync.js source-to-target",
     "sync:csv": "npm run build:server --silent && node server-dist/server/entrypoints/sync.js sync-csv",
     "sync:worker": "npm run build:server --silent && node server-dist/server/entrypoints/sync-worker.js"
   },

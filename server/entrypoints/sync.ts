@@ -30,13 +30,38 @@ program
 
 program
   .command('sync')
+  .description('Sync Feishu target table to SQLite and refresh BigQuery cache')
   .option('--config <path>', 'Path to sync config', env.syncConfigPath)
   .option('--date <date>', 'Only sync one date')
   .option('--from <date>', 'Start date')
   .option('--to <date>', 'End date')
   .action(async (options) => {
     const result = await service.sync(options)
-    if (!result.sqlite.ok) {
+    if (!result.sqlite.ok || !result.bigquery_cache.ok) {
+      process.exitCode = 1
+    }
+    console.log(
+      JSON.stringify(
+        {
+          ...result,
+          config: maskSyncConfig(result.config),
+        },
+        null,
+        2,
+      ),
+    )
+  })
+
+program
+  .command('source-to-target')
+  .description('Sync Feishu source table to target table with Shopify enrichment')
+  .option('--config <path>', 'Path to sync config', env.syncConfigPath)
+  .option('--date <date>', 'Only sync one date')
+  .option('--from <date>', 'Start date')
+  .option('--to <date>', 'End date')
+  .action(async (options) => {
+    const result = await service.syncSourceToTarget(options)
+    if (!result.sqlite.ok || !result.bigquery_cache.ok) {
       process.exitCode = 1
     }
     console.log(
