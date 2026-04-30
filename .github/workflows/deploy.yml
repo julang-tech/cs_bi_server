@@ -1,0 +1,64 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cs-bi-server-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to lintico-server-1
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_PRIVATE_KEY: ${{ secrets.DEPLOY_SSH_PRIVATE_KEY }}
+        run: |
+          set -Eeuo pipefail
+
+          if [ -z "$DEPLOY_SSH_PRIVATE_KEY" ]; then
+            echo "DEPLOY_SSH_PRIVATE_KEY secret is required." >&2
+            exit 1
+          fi
+
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_PRIVATE_KEY" > ~/.ssh/cs_bi_server_deploy
+          chmod 600 ~/.ssh/cs_bi_server_deploy
+          ssh-keyscan -p 2222 183.6.71.38 >> ~/.ssh/known_hosts
+
+      - name: Deploy over SSH
+        run: |
+          set -Eeuo pipefail
+
+          ssh \
+            -i ~/.ssh/cs_bi_server_deploy \
+            -p 2222 \
+            -o IdentitiesOnly=yes \
+            lintico-server-1@183.6.71.38 <<'REMOTE'
+          set -Eeuo pipefail
+
+          export DEPLOY_BRANCH=main
+          export DEPLOY_PATH="$HOME/work/cs_bi_server"
+          export NODE_BIN_DIR="$HOME/.nvm/versions/node/v24.15.0/bin"
+
+          cd "$DEPLOY_PATH"
+          git fetch origin "$DEPLOY_BRANCH"
+
+          current_branch="$(git rev-parse --abbrev-ref HEAD)"
+          if [ "$current_branch" != "$DEPLOY_BRANCH" ]; then
+            git checkout "$DEPLOY_BRANCH"
+          fi
+
+          git pull --ff-only origin "$DEPLOY_BRANCH"
+          SKIP_PULL=1 bash scripts/deploy-systemd-user.sh
+          REMOTE
