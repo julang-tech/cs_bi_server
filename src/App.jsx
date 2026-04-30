@@ -7,16 +7,19 @@ import P3Dashboard from './P3Dashboard'
 const PAGE_OPTIONS = [
   {
     value: 'p1',
+    shortTitle: 'P1',
     title: '聊天数据看板',
     description: '查看客服接待规模与响应效率',
   },
   {
     value: 'p2',
+    shortTitle: 'P2',
     title: '退款情况看板',
     description: '查看退款规模、占比与商品分布',
   },
   {
     value: 'p3',
+    shortTitle: 'P3',
     title: '客诉总览看板',
     description: '查看销量、客诉量、客诉率和整体问题规模',
   },
@@ -66,7 +69,7 @@ function App() {
               onClick={() => setActivePage(page.value)}
             >
               <span className="side-nav__text">
-                <strong>{page.title}</strong>
+                <strong>{isSidebarCollapsed ? page.shortTitle : page.title}</strong>
                 {!isSidebarCollapsed ? <small>{page.description}</small> : null}
               </span>
             </button>
