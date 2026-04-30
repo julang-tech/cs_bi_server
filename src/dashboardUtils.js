@@ -9,8 +9,6 @@ export const DATE_BASIS_OPTIONS = [
   { value: 'refund_date', label: '退款时间' },
 ]
 
-const P3_DEFAULT_START_DATE = '2026-01-01'
-const P1_DEFAULT_START_DATE = '2026-01-01'
 export const RANKING_PAGE_SIZE_OPTIONS = [5, 10, 20, 50]
 
 export const AGENT_OPTIONS = [
@@ -47,20 +45,29 @@ export function formatDateInput(date) {
   return `${year}-${month}-${day}`
 }
 
+function createDefaultDateWindow() {
+  const end = shiftDate(new Date(), -1)
+  const start = shiftDate(end, -30)
+  return {
+    date_from: formatDateInput(start),
+    date_to: formatDateInput(end),
+  }
+}
+
 export function createDefaultFilters() {
+  const dateWindow = createDefaultDateWindow()
   return {
     grain: 'week',
     date_basis: 'order_date',
-    date_from: P3_DEFAULT_START_DATE,
-    date_to: formatDateInput(shiftDate(new Date(), -1)),
+    ...dateWindow,
   }
 }
 
 export function createDefaultP1Filters() {
+  const dateWindow = createDefaultDateWindow()
   return {
     grain: 'day',
-    date_from: P1_DEFAULT_START_DATE,
-    date_to: formatDateInput(shiftDate(new Date(), -1)),
+    ...dateWindow,
     agent_name: '',
   }
 }

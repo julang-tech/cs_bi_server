@@ -312,26 +312,19 @@
 }
 
 .p1-summary-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
 }
 
 .p1-summary-grid .summary-card {
   display: flex;
   flex-direction: column;
-  min-height: 258px;
-  padding: 30px 30px 28px;
+  min-height: 210px;
+  padding: 22px 16px 20px;
 }
 
 .p1-summary-grid .summary-card__value {
-  font-size: clamp(46px, 4.5vw, 64px);
-}
-
-.p1-summary-grid .summary-card__description {
-  max-width: 100%;
-  min-height: 48px;
-  margin-top: auto;
-  padding-top: 18px;
-  font-size: 16px;
+  font-size: clamp(34px, 3vw, 46px);
 }
 
 .p3-summary-grid .summary-card {
@@ -346,15 +339,71 @@
 }
 
 .summary-card__header {
+  position: relative;
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
 }
 
-.summary-card__header h2 {
+.summary-card__title {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  outline: 0;
+}
+
+.summary-card__title h2 {
   font-size: 24px;
   line-height: 1.1;
+}
+
+.summary-card__info {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #d8cbbb;
+  border-radius: 999px;
+  background: #fffdfa;
+  color: #7a8798;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.summary-card__tooltip {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 10px);
+  z-index: 20;
+  width: min(320px, 72vw);
+  padding: 12px 14px;
+  border: 1px solid rgba(227, 216, 201, 0.95);
+  border-radius: 14px;
+  background: #fffdfa;
+  box-shadow: 0 16px 38px rgba(46, 40, 32, 0.16);
+  color: #556887;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.summary-card__title:hover .summary-card__tooltip,
+.summary-card__title:focus .summary-card__tooltip,
+.summary-card__title:focus-within .summary-card__tooltip {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .summary-card__body {
@@ -367,6 +416,12 @@
   gap: 18px;
   align-items: end;
   margin-top: 22px;
+}
+
+.p1-summary-grid .summary-card--horizontal .summary-card__body {
+  grid-template-columns: minmax(0, 1fr) minmax(86px, auto);
+  gap: 10px;
+  align-items: end;
 }
 
 .summary-card__value {
@@ -384,6 +439,10 @@
   font-size: clamp(46px, 4.5vw, 64px);
   letter-spacing: 0;
   overflow-wrap: anywhere;
+}
+
+.p1-summary-grid .summary-card--horizontal .summary-card__value {
+  font-size: clamp(34px, 3vw, 46px);
 }
 
 .summary-card__secondary {
@@ -409,6 +468,18 @@
   text-align: right;
   background: #fff8ef;
   border: 1px solid rgba(227, 216, 201, 0.78);
+}
+
+.p1-summary-grid .summary-card--horizontal .summary-card__secondary {
+  justify-items: end;
+  min-width: 86px;
+  min-height: 56px;
+  padding: 10px 10px;
+  text-align: right;
+}
+
+.p1-summary-grid .summary-card--horizontal .summary-card__secondary strong {
+  font-size: 18px;
 }
 
 .summary-card__secondary strong {
@@ -460,23 +531,6 @@
 .p1-timeout-summary-card .summary-card__metrics strong {
   font-size: 15px;
 }
-.summary-card__description {
-  max-width: 88%;
-  min-height: 56px;
-  margin-top: 18px;
-  color: #556887;
-  font-size: 18px;
-  line-height: 1.55;
-}
-
-.summary-card--horizontal .summary-card__description {
-  max-width: 100%;
-  min-height: 48px;
-  margin-top: auto;
-  padding-top: 18px;
-  font-size: 16px;
-}
-
 .summary-badge {
   display: inline-flex;
   align-items: center;
@@ -1196,21 +1250,22 @@
     margin-left: 0;
   }
 
-  .summary-card__description {
-    max-width: 100%;
-  }
-
   .trend-chart {
     height: 150px;
   }
 
-  .p1-summary-grid,
   .p1-main-grid {
     grid-template-columns: 1fr;
   }
 
   .p1-trend-card {
     min-height: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .p1-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1299,6 +1354,10 @@
     font-size: 42px;
   }
 
+  .p1-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
   .p1-trend-chart {
     height: 220px;
     margin-left: 12px;
@@ -1318,11 +1377,6 @@
   .summary-card__metrics span {
     flex: 1 1 140px;
     justify-content: space-between;
-  }
-
-  .summary-card__description {
-    min-height: 0;
-    font-size: 16px;
   }
 
   .ranking-pagination,

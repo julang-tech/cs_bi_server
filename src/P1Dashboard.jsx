@@ -398,7 +398,7 @@ export default function P1Dashboard() {
           rangeLabel="范围均值"
           rangeValue={loading ? '--' : formatHours(rangeSummary?.avg_queue_hours, 1)}
           description="客户邮件到人工回复的时间差均值，用于衡量响应效率。"
-          badge={{ label: '客户首封到人工首回', tone: 'cool' }}
+          badge={{ label: '首封到首回', tone: 'cool' }}
           tone="rate"
           layout="horizontal"
         />
