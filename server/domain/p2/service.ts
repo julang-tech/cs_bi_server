@@ -35,28 +35,8 @@ function toText(value: unknown) {
   return String(value ?? '')
 }
 
-const BASE_FROM = `
-FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
-LEFT JOIN (
-  SELECT order_id, SUM(CAST(refund_subtotal AS NUMERIC)) AS refund_amount
-  FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\`
-  GROUP BY order_id
-) r ON r.order_id = o.order_id
-WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
-  AND NOT COALESCE(o.is_gift_card_order, FALSE)
-  AND (@category = '' OR o.primary_product_type = @category)
-  AND (@channel = '' OR o.shop_domain = @channel)
-  AND (
-    @listing_date_from = ''
-    OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from)
-  )
-  AND (
-    @listing_date_to = ''
-    OR DATE(o.first_published_at_in_order) <= DATE(@listing_date_to)
-  )
-  AND (@skc = '' OR @skc IN UNNEST(IFNULL(o.skcs, [])))
-  AND (@spu = '' OR @spu IN UNNEST(IFNULL(o.product_ids, [])))
-`
+const ADR_0007_METRIC_NOTE =
+  'Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping; refund_amount is now refund-flow (events in window) not cohort (orders in window). See lintico-data-warehouse/shopify_data_sync/docs/decisions/0007-dwd-align-with-cs-bi-finance.md'
 
 export class P2Service {
   constructor(private readonly client: BigQueryLike | null) {}
@@ -94,18 +74,54 @@ export class P2Service {
     const rows = extractRows(
       await this.client.query({
         query: `
+WITH order_metrics AS (
+  SELECT
+    COUNT(DISTINCT o.order_id) AS order_count,
+    COUNT(DISTINCT IF(COALESCE(o.is_regular_order, FALSE), o.order_id, NULL)) AS regular_order_count,
+    COUNT(DISTINCT IF(NOT COALESCE(o.is_regular_order, FALSE), o.order_id, NULL)) AS non_regular_order_count,
+    SUM(COALESCE(o.cs_bi_gmv, 0)) AS gmv,
+    SUM(COALESCE(o.cs_bi_revenue, 0)) AS net_received_amount,
+    SUM(COALESCE(o.cs_bi_net_revenue, 0)) AS net_revenue_amount,
+    SUM(IF(COALESCE(o.is_regular_order, FALSE), COALESCE(o.cs_bi_revenue, 0), 0)) AS regular_received_amount,
+    SUM(IF(NOT COALESCE(o.is_regular_order, FALSE), COALESCE(o.cs_bi_revenue, 0), 0)) AS non_regular_received_amount
+  FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
+  WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+    AND NOT COALESCE(o.is_gift_card_order, FALSE)
+    AND (@category = '' OR o.primary_product_type = @category)
+    AND (@channel = '' OR o.shop_domain = @channel)
+    AND (@listing_date_from = '' OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from))
+    AND (@listing_date_to = '' OR DATE(o.first_published_at_in_order) <= DATE(@listing_date_to))
+    AND (@skc = '' OR @skc IN UNNEST(IFNULL(o.skcs, [])))
+    AND (@spu = '' OR @spu IN UNNEST(IFNULL(o.product_ids, [])))
+),
+refund_metrics AS (
+  SELECT
+    COUNT(DISTINCT re.order_id) AS refund_order_count,
+    SUM(CAST(re.refund_subtotal AS NUMERIC)) AS refund_amount
+  FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
+  JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o ON re.order_id = o.order_id
+  WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+    AND NOT COALESCE(o.is_gift_card_order, FALSE)
+    AND (@category = '' OR o.primary_product_type = @category)
+    AND (@channel = '' OR o.shop_domain = @channel)
+    AND (@listing_date_from = '' OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from))
+    AND (@listing_date_to = '' OR DATE(o.first_published_at_in_order) <= DATE(@listing_date_to))
+    AND (@skc = '' OR @skc IN UNNEST(IFNULL(o.skcs, [])))
+    AND (@spu = '' OR @spu IN UNNEST(IFNULL(o.product_ids, [])))
+)
 SELECT
-  COUNT(DISTINCT o.order_id) AS order_count,
-  COUNT(DISTINCT IF(COALESCE(o.is_regular_order, FALSE), o.order_id, NULL)) AS regular_order_count,
-  COUNT(DISTINCT IF(NOT COALESCE(o.is_regular_order, FALSE), o.order_id, NULL)) AS non_regular_order_count,
-  SUM(COALESCE(o.gmv, 0)) AS gmv,
-  SUM(COALESCE(o.revenue_after_all_discounts, 0)) AS net_received_amount,
-  SUM(COALESCE(o.revenue_after_all_discounts, 0) - COALESCE(r.refund_amount, 0)) AS net_revenue_amount,
-  SUM(IF(COALESCE(o.is_regular_order, FALSE), COALESCE(o.revenue_after_all_discounts, 0), 0)) AS regular_received_amount,
-  SUM(IF(NOT COALESCE(o.is_regular_order, FALSE), COALESCE(o.revenue_after_all_discounts, 0), 0)) AS non_regular_received_amount,
-  COUNT(DISTINCT IF(COALESCE(r.refund_amount, 0) > 0, o.order_id, NULL)) AS refund_order_count,
-  SUM(COALESCE(r.refund_amount, 0)) AS refund_amount
-${BASE_FROM}
+  om.order_count,
+  om.regular_order_count,
+  om.non_regular_order_count,
+  om.gmv,
+  om.net_received_amount,
+  om.net_revenue_amount,
+  om.regular_received_amount,
+  om.non_regular_received_amount,
+  rm.refund_order_count,
+  rm.refund_amount
+FROM order_metrics om
+CROSS JOIN refund_metrics rm
         `,
         params: {
           ...this.buildParams(filters),
@@ -138,6 +154,7 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
   AND (@spu = '' OR @spu IN UNNEST(IFNULL(o.product_ids, [])))
   AND NOT COALESCE(li.is_insurance_item, FALSE)
   AND NOT COALESCE(li.is_price_adjustment, FALSE)
+  AND NOT COALESCE(li.is_shipping_cost, FALSE)
         `,
         params: {
           ...this.buildParams(filters),
@@ -179,7 +196,7 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
       },
       meta: {
         partial_data: false,
-        notes: [],
+        notes: [ADR_0007_METRIC_NOTE],
       },
     }
   }
@@ -230,6 +247,7 @@ WITH line_base AS (
       AND NOT COALESCE(o.is_gift_card_order, FALSE)
       AND NOT COALESCE(li.is_insurance_item, FALSE)
       AND NOT COALESCE(li.is_price_adjustment, FALSE)
+      AND NOT COALESCE(li.is_shipping_cost, FALSE)
       AND (@category = '' OR o.primary_product_type = @category)
       AND (@channel = '' OR o.shop_domain = @channel)
       AND (
