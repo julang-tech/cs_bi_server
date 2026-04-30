@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import {
   RANKING_PAGE_SIZE_OPTIONS,
   buildSparklineArea,
@@ -43,6 +43,7 @@ export function SummaryCard({
   layout = 'stacked',
   className = '',
 }) {
+  const descriptionId = useId()
   const cardClassName = ['summary-card', `summary-card--${tone}`, `summary-card--${layout}`, className]
     .filter(Boolean)
     .join(' ')
@@ -50,7 +51,17 @@ export function SummaryCard({
   return (
     <article className={cardClassName}>
       <div className="summary-card__header">
-        <h2>{title}</h2>
+        <div className="summary-card__title" tabIndex="0" aria-describedby={description ? descriptionId : undefined}>
+          <h2>{title}</h2>
+          {description ? (
+            <>
+              <span className="summary-card__info" aria-hidden="true">?</span>
+              <span id={descriptionId} role="tooltip" className="summary-card__tooltip">
+                {description}
+              </span>
+            </>
+          ) : null}
+        </div>
         <span className={`summary-badge summary-badge--${badge.tone}`}>{badge.label}</span>
       </div>
       <div className="summary-card__body">
@@ -72,7 +83,6 @@ export function SummaryCard({
           ))}
         </div>
       ) : null}
-      <p className="summary-card__description">{description}</p>
     </article>
   )
 }
