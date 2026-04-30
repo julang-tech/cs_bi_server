@@ -206,7 +206,7 @@ export default function P3Dashboard() {
 
       {dashboardError ? <section className="status-banner status-banner--error">{dashboardError}</section> : null}
 
-      <section className="summary-grid">
+      <section className="summary-grid p3-summary-grid">
         <SummaryCard
           title="订单数"
           value={dashboardLoading ? '--' : formatInteger(summary?.sales_qty)}
@@ -215,6 +215,7 @@ export default function P3Dashboard() {
           description="按订单时间窗统计的订单量，用于观察客诉规模对应的订单基数。"
           badge={{ label: dashboardLoading ? '计算中' : salesDelta.text, tone: salesDelta.tone }}
           tone="sales"
+          layout="horizontal"
         />
         <SummaryCard
           title="客诉量"
@@ -227,6 +228,7 @@ export default function P3Dashboard() {
             tone: complaintDelta.tone,
           }}
           tone="complaints"
+          layout="horizontal"
         />
         <SummaryCard
           title="客诉率"
@@ -239,6 +241,7 @@ export default function P3Dashboard() {
             tone: complaintRateDelta.tone,
           }}
           tone="rate"
+          layout="horizontal"
         />
       </section>
 

@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import {
   RANKING_PAGE_SIZE_OPTIONS,
-  buildChartPointData,
   buildSparklineArea,
   buildSparklinePoints,
   formatInteger,
@@ -32,20 +31,34 @@ export function MiniSparkline({ items }) {
   )
 }
 
-export function SummaryCard({ title, value, rangeValue, rangeLabel, extraMetrics = [], description, badge, tone }) {
+export function SummaryCard({
+  title,
+  value,
+  rangeValue,
+  rangeLabel,
+  extraMetrics = [],
+  description,
+  badge,
+  tone,
+  layout = 'stacked',
+}) {
+  const className = ['summary-card', `summary-card--${tone}`, `summary-card--${layout}`].join(' ')
+
   return (
-    <article className={`summary-card summary-card--${tone}`}>
+    <article className={className}>
       <div className="summary-card__header">
         <h2>{title}</h2>
         <span className={`summary-badge summary-badge--${badge.tone}`}>{badge.label}</span>
       </div>
-      <div className="summary-card__value">{value}</div>
-      {rangeLabel || rangeValue ? (
-        <div className="summary-card__secondary">
-          <span>{rangeLabel}</span>
-          <strong>{rangeValue}</strong>
-        </div>
-      ) : null}
+      <div className="summary-card__body">
+        <div className="summary-card__value">{value}</div>
+        {rangeLabel || rangeValue ? (
+          <div className="summary-card__secondary">
+            <span>{rangeLabel}</span>
+            <strong>{rangeValue}</strong>
+          </div>
+        ) : null}
+      </div>
       {extraMetrics.length ? (
         <div className="summary-card__metrics">
           {extraMetrics.map((item) => (
@@ -61,7 +74,54 @@ export function SummaryCard({ title, value, rangeValue, rangeLabel, extraMetrics
   )
 }
 
-export function TrendChart({ title, items, tone, formatter }) {
+function formatTrendDelta(firstValue, latestValue, mode) {
+  const diff = latestValue - firstValue
+
+  if (mode === 'pp') {
+    if (diff === 0) {
+      return '较首期 0.00pp'
+    }
+    return `较首期 ${diff > 0 ? '+' : '-'}${Math.abs(diff * 100).toFixed(2)}pp`
+  }
+
+  if (!firstValue) {
+    return diff === 0 ? '较首期 0.0%' : '首期为 0'
+  }
+
+  const ratio = diff / firstValue
+  if (ratio === 0) {
+    return '较首期 0.0%'
+  }
+  return `较首期 ${ratio > 0 ? '+' : '-'}${Math.abs(ratio * 100).toFixed(1)}%`
+}
+
+function getTrendPointData(items) {
+  const values = items.map((item) => item.value)
+  const minValue = Math.min(...values, 0)
+  const maxValue = Math.max(...values, 0)
+  const safeRange = maxValue === minValue ? 1 : maxValue - minValue
+  const bounds = {
+    left: 8,
+    right: 96,
+    top: 10,
+    bottom: 86,
+  }
+  const xRange = bounds.right - bounds.left
+  const yRange = bounds.bottom - bounds.top
+
+  return {
+    minValue,
+    maxValue,
+    points: items.map((item, index) => ({
+      ...item,
+      index,
+      x: items.length === 1 ? 50 : bounds.left + (index / (items.length - 1)) * xRange,
+      y: bounds.bottom - ((item.value - minValue) / safeRange) * yRange,
+    })),
+  }
+}
+
+export function TrendChart({ title, items, tone, formatter, deltaMode = 'percent' }) {
   const [tooltip, setTooltip] = useState(null)
 
   if (!items?.length) {
@@ -73,23 +133,42 @@ export function TrendChart({ title, items, tone, formatter }) {
     )
   }
 
-  const pointData = buildChartPointData(items)
+  const { points: pointData, minValue, maxValue } = getTrendPointData(items)
+  const firstPoint = pointData[0]
+  const latestPoint = pointData[pointData.length - 1]
   const points = pointData.map((item) => `${item.x},${item.y}`).join(' ')
-  const area = buildSparklineArea(items)
+  const tooltipClassName = ['trend-tooltip', tooltip?.x > 82 ? 'trend-tooltip--left' : ''].filter(Boolean).join(' ')
+  const deltaText = formatTrendDelta(firstPoint.value, latestPoint.value, deltaMode)
 
   return (
     <article className={`trend-card trend-card--${tone}`}>
-      <h3>{title}</h3>
+      <div className="trend-card__header">
+        <div>
+          <h3>{title}</h3>
+          <span className="trend-card__delta">{deltaText}</span>
+        </div>
+        <div className="trend-card__latest">
+          <span>最新</span>
+          <strong>{formatter(latestPoint.value)}</strong>
+        </div>
+      </div>
       <div className="trend-chart" onMouseLeave={() => setTooltip(null)}>
         <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={`${title}趋势`}>
-          <defs>
-            <linearGradient id={`trend-gradient-${tone}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="currentColor" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="currentColor" stopOpacity="0.02" />
-            </linearGradient>
-          </defs>
-          <polyline fill={`url(#trend-gradient-${tone})`} points={area} />
-          <polyline className="mini-chart__line" fill="none" points={points} />
+          <g className="trend-chart__grid" aria-hidden="true">
+            {[25, 50, 75].map((line) => (
+              <line key={line} x1="8" x2="96" y1={line} y2={line} />
+            ))}
+          </g>
+          {tooltip ? (
+            <line
+              className="trend-chart__reference-line"
+              x1={tooltip.x}
+              x2={tooltip.x}
+              y1="10"
+              y2="86"
+            />
+          ) : null}
+          <polyline className="trend-chart__line" fill="none" points={points} />
           {pointData.map((item) => (
             <g
               key={item.bucket}
@@ -108,14 +187,23 @@ export function TrendChart({ title, items, tone, formatter }) {
               })}
               tabIndex="0"
             >
-              <circle className="trend-chart__hit-circle" cx={item.x} cy={item.y} r="5.5" />
-              <circle className="trend-chart__point" cx={item.x} cy={item.y} r="2.2" />
+              <circle className="trend-chart__hit-circle" cx={item.x} cy={item.y} r="7" />
             </g>
           ))}
         </svg>
+        <span className="trend-chart__axis-label trend-chart__axis-label--top">
+          {formatter(maxValue)}
+        </span>
+        <span className="trend-chart__axis-label trend-chart__axis-label--bottom">
+          {formatter(minValue)}
+        </span>
+        <div className="trend-chart__bucket-labels" aria-hidden="true">
+          <span>{firstPoint.bucket}</span>
+          <span>{latestPoint.bucket}</span>
+        </div>
         {tooltip ? (
           <div
-            className="trend-tooltip"
+            className={tooltipClassName}
             style={{
               left: `${tooltip.x}%`,
               top: `${tooltip.y}%`,
@@ -234,6 +322,7 @@ export function TrendSection({ dashboard }) {
         tone="rate"
         items={dashboard?.trends?.complaint_rate ?? []}
         formatter={(value) => formatPercent(value, 2)}
+        deltaMode="pp"
       />
     </section>
   )
