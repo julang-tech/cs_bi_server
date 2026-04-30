@@ -13,51 +13,177 @@ import {
 } from './dashboardUtils'
 
 function WorkloadAverageChart({ rows }) {
+  const [metricKey, setMetricKey] = useState('avg_outbound_emails_per_hour_by_span')
+  const [hiddenAgents, setHiddenAgents] = useState(() => new Set())
+  const [tooltip, setTooltip] = useState(null)
+
   if (!rows.length) {
     return <div className="empty-state p1-workload-chart">暂无坐席均值数据</div>
   }
 
-  const metrics = [
+  const metricOptions = [
     {
       key: 'span',
       label: '首末封均值',
-      className: 'p1-workload-bar--span',
-      getValue: (row) => row.avg_outbound_emails_per_hour_by_span ?? 0,
+      value: 'avg_outbound_emails_per_hour_by_span',
     },
     {
       key: 'schedule',
       label: '工时表均值',
-      className: 'p1-workload-bar--schedule',
-      getValue: (row) => row.avg_outbound_emails_per_hour_by_schedule ?? 0,
+      value: 'avg_outbound_emails_per_hour_by_schedule',
     },
   ]
-  const maxValue = Math.max(...metrics.flatMap((item) => rows.map((row) => item.getValue(row))), 1)
+  const palette = ['#52728d', '#b65c68', '#3c8f89', '#b17220', '#7c6597', '#8a6f5a']
+  const visibleRows = rows.filter((row) => !hiddenAgents.has(row.agent_name))
+  const visibleValues = visibleRows.flatMap((row) => row.items.map((item) => item[metricKey] ?? 0))
+  const minValue = Math.min(...visibleValues, 0)
+  const maxValue = Math.max(...visibleValues, 0)
+  const safeRange = maxValue === minValue ? 1 : maxValue - minValue
+  const longestRow = rows.reduce((current, row) => (row.items.length > current.items.length ? row : current), rows[0])
+  const pointCount = longestRow?.items.length ?? 0
+  const bounds = {
+    left: 8,
+    right: 96,
+    top: 10,
+    bottom: 86,
+  }
+
+  function getX(items, index) {
+    return items.length === 1 ? 50 : bounds.left + (index / (items.length - 1)) * (bounds.right - bounds.left)
+  }
+
+  function getY(value) {
+    return bounds.bottom - ((value - minValue) / safeRange) * (bounds.bottom - bounds.top)
+  }
+
+  function getPointData(row) {
+    return row.items.map((item, index) => ({
+      ...item,
+      x: getX(row.items, index),
+      y: getY(item[metricKey] ?? 0),
+    }))
+  }
+
+  function toggleAgent(agentName) {
+    setHiddenAgents((current) => {
+      const next = new Set(current)
+      if (next.has(agentName)) {
+        next.delete(agentName)
+      } else {
+        next.add(agentName)
+      }
+      return next
+    })
+  }
+
+  function getTooltipClassName(point) {
+    return ['trend-tooltip', point.x > 82 ? 'trend-tooltip--left' : ''].filter(Boolean).join(' ')
+  }
+
+  const firstBucket = longestRow?.items[0]?.bucket
+  const latestBucket = longestRow?.items[longestRow.items.length - 1]?.bucket
 
   return (
-    <div className="p1-workload-chart">
-      <div className="p1-trend-legend p1-workload-legend" aria-label="坐席均值图例">
-        <span className="p1-legend-item p1-workload-legend--span">首末封均值</span>
-        <span className="p1-legend-item p1-workload-legend--schedule">工时表均值</span>
+    <div className="p1-workload-chart" onMouseLeave={() => setTooltip(null)}>
+      <div className="p1-workload-controls">
+        <div className="segmented-control p1-workload-metric-toggle" role="tablist" aria-label="坐席均值指标切换">
+          {metricOptions.map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={`segment-button ${metricKey === option.value ? 'segment-button--active' : ''}`}
+              onClick={() => setMetricKey(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div className="p1-agent-toggle-list" aria-label="坐席折线筛选">
+          {rows.map((row, index) => {
+            const color = palette[index % palette.length]
+            const checked = !hiddenAgents.has(row.agent_name)
+
+            return (
+              <label key={row.agent_name} className="p1-agent-toggle" style={{ '--agent-color': color }}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleAgent(row.agent_name)}
+                />
+                <span>{row.agent_name}</span>
+              </label>
+            )
+          })}
+        </div>
       </div>
-      <div className="p1-workload-bars" aria-label="坐席回复均值对比">
-        {rows.map((row) => (
-          <div key={row.agent_name} className="p1-workload-bars__row">
-            <strong>{row.agent_name}</strong>
-            <div className="p1-workload-bars__tracks">
-              {metrics.map((item) => {
-                const value = item.getValue(row)
-                const width = `${Math.max(3, (value / maxValue) * 100)}%`
+      <div className="p1-workload-trend">
+        {visibleRows.length && pointCount ? (
+          <>
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="坐席工作量趋势">
+              <g className="p1-trend-gridlines" aria-hidden="true">
+                {[25, 50, 75].map((line) => (
+                  <line key={line} x1="8" x2="96" y1={line} y2={line} />
+                ))}
+              </g>
+              {tooltip ? (
+                <line
+                  className="trend-chart__reference-line"
+                  x1={tooltip.x}
+                  x2={tooltip.x}
+                  y1="10"
+                  y2="86"
+                />
+              ) : null}
+              {visibleRows.map((row) => {
+                const color = palette[rows.findIndex((item) => item.agent_name === row.agent_name) % palette.length]
+                const points = getPointData(row).map((item) => `${item.x},${item.y}`).join(' ')
 
                 return (
-                  <div key={item.key} className="p1-workload-bars__track">
-                    <span className={`p1-workload-bar ${item.className}`} style={{ width }} />
-                    <span className="p1-workload-bars__value">{formatDecimal(value)}</span>
-                  </div>
+                  <polyline
+                    key={row.agent_name}
+                    className="p1-workload-trend__line"
+                    fill="none"
+                    points={points}
+                    style={{ stroke: color }}
+                  />
                 )
               })}
+              {getPointData(longestRow).map((item, index) => (
+                <g
+                  key={item.bucket}
+                  className="trend-chart__hit-area"
+                  onMouseEnter={() => setTooltip({ bucket: item.bucket, index, x: item.x, y: item.y })}
+                  onFocus={() => setTooltip({ bucket: item.bucket, index, x: item.x, y: item.y })}
+                  tabIndex="0"
+                >
+                  <circle className="trend-chart__hit-circle" cx={item.x} cy={item.y} r="7" />
+                </g>
+              ))}
+            </svg>
+            <span className="trend-chart__axis-label trend-chart__axis-label--top">
+              {formatDecimal(maxValue)}
+            </span>
+            <span className="trend-chart__axis-label trend-chart__axis-label--bottom">
+              {formatDecimal(minValue)}
+            </span>
+            <div className="trend-chart__bucket-labels" aria-hidden="true">
+              <span>{firstBucket}</span>
+              <span>{latestBucket}</span>
             </div>
-          </div>
-        ))}
+            {tooltip ? (
+              <div className={getTooltipClassName(tooltip)} style={{ left: `${tooltip.x}%`, top: `${tooltip.y}%` }}>
+                <span>{tooltip.bucket}</span>
+                {visibleRows.map((row) => (
+                  <strong key={row.agent_name}>
+                    {row.agent_name}：{formatDecimal(row.items[tooltip.index]?.[metricKey])}
+                  </strong>
+                ))}
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <div className="empty-state">请选择至少一个客服</div>
+        )}
       </div>
     </div>
   )
@@ -122,6 +248,7 @@ export default function P1Dashboard() {
   const rangeSummary = dashboard?.summary
   const metricWindowLabel = getMetricWindowLabel(filters.grain)
   const agentRows = dashboard?.agent_workload ?? []
+  const agentTrendRows = dashboard?.agent_workload_trends ?? []
   const timeoutTrendItems = dashboard?.trends?.first_response_timeout_count ?? []
   const timeoutRangeAverage = timeoutTrendItems.length
     ? timeoutTrendItems.reduce((total, item) => total + item.value, 0) / timeoutTrendItems.length
@@ -348,7 +475,7 @@ export default function P1Dashboard() {
           {loading ? (
             <div className="empty-state p1-workload-chart">正在加载坐席均值趋势...</div>
           ) : (
-            <WorkloadAverageChart rows={agentRows} />
+            <WorkloadAverageChart rows={agentTrendRows} />
           )}
         </TableSection>
       </section>

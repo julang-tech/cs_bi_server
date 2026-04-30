@@ -66,6 +66,18 @@
       }
     }
   ],
+  "agent_workload_trends": [
+    {
+      "agent_name": "Mira",
+      "items": [
+        {
+          "bucket": "2026-04-01",
+          "avg_outbound_emails_per_hour_by_span": 0.0,
+          "avg_outbound_emails_per_hour_by_schedule": 0.0
+        }
+      ]
+    }
+  ],
   "meta": {
     "version": "p1-chat-dashboard-v1",
     "source": "mail",
@@ -112,6 +124,12 @@
 - `agent_workload.qa_reply_counts`
   - 质检结果回邮数。
   - 第一版来自人工抽查，分为 `excellent`（优秀）、`pass`（达标）、`fail`（不合格）。
+- `agent_workload_trends`
+  - 坐席工作量趋势。
+  - 按客服姓名分组，每个客服返回当前 `grain` 聚合后的 bucket 序列。
+  - `items[].bucket` 与 `trends` 使用相同 bucket 切分规则。
+  - `items[].avg_outbound_emails_per_hour_by_span` 为该 bucket 内每小时回邮数均值（首末封邮件时差）。
+  - `items[].avg_outbound_emails_per_hour_by_schedule` 为该 bucket 内每小时回邮数均值（工时表）。
 
 ## Frontend Display Rules
 
@@ -142,6 +160,7 @@
 - `summary`
 - `trends`
 - `agent_workload`
+- `agent_workload_trends`
 - `meta`
 
 允许继续演进的主要是：
