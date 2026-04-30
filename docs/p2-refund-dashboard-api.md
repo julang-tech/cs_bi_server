@@ -54,7 +54,9 @@
   },
   "meta": {
     "partial_data": false,
-    "notes": []
+    "notes": [
+      "Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping; refund_amount is now refund-flow (events in window) not cohort (orders in window). See lintico-data-warehouse/shopify_data_sync/docs/decisions/0007-dwd-align-with-cs-bi-finance.md"
+    ]
   }
 }
 ```
@@ -126,11 +128,11 @@
 
 ### 4.1 核心表
 - `julang-dev-database.shopify_dwd.dwd_orders_fact`
-  - 订单级指标：`processed_date`, `gmv`, `revenue_after_all_discounts`, `is_regular_order`, `is_gift_card_order`, `first_published_at_in_order`, `shop_domain`, `primary_product_type`
+  - 订单级指标：`processed_date`, `cs_bi_gmv`, `cs_bi_revenue`, `cs_bi_net_revenue`, `is_regular_order`, `is_gift_card_order`, `first_published_at_in_order`, `shop_domain`, `primary_product_type`
 - `julang-dev-database.shopify_dwd.dwd_refund_events`
-  - 退款级指标：`refund_subtotal`, `quantity`, `order_id`, `sku`
+  - 退款级指标：`refund_date`, `refund_subtotal`, `quantity`, `order_id`, `sku`
 - `julang-dev-database.shopify_intermediate.int_line_items_classified`
-  - 件数/商品明细：`sku`, `quantity`, `discounted_total`, `is_insurance_item`, `is_price_adjustment`, `variant_id`, `product_id`
+  - 件数/商品明细：`sku`, `quantity`, `discounted_total`, `is_insurance_item`, `is_price_adjustment`, `is_shipping_cost`, `variant_id`, `product_id`
 - `julang-dev-database.shopify_intermediate.int_product_skc`
   - SKC辅助字段：`skc`, `color_value`, `variant_id`
 - `julang-dev-database.product_information_database.dim_product_sku`
