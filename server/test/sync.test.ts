@@ -5,7 +5,7 @@ import path from 'node:path'
 import { SyncService, sanitizeTargetRecord } from '../domain/sync/service.js'
 import { buildDateFilter, filterRowsByDate, transformSourceRecord } from '../domain/sync/transform.js'
 import type { FeishuField, FeishuRecord } from '../integrations/feishu.js'
-import { SqliteMirrorRepository } from '../integrations/sqlite.js'
+import { SqliteMirrorRepository, SqliteP3BigQueryCacheRepository } from '../integrations/sqlite.js'
 import {
   inferLogisticsStatusFromShopify,
   matchSkuAmount,
@@ -317,6 +317,7 @@ async function testSyncPreviewAndRun() {
   assert.equal(preview.enrichment_summary.eligible_records, 1)
   assert.equal(preview.enrichment_summary.enriched_records, 1)
   assert.equal(preview.sqlite.enabled, false)
+  assert.equal(preview.bigquery_cache.enabled, false)
   assert.ok(
     preview.diagnostics.some(
       (item) =>
@@ -330,6 +331,7 @@ async function testSyncPreviewAndRun() {
   assert.equal(sync.created, 1)
   assert.equal(sync.sqlite.ok, true)
   assert.equal(sync.sqlite.inserted, 1)
+  assert.equal(sync.bigquery_cache.enabled, false)
   assert.equal(createdRecords.length, 1)
   assert.equal(createdRecords[0]?.['客户姓名'], 'Alice Example')
   assert.equal(createdRecords[0]?.['客户邮箱'], 'alice@example.com')
@@ -715,6 +717,123 @@ async function testSyncSqliteFailureMarksRunFailed() {
   assert.equal(result.failed, 1)
 }
 
+async function testSyncRefreshesBigQueryCache() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  let queryCount = 0
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query(options: unknown) {
+        queryCount += 1
+        const query = String((options as { query?: string }).query ?? '')
+        if (query.includes('dwd_refund_events')) {
+          return [[
+            { order_no: 'LC700', sku: 'SKU-700', refund_date: '2026-04-12' },
+          ]]
+        }
+        return [[
+          {
+            order_no: 'LC700',
+            processed_date: '2026-04-10',
+            sku: 'SKU-700',
+            skc: 'SKC-700',
+            spu: 'SPU-700',
+            quantity: 1,
+          },
+        ]]
+      },
+    }),
+  })
+
+  const result = await service.sync({ config: configPath })
+  assert.equal(result.bigquery_cache.enabled, true)
+  assert.equal(result.bigquery_cache.ok, true)
+  assert.equal(result.bigquery_cache.order_lines_upserted, 1)
+  assert.equal(result.bigquery_cache.refund_events_upserted, 1)
+  assert.equal(queryCount, 2)
+
+  const cache = new SqliteP3BigQueryCacheRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+  const summary = await cache.fetchSummary({
+    date_from: '2026-04-01',
+    date_to: '2026-04-30',
+    grain: 'day',
+    date_basis: 'order_date',
+  })
+  assert.equal(summary.sales_qty, 1)
+}
+
+async function testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+  ]
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return [
+          {
+            record_id: 'rec-bq-fail',
+            fields: {
+              记录日期: '2026/04/24',
+              订单号: 'LC901',
+              具体操作要求: '退款',
+            },
+          },
+        ]
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord(_table, fields) {
+        return `target-${String(fields['订单号'])}`
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query() {
+        throw new Error('bigquery down')
+      },
+    }),
+  })
+
+  const result = await service.sync({ config: configPath })
+  assert.equal(result.sqlite.ok, true)
+  assert.equal(result.sqlite.inserted, 1)
+  assert.equal(result.bigquery_cache.ok, false)
+  assert.equal(result.bigquery_cache.failed, 1)
+  assert.equal(result.failed, 1)
+
+  const sqliteRepo = new SqliteMirrorRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+  const sqliteRows = sqliteRepo.listActiveRows()
+  assert.equal(sqliteRows.length, 1)
+  assert.equal(sqliteRows[0]?.source_record_id, 'rec-bq-fail')
+  sqliteRepo.close()
+}
+
 async function run() {
   testTransformBasicFields()
   testTransformSplitsMultiSkuRows()
@@ -733,6 +852,8 @@ async function run() {
   await testSqliteMirrorDeletesMissingRecords()
   await testSqliteMirrorRangeSyncDoesNotDeleteMissingRecords()
   await testSyncSqliteFailureMarksRunFailed()
+  await testSyncRefreshesBigQueryCache()
+  await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
   console.log('Sync tests passed')
 }
 

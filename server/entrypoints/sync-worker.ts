@@ -20,6 +20,13 @@ type WorkerService = {
       deleted: number
       sqlite_failed: number
     }
+    bigquery_cache?: {
+      enabled: boolean
+      ok: boolean
+      order_lines_upserted: number
+      refund_events_upserted: number
+      failed: number
+    }
   }>
 }
 
@@ -51,9 +58,11 @@ export function createSyncWorker(options: {
       const result = await service.sync({ config: options.configPath })
       if (!result.sqlite.ok) {
         logger.error('Sync worker run completed with SQLite failure.')
+      } else if (result.bigquery_cache?.enabled && !result.bigquery_cache.ok) {
+        logger.error('Sync worker run completed with BigQuery cache failure.')
       } else {
         logger.info(
-          `Sync worker run finished: created=${result.created}, updated=${result.updated}, failed=${result.failed}, sqlite_inserted=${result.sqlite.inserted}, sqlite_updated=${result.sqlite.updated}, sqlite_deleted=${result.sqlite.deleted}.`,
+          `Sync worker run finished: created=${result.created}, updated=${result.updated}, failed=${result.failed}, sqlite_inserted=${result.sqlite.inserted}, sqlite_updated=${result.sqlite.updated}, sqlite_deleted=${result.sqlite.deleted}, bigquery_cache_enabled=${result.bigquery_cache?.enabled ?? false}, bigquery_order_lines=${result.bigquery_cache?.order_lines_upserted ?? 0}, bigquery_refund_events=${result.bigquery_cache?.refund_events_upserted ?? 0}.`,
         )
       }
     } catch (error) {

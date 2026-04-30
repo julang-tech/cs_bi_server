@@ -36,7 +36,7 @@ program
   .option('--to <date>', 'End date')
   .action(async (options) => {
     const result = await service.sync(options)
-    if (!result.sqlite.ok) {
+    if (!result.sqlite.ok || !result.bigquery_cache.ok) {
       process.exitCode = 1
     }
     console.log(

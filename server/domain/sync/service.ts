@@ -1,9 +1,12 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { BigQuery } from '@google-cloud/bigquery'
 import { loadSyncConfig, resolveRuntimePath, type SyncConfig } from '../../integrations/sync-config.js'
 import { FeishuTableClient, type FeishuField, type FeishuRecord } from '../../integrations/feishu.js'
 import {
   SqliteMirrorRepository,
+  type SqliteShopifyOrderLine,
+  type SqliteShopifyRefundEvent,
   type SqliteMirrorRecord,
   type SqliteSyncStats,
 } from '../../integrations/sqlite.js'
@@ -55,6 +58,7 @@ type SyncServiceDeps = {
   createClient?: (config: SyncConfig, logger: SyncLogger) => FeishuSyncClient
   createShopifyClient?: (config: SyncConfig, logger: SyncLogger) => ShopifyLikeClient | null
   createSqliteRepository?: (dbPath: string) => SqliteMirrorRepository
+  createBigQueryClient?: (config: SyncConfig, logger: SyncLogger) => BigQueryLike | null
 }
 
 type SyncLogger = {
@@ -71,6 +75,23 @@ type SyncSqliteSummary = {
   updated: number
   deleted: number
   sqlite_failed: number
+}
+
+type SyncBigQueryCacheSummary = {
+  enabled: boolean
+  ok: boolean
+  date_from: string | null
+  date_to: string | null
+  order_lines_upserted: number
+  refund_events_upserted: number
+  failed: number
+  error?: string
+}
+
+type BigQueryRows = Array<Record<string, unknown>>
+
+type BigQueryLike = {
+  query(options: unknown): Promise<unknown>
 }
 
 type EnrichmentDiagnostic = {
@@ -103,8 +124,52 @@ const SHOPIFY_BACKFILL_FIELDS = [
   'SKU金额',
 ] as const
 
+const BIGQUERY_CACHE_WINDOW_DAYS = 400
+
 function ensureParentDir(filePath: string) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
+}
+
+function applyBigQueryProxyConfig(config?: SyncConfig['bigquery']) {
+  if (!config?.proxy?.enabled) {
+    return
+  }
+  if (config.proxy.http_proxy) {
+    process.env.HTTP_PROXY = config.proxy.http_proxy
+  }
+  if (config.proxy.https_proxy) {
+    process.env.HTTPS_PROXY = config.proxy.https_proxy
+  }
+  if (config.proxy.no_proxy) {
+    process.env.NO_PROXY = config.proxy.no_proxy
+  }
+}
+
+function extractRows(result: unknown): BigQueryRows {
+  if (!Array.isArray(result)) {
+    return []
+  }
+  const [rows] = result as [unknown, ...unknown[]]
+  return Array.isArray(rows) ? (rows as BigQueryRows) : []
+}
+
+function formatDateUtc(date: Date) {
+  return date.toISOString().slice(0, 10)
+}
+
+function resolveBigQueryCacheWindow(now = new Date()) {
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const start = new Date(end)
+  start.setUTCDate(start.getUTCDate() - BIGQUERY_CACHE_WINDOW_DAYS)
+  return {
+    dateFrom: formatDateUtc(start),
+    dateTo: formatDateUtc(end),
+  }
+}
+
+function normalizeNullableText(value: unknown) {
+  const text = String(value ?? '').trim()
+  return text || null
 }
 
 function readState(statePath: string): SyncState {
@@ -702,6 +767,7 @@ export class SyncService {
   private readonly createClient: (config: SyncConfig, logger: SyncLogger) => FeishuSyncClient
   private readonly createShopifyClient: (config: SyncConfig, logger: SyncLogger) => ShopifyLikeClient | null
   private readonly createSqliteRepository: (dbPath: string) => SqliteMirrorRepository
+  private readonly createBigQueryClient: (config: SyncConfig, logger: SyncLogger) => BigQueryLike | null
 
   constructor(deps: SyncServiceDeps = {}) {
     this.createClient =
@@ -710,6 +776,16 @@ export class SyncService {
       deps.createShopifyClient ?? ((config) => (config.shopify ? new ShopifyClient(config.shopify) : null))
     this.createSqliteRepository =
       deps.createSqliteRepository ?? ((dbPath) => new SqliteMirrorRepository(dbPath))
+    this.createBigQueryClient =
+      deps.createBigQueryClient ??
+      ((config) => {
+        const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
+        if (!credentialsPath || !fs.existsSync(credentialsPath)) {
+          return null
+        }
+        applyBigQueryProxyConfig(config.bigquery)
+        return new BigQuery()
+      })
   }
 
   async preview(options: SyncCommandOptions) {
@@ -749,6 +825,15 @@ export class SyncService {
         deleted: 0,
         sqlite_failed: 0,
       },
+      bigquery_cache: {
+        enabled: false,
+        ok: true,
+        date_from: null,
+        date_to: null,
+        order_lines_upserted: 0,
+        refund_events_upserted: 0,
+        failed: 0,
+      },
       ...synced.counters,
       diagnostics: [...synced.diagnostics, ...enriched.diagnostics],
     }
@@ -781,8 +866,12 @@ export class SyncService {
     if (!sqlite.ok) {
       synced.counters.failed += 1
     }
+    const bigqueryCache = await this.syncBigQueryCache(config, sqlitePath, logger)
+    if (!bigqueryCache.ok) {
+      synced.counters.failed += 1
+    }
     logger.info(
-      `Sync finished: scanned=${synced.counters.scanned}, created=${synced.counters.created}, updated=${synced.counters.updated}, failed=${synced.counters.failed}, sqlite_inserted=${sqlite.inserted}, sqlite_updated=${sqlite.updated}, sqlite_deleted=${sqlite.deleted}, sqlite_failed=${sqlite.sqlite_failed}.`,
+      `Sync finished: scanned=${synced.counters.scanned}, created=${synced.counters.created}, updated=${synced.counters.updated}, failed=${synced.counters.failed}, sqlite_inserted=${sqlite.inserted}, sqlite_updated=${sqlite.updated}, sqlite_deleted=${sqlite.deleted}, sqlite_failed=${sqlite.sqlite_failed}, bigquery_cache_enabled=${bigqueryCache.enabled}, bigquery_cache_ok=${bigqueryCache.ok}, bigquery_order_lines=${bigqueryCache.order_lines_upserted}, bigquery_refund_events=${bigqueryCache.refund_events_upserted}.`,
     )
 
     return {
@@ -793,10 +882,158 @@ export class SyncService {
       summary: summarizeResults(enriched.results),
       enrichment_summary: enriched.summary,
       sqlite,
+      bigquery_cache: bigqueryCache,
       ...synced.counters,
       diagnostics: [...synced.diagnostics, ...enriched.diagnostics],
       state: synced.state,
     }
+  }
+
+  private async syncBigQueryCache(
+    config: SyncConfig,
+    sqlitePath: string,
+    logger: SyncLogger,
+  ): Promise<SyncBigQueryCacheSummary> {
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow()
+    const client = this.createBigQueryClient(config, logger)
+    if (!client) {
+      logger.warn('BigQuery cache sync skipped: credentials not found.')
+      return {
+        enabled: false,
+        ok: true,
+        date_from: dateFrom,
+        date_to: dateTo,
+        order_lines_upserted: 0,
+        refund_events_upserted: 0,
+        failed: 0,
+      }
+    }
+
+    const startedAt = new Date().toISOString()
+    let repository: SqliteMirrorRepository | null = null
+    try {
+      logger.info(`Starting BigQuery cache sync for ${dateFrom} to ${dateTo}.`)
+      const [orderLines, refundEvents] = await Promise.all([
+        this.fetchBigQueryOrderLines(client, dateFrom, dateTo),
+        this.fetchBigQueryRefundEvents(client, dateFrom, dateTo),
+      ])
+      repository = this.createSqliteRepository(sqlitePath)
+      const stats = repository.replaceBigQueryCacheWindow({
+        dateFrom,
+        dateTo,
+        orderLines,
+        refundEvents,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+      })
+      logger.info(
+        `BigQuery cache synced to ${sqlitePath}: order_lines=${stats.order_lines_upserted}, refund_events=${stats.refund_events_upserted}.`,
+      )
+      return {
+        enabled: true,
+        ok: true,
+        date_from: dateFrom,
+        date_to: dateTo,
+        ...stats,
+        failed: 0,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error(`BigQuery cache sync failed: ${message}`)
+      try {
+        repository ??= this.createSqliteRepository(sqlitePath)
+        repository.recordBigQueryCacheFailure({
+          dateFrom,
+          dateTo,
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          error: message,
+        })
+      } catch (recordError) {
+        logger.error(
+          `BigQuery cache failure record failed: ${
+            recordError instanceof Error ? recordError.message : String(recordError)
+          }`,
+        )
+      }
+      return {
+        enabled: true,
+        ok: false,
+        date_from: dateFrom,
+        date_to: dateTo,
+        order_lines_upserted: 0,
+        refund_events_upserted: 0,
+        failed: 1,
+        error: message,
+      }
+    } finally {
+      repository?.close()
+    }
+  }
+
+  private async fetchBigQueryOrderLines(
+    client: BigQueryLike,
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<SqliteShopifyOrderLine[]> {
+    const rows = extractRows(await client.query({
+      query: `
+SELECT
+  o.order_name AS order_no,
+  CAST(o.processed_date AS STRING) AS processed_date,
+  sku,
+  COALESCE(sku_dim.skc_id, skc) AS skc,
+  sku_dim.spu_id AS spu,
+  1 AS quantity
+FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
+LEFT JOIN UNNEST(IFNULL(o.skus, [])) AS sku WITH OFFSET sku_offset
+LEFT JOIN UNNEST(IFNULL(o.skcs, [])) AS skc WITH OFFSET skc_offset
+  ON skc_offset = sku_offset
+LEFT JOIN \`julang-dev-database.product_information_database.dim_product_sku\` sku_dim
+  ON sku_dim.sku_id = sku
+WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+      `,
+      params: {
+        date_from: dateFrom,
+        date_to: dateTo,
+      },
+    }))
+
+    return rows.map((row) => ({
+      order_no: String(row.order_no ?? ''),
+      processed_date: String(row.processed_date ?? ''),
+      sku: normalizeNullableText(row.sku),
+      skc: normalizeNullableText(row.skc),
+      spu: normalizeNullableText(row.spu),
+      quantity: Number(row.quantity ?? 1),
+    })).filter((row) => row.order_no && row.processed_date)
+  }
+
+  private async fetchBigQueryRefundEvents(
+    client: BigQueryLike,
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<SqliteShopifyRefundEvent[]> {
+    const rows = extractRows(await client.query({
+      query: `
+SELECT
+  order_name AS order_no,
+  sku,
+  CAST(refund_date AS STRING) AS refund_date
+FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\`
+WHERE refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+      `,
+      params: {
+        date_from: dateFrom,
+        date_to: dateTo,
+      },
+    }))
+
+    return rows.map((row) => ({
+      order_no: String(row.order_no ?? ''),
+      sku: normalizeNullableText(row.sku),
+      refund_date: String(row.refund_date ?? ''),
+    })).filter((row) => row.order_no && row.refund_date)
   }
 
   private syncToSqlite(

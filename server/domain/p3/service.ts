@@ -1,5 +1,4 @@
 import fs from 'node:fs'
-import { BigQuery } from '@google-cloud/bigquery'
 import { TtlCache } from './cache.js'
 import {
   buildProductRankingPayload,
@@ -22,13 +21,11 @@ import type {
   SalesRepository,
 } from './models.js'
 import {
-  BigQueryOrderEnrichmentRepository,
-  BigQuerySalesRepository,
   SampleOrderEnrichmentRepository,
   SampleSalesRepository,
 } from '../../integrations/bigquery.js'
 import { FeishuIssueProvider, FixtureIssueProvider } from '../../integrations/feishu.js'
-import { SqliteIssueProvider } from '../../integrations/sqlite.js'
+import { SqliteIssueProvider, SqliteP3BigQueryCacheRepository } from '../../integrations/sqlite.js'
 import { loadP3RuntimeConfig } from '../../integrations/sync-config.js'
 
 function applyBigQueryProxyConfig(config?: {
@@ -177,23 +174,12 @@ export function createP3Service(repoRoot: string, syncConfigPath: string) {
     }
   }
 
-  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
-  const hasBigQuery = Boolean(credentialsPath && fs.existsSync(credentialsPath))
-  let bigQueryClient: BigQuery | null = null
-
-  if (hasBigQuery) {
-    bigQueryClient = new BigQuery()
-    salesRepository = new BigQuerySalesRepository(bigQueryClient)
-    enrichmentRepository = new BigQueryOrderEnrichmentRepository(bigQueryClient)
-    sourceModes.push('shopify bigquery enrichment')
-  } else {
-    setupNotes.push(
-      'BigQuery credentials not found; using local sample sales and enrichment data.',
-    )
-    sourceModes.push('sample sales/enrichment data')
-  }
-
   if (runtimeConfig) {
+    const sqliteCache = new SqliteP3BigQueryCacheRepository(runtimeConfig.runtime.sqlitePath)
+    salesRepository = sqliteCache
+    enrichmentRepository = sqliteCache
+    sourceModes.push('sqlite shopify bigquery cache')
+
     try {
       if (fs.existsSync(runtimeConfig.runtime.sqlitePath)) {
         issueProvider = new SqliteIssueProvider(repoRoot, runtimeConfig.runtime.sqlitePath)
@@ -223,6 +209,10 @@ export function createP3Service(repoRoot: string, syncConfigPath: string) {
   } else {
     setupNotes.push('Sync config not found; using local fixture issue bundle.')
     sourceModes.unshift('fixture issue bundle')
+    setupNotes.push(
+      'Sync config not found; using local sample sales and enrichment data.',
+    )
+    sourceModes.push('sample sales/enrichment data')
   }
 
   if (!sourceModes.length) {
