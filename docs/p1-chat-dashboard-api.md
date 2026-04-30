@@ -42,6 +42,8 @@
   "summary": {
     "inbound_email_count": 0,
     "outbound_email_count": 0,
+    "first_email_count": 0,
+    "unreplied_email_count": 0,
     "avg_queue_hours": 0.0,
     "first_response_timeout_count": 0
   },
@@ -80,6 +82,12 @@
 - `summary.outbound_email_count`
   - 回邮数。
   - 请求日期范围内客服回复邮件的封数汇总。
+- `summary.first_email_count`
+  - 首封邮件数。
+  - 请求日期范围内客户会话首封邮件的封数汇总。
+- `summary.unreplied_email_count`
+  - 还没回复数量。
+  - 请求日期范围内客户首封邮件尚未产生人工回复的数量。
 - `summary.avg_queue_hours`
   - 平均会话排队时长。
   - 请求日期范围内客户邮件到人工回复的时间差均值，单位为小时。

@@ -98,12 +98,16 @@ function buildDailyRows(filters) {
     const weekdayFactor = weekday === 0 || weekday === 6 ? 0.78 : 1
     const inbound = Math.round((238 + (daySeed % 17) * 5) * seasonal * weekdayFactor)
     const outbound = Math.round(inbound * (0.78 + (daySeed % 3) * 0.018))
+    const firstEmail = Math.round(inbound * (0.68 + (daySeed % 5) * 0.018))
+    const unreplied = Math.max(1, Math.round(firstEmail * (0.052 + (daySeed % 4) * 0.006)))
     const timeout = Math.max(2, Math.round(inbound * (0.013 + (daySeed % 4) * 0.002)))
 
     return {
       bucket: formatDateInput(bucketDate),
       inbound_email_count: inbound,
       outbound_email_count: outbound,
+      first_email_count: firstEmail,
+      unreplied_email_count: unreplied,
       avg_queue_hours: Number((2.15 + (daySeed % 5) * 0.14).toFixed(2)),
       first_response_timeout_count: timeout,
     }
@@ -121,6 +125,8 @@ function aggregateRows(rows, bucketDate) {
     bucket: formatDateInput(bucketDate),
     inbound_email_count: inboundTotal,
     outbound_email_count: sumTrend(rows, 'outbound_email_count'),
+    first_email_count: sumTrend(rows, 'first_email_count'),
+    unreplied_email_count: sumTrend(rows, 'unreplied_email_count'),
     avg_queue_hours: inboundTotal ? Number((queueWeightedTotal / inboundTotal).toFixed(2)) : 0,
     first_response_timeout_count: sumTrend(rows, 'first_response_timeout_count'),
   }
@@ -184,6 +190,8 @@ export async function fetchP1Dashboard(filters, signal) {
   const trendRows = buildTrend(filters)
   const inboundTotal = sumTrend(trendRows, 'inbound_email_count')
   const outboundTotal = sumTrend(trendRows, 'outbound_email_count')
+  const firstEmailTotal = sumTrend(trendRows, 'first_email_count')
+  const unrepliedEmailTotal = sumTrend(trendRows, 'unreplied_email_count')
   const timeoutTotal = sumTrend(trendRows, 'first_response_timeout_count')
   const queueWeightedTotal = trendRows.reduce(
     (total, item) => total + item.avg_queue_hours * item.inbound_email_count,
@@ -200,6 +208,8 @@ export async function fetchP1Dashboard(filters, signal) {
     summary: {
       inbound_email_count: inboundTotal,
       outbound_email_count: outboundTotal,
+      first_email_count: firstEmailTotal,
+      unreplied_email_count: unrepliedEmailTotal,
       avg_queue_hours: inboundTotal ? Number((queueWeightedTotal / inboundTotal).toFixed(2)) : 0,
       first_response_timeout_count: timeoutTotal,
     },
