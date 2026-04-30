@@ -44,10 +44,18 @@ const p2FilterSchema = z.object({
   channel: z.string().optional(),
   listing_date_from: z.string().optional(),
   listing_date_to: z.string().optional(),
+  spu_list: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((v) => (Array.isArray(v) ? v : v ? [v] : [])),
+  skc_list: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((v) => (Array.isArray(v) ? v : v ? [v] : [])),
 })
 
 const p2SpuTableSchema = p2FilterSchema.extend({
-  top_n: z.coerce.number().int().min(1).max(30).default(5),
+  top_n: z.coerce.number().int().min(1).max(500).default(20),
 })
 
 export async function buildApp(overrides?: {
@@ -171,6 +179,26 @@ export async function buildApp(overrides?: {
       })
     }
     return p2Service.getSpuTable(parsed.data, parsed.data.top_n)
+  })
+
+  app.get('/api/bi/p2/refund-dashboard/spu-skc-options', async (request, reply) => {
+    const parsed = p2FilterSchema.safeParse(request.query)
+    if (!parsed.success) {
+      return reply.status(422).send({ detail: parsed.error.flatten() })
+    }
+    if (parsed.data.date_from > parsed.data.date_to) {
+      return reply.status(422).send({ detail: 'date_from cannot be later than date_to.' })
+    }
+    if (
+      parsed.data.listing_date_from &&
+      parsed.data.listing_date_to &&
+      parsed.data.listing_date_from > parsed.data.listing_date_to
+    ) {
+      return reply.status(422).send({
+        detail: 'listing_date_from cannot be later than listing_date_to.',
+      })
+    }
+    return p2Service.getSpuSkcOptions(parsed.data)
   })
 
   const distPath = path.join(env.repoRoot, 'dist')

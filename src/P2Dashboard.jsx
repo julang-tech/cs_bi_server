@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import './P2Dashboard.css'
-import { fetchRefundOverview, fetchRefundSpuTable } from './api/p2'
+import { fetchRefundOverview, fetchRefundSpuSkcOptions, fetchRefundSpuTable } from './api/p2'
 
 function formatDateInput(date) {
   const y = date.getFullYear()
@@ -66,6 +66,19 @@ function weekToDateRange(weekValue) {
   return getWeekRange(weekValue)
 }
 
+function toWeekText(dateStr) {
+  const d = new Date(dateStr)
+  const target = new Date(d)
+  const day = target.getDay() || 7
+
+  target.setDate(target.getDate() + (4 - day))
+
+  const yearStart = new Date(target.getFullYear(), 0, 1)
+  const weekNo = Math.ceil(((target - yearStart) / 86400000 + 1) / 7)
+
+  return `${target.getFullYear()}-W${String(weekNo).padStart(2, '0')}`
+}
+
 function formatInt(n) {
   if (n === null || n === undefined) return '--'
 
@@ -76,15 +89,6 @@ function formatInt(n) {
 
 function formatCompactM(n) {
   if (n === null || n === undefined) return '--'
-
-  const abs = Math.abs(n)
-
-  // 6 位数开始用 M
-  if (abs >= 100000) {
-    return `${(n / 1e6).toFixed(2).replace(/\.00$/, '')}M`
-  }
-
-  // 小于 6 位：正常千分位
   return new Intl.NumberFormat('zh-CN', {
     maximumFractionDigits: 0,
   }).format(n)
@@ -92,7 +96,7 @@ function formatCompactM(n) {
 
 function formatMoney(n) {
   if (n === null || n === undefined) return '--'
-  return `¥${formatCompactM(n)}`
+  return `$${formatCompactM(n)}`
 }
 
 function formatRate(n) {
@@ -108,19 +112,25 @@ function MetricCard({ title, value, tag, desc, highlight = false }) {
     <article
       className={`metric-card ${highlight ? 'metric-card--highlight' : ''}`}
       style={{ '--metric-value-chars': valueLength }}
-    >
-      <div className="metric-head">
-        <h3 title={title}>{title}</h3>
-        {tag ? <span className={`metric-tag metric-tag--${tag.tone}`}>{tag.label}</span> : null}
-      </div>
+      >
+        <div className="metric-head">
+          <h3 title={title}>{title}</h3>
+          <div className="metric-head-actions">
+            {tag ? <span className={`metric-tag metric-tag--${tag.tone}`}>{tag.label}</span> : null}
+            <span className="metric-help" tabIndex={0} aria-label={desc}>
+              ?
+              <span className="metric-help__tooltip" role="tooltip">
+                {desc}
+              </span>
+            </span>
+          </div>
+        </div>
 
-      <div className="metric-value" title={valueText}>
-        {value}
-      </div>
-
-      <p className="metric-desc">{desc}</p>
-    </article>
-  )
+        <div className="metric-value" title={valueText}>
+          {value}
+        </div>
+      </article>
+    )
 }
 
 function P2Dashboard() {
@@ -128,25 +138,33 @@ function P2Dashboard() {
     () => ({
       ...defaultDateRange(),
       grain: 'month',
-      category: '',
-      spu: '',
-      skc: '',
       channel: '',
       listing_date_from: '',
       listing_date_to: '',
-      top_n: 5,
+      top_n: 20,
     }),
     [],
   )
 
   const [filters, setFilters] = useState(initial)
   const [submitted, setSubmitted] = useState(initial)
+  const [confirmKey, setConfirmKey] = useState(0)
   const [overview, setOverview] = useState(null)
-  const [tableData, setTableData] = useState([])
+  const [top20Rows, setTop20Rows] = useState([])
+  const [filteredRows, setFilteredRows] = useState([])
+  const [spuOptions, setSpuOptions] = useState([])
+  const [skcOptions, setSkcOptions] = useState([])
+  const [spuSkcPairs, setSpuSkcPairs] = useState([])
   const [expandedSpu, setExpandedSpu] = useState({})
-  const [sortKey, setSortKey] = useState('refund_amount')
-  const [timeStartValue, setTimeStartValue] = useState(initial.date_from)
-  const [timeEndValue, setTimeEndValue] = useState(initial.date_to)
+  const [sortState, setSortState] = useState({ key: 'refund_amount', direction: 'desc' })
+  const [spuPickerOpen, setSpuPickerOpen] = useState(false)
+  const [skcPickerOpen, setSkcPickerOpen] = useState(false)
+  const [spuKeyword, setSpuKeyword] = useState('')
+  const [skcKeyword, setSkcKeyword] = useState('')
+  const [selectedSpus, setSelectedSpus] = useState([])
+  const [selectedSkcs, setSelectedSkcs] = useState([])
+  const [pendingSpus, setPendingSpus] = useState([])
+  const [pendingSkcs, setPendingSkcs] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -158,16 +176,33 @@ function P2Dashboard() {
       setError('')
 
       try {
-        const fetchTopN = Math.max(Number(submitted.top_n || 5), 20)
-        const fetchFilters = { ...submitted, top_n: fetchTopN }
+        const fetchTopN = 20
+        const { listing_date_from: _ldf, listing_date_to: _ldt, ...rest } = submitted
+        const fetchFilters = {
+          ...rest,
+          category: '',
+          spu: '',
+          skc: '',
+          top_n: fetchTopN,
+        }
 
-        const [overviewResp, tableResp] = await Promise.all([
+        const [overviewResp, tableResp, optionsResp] = await Promise.all([
           fetchRefundOverview(fetchFilters, controller.signal),
           fetchRefundSpuTable(fetchFilters, controller.signal),
+          fetchRefundSpuSkcOptions(fetchFilters, controller.signal),
         ])
 
         setOverview(overviewResp)
-        setTableData(tableResp.rows ?? [])
+        const topRows = tableResp.rows ?? []
+        setTop20Rows(topRows)
+        setFilteredRows([])
+        setSpuOptions(optionsResp?.options?.spus ?? [])
+        setSkcOptions(optionsResp?.options?.skcs ?? [])
+        setSpuSkcPairs(optionsResp?.options?.pairs ?? [])
+        setSelectedSpus([])
+        setSelectedSkcs([])
+        setPendingSpus([])
+        setPendingSkcs([])
       } catch (e) {
         if (e instanceof Error && e.name === 'AbortError') return
         setError(e instanceof Error ? e.message : '加载失败')
@@ -182,7 +217,48 @@ function P2Dashboard() {
   }, [submitted])
 
   useEffect(() => {
-    if (!tableData.length) {
+    const controller = new AbortController()
+    const hasFilters =
+      selectedSpus.length > 0 ||
+      selectedSkcs.length > 0 ||
+      filters.listing_date_from ||
+      filters.listing_date_to
+
+    if (!hasFilters) {
+      return () => controller.abort()
+    }
+
+    async function loadFilteredRows() {
+      try {
+        const resp = await fetchRefundSpuTable(
+          {
+            ...submitted,
+            category: '',
+            spu: '',
+            skc: '',
+            spu_list: selectedSpus,
+            skc_list: selectedSkcs,
+            listing_date_from: filters.listing_date_from || '',
+            listing_date_to: filters.listing_date_to || '',
+            top_n: 500,
+          },
+          controller.signal,
+        )
+        setFilteredRows(resp.rows ?? [])
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') return
+      }
+    }
+
+    loadFilteredRows()
+    return () => controller.abort()
+  }, [selectedSpus, selectedSkcs, submitted, confirmKey])
+
+  useEffect(() => {
+    const hasTableFilters =
+      selectedSpus.length > 0 || selectedSkcs.length > 0 || filteredRows.length > 0
+    const activeRows = hasTableFilters ? filteredRows : top20Rows
+    if (!activeRows.length) {
       setExpandedSpu({})
       return
     }
@@ -190,167 +266,280 @@ function P2Dashboard() {
     setExpandedSpu((prev) => {
       const next = {}
 
-      for (const row of tableData) {
+      for (const row of activeRows) {
         if (prev[row.spu]) next[row.spu] = true
       }
 
       return next
     })
-  }, [tableData])
+  }, [top20Rows, filteredRows, selectedSpus.length, selectedSkcs.length])
+
+  const filteredSpuOptions = useMemo(
+    () => spuOptions.filter((item) => item.toLowerCase().includes(spuKeyword.trim().toLowerCase())),
+    [spuOptions, spuKeyword],
+  )
+  const filteredSkcOptions = useMemo(
+    () => skcOptions.filter((item) => item.toLowerCase().includes(skcKeyword.trim().toLowerCase())),
+    [skcOptions, skcKeyword],
+  )
+  const skcsBySpu = useMemo(() => {
+    const map = new Map()
+    for (const pair of spuSkcPairs) {
+      if (!pair?.spu || !pair?.skc) continue
+      const list = map.get(pair.spu) ?? []
+      list.push(pair.skc)
+      map.set(pair.spu, list)
+    }
+    return map
+  }, [spuSkcPairs])
+  const spusBySkc = useMemo(() => {
+    const map = new Map()
+    for (const pair of spuSkcPairs) {
+      if (!pair?.spu || !pair?.skc) continue
+      const list = map.get(pair.skc) ?? []
+      list.push(pair.spu)
+      map.set(pair.skc, list)
+    }
+    return map
+  }, [spuSkcPairs])
 
   useEffect(() => {
-    if (filters.grain === 'day') {
-      setTimeStartValue(filters.date_from)
-      setTimeEndValue(filters.date_to)
-      return
-    }
+    setPendingSpus((prev) => prev.filter((item) => spuOptions.includes(item)))
+    setSelectedSpus((prev) => prev.filter((item) => spuOptions.includes(item)))
+  }, [spuOptions])
 
-    if (filters.grain === 'month') {
-      setTimeStartValue(filters.date_from.slice(0, 7))
-      setTimeEndValue(filters.date_to.slice(0, 7))
-      return
-    }
-
-    const toWeekText = (dateStr) => {
-      const d = new Date(dateStr)
-      const target = new Date(d)
-      const day = target.getDay() || 7
-
-      target.setDate(target.getDate() + (4 - day))
-
-      const yearStart = new Date(target.getFullYear(), 0, 1)
-      const weekNo = Math.ceil(((target - yearStart) / 86400000 + 1) / 7)
-
-      return `${target.getFullYear()}-W${String(weekNo).padStart(2, '0')}`
-    }
-
-    setTimeStartValue(toWeekText(filters.date_from))
-    setTimeEndValue(toWeekText(filters.date_to))
-  }, [filters.grain, filters.date_from, filters.date_to])
+  useEffect(() => {
+    setPendingSkcs((prev) => prev.filter((item) => skcOptions.includes(item)))
+    setSelectedSkcs((prev) => prev.filter((item) => skcOptions.includes(item)))
+  }, [skcOptions])
 
   const displayedRows = useMemo(() => {
-    const rows = [...tableData]
+    const hasTableFilters =
+      selectedSpus.length > 0 || selectedSkcs.length > 0 || filteredRows.length > 0
+    const sourceRows = hasTableFilters ? filteredRows : top20Rows
+    const rows = [...sourceRows]
 
     const getValue = (row) => {
-      if (sortKey === 'refund_qty') return row.refund_qty ?? 0
-      if (sortKey === 'refund_qty_ratio') return row.refund_qty_ratio ?? 0
-      if (sortKey === 'refund_amount_ratio') return row.refund_amount_ratio ?? 0
+      if (sortState.key === 'sales_qty') return row.sales_qty ?? 0
+      if (sortState.key === 'sales_amount') return row.sales_amount ?? 0
+      if (sortState.key === 'refund_qty') return row.refund_qty ?? 0
+      if (sortState.key === 'refund_qty_ratio') return row.refund_qty_ratio ?? 0
+      if (sortState.key === 'refund_amount_ratio') return row.refund_amount_ratio ?? 0
       return row.refund_amount ?? 0
     }
 
-    rows.sort((a, b) => getValue(b) - getValue(a))
+    rows.sort((a, b) => {
+      const diff = getValue(a) - getValue(b)
+      return sortState.direction === 'asc' ? diff : -diff
+    })
 
-    return rows.slice(0, Number(submitted.top_n || 5))
-  }, [tableData, sortKey, submitted.top_n])
+    if (!hasTableFilters) return rows.slice(0, 5)
+    return rows
+  }, [top20Rows, filteredRows, selectedSpus, selectedSkcs, sortState, filters.listing_date_from, filters.listing_date_to])
 
   const cards = overview?.cards ?? {}
+  const headerDateInputType = filters.grain === 'day' ? 'date' : filters.grain === 'week' ? 'week' : 'month'
+  const headerStartValue =
+    filters.grain === 'day' ? filters.date_from : filters.grain === 'week' ? toWeekText(filters.date_from) : filters.date_from.slice(0, 7)
+  const headerEndValue =
+    filters.grain === 'day' ? filters.date_to : filters.grain === 'week' ? toWeekText(filters.date_to) : filters.date_to.slice(0, 7)
 
-  const getRefundMetricClass = (key) =>
-    `refund-metric-cell ${sortKey === key ? 'sorted-metric-cell' : ''}`.trim()
+  const updateHeaderFilter = (nextPartial) => {
+    setFilters((prev) => {
+      const next = { ...prev, ...nextPartial }
+      setSubmitted(next)
+      return next
+    })
+  }
+
+  const getMetricClass = (key) =>
+    `refund-metric-cell ${sortState.key === key ? 'sorted-metric-cell' : ''}`.trim()
+  const toggleSort = (key) => {
+    setSortState((current) => {
+      if (current.key === key) {
+        return {
+          ...current,
+          direction: current.direction === 'desc' ? 'asc' : 'desc',
+        }
+      }
+      return { key, direction: 'desc' }
+    })
+  }
+  const renderedTableRows = useMemo(
+    () => [
+      ...displayedRows.map((spuRow) => {
+        const firstSkc = (spuRow.skc_rows ?? []).find(
+          (row) => row.skc && row.skc !== 'UNKNOWN_SKC',
+        )?.skc
+        const spuRowNode = (
+          <tr
+            key={`${spuRow.spu}-spu`}
+            className="spu-row"
+            onClick={() => {
+              setExpandedSpu((prev) => ({
+                ...prev,
+                [spuRow.spu]: !prev[spuRow.spu],
+              }))
+            }}
+          >
+            <td className="spu-click-cell">
+              <span className="spu-cell-btn">{spuRow.spu}</span>
+            </td>
+
+            <td>{firstSkc ?? '-'}</td>
+            <td className={getMetricClass('sales_qty')}>{formatInt(spuRow.sales_qty)}</td>
+            <td className={getMetricClass('sales_amount')}>{formatMoney(spuRow.sales_amount)}</td>
+            <td className={getMetricClass('refund_qty')}>
+              {formatInt(spuRow.refund_qty)}
+            </td>
+            <td className={getMetricClass('refund_amount')}>
+              {formatMoney(spuRow.refund_amount)}
+            </td>
+            <td className={getMetricClass('refund_qty_ratio')}>
+              {formatRate(spuRow.refund_qty_ratio)}
+            </td>
+            <td className={getMetricClass('refund_amount_ratio')}>
+              {formatRate(spuRow.refund_amount_ratio)}
+            </td>
+          </tr>
+        )
+        const skcNodes = expandedSpu[spuRow.spu]
+          ? (spuRow.skc_rows ?? [])
+              .filter((skcRow) => skcRow.skc && skcRow.skc !== 'UNKNOWN_SKC')
+              .map((skcRow) => (
+                <tr key={`${spuRow.spu}-${skcRow.skc}`} className="skc-row">
+                  <td className="spu-click-cell skc-spu-cell">
+                    <span>{spuRow.spu}</span>
+                  </td>
+
+                  <td className="skc-cell">{skcRow.skc}</td>
+                  <td className={getMetricClass('sales_qty')}>{formatInt(skcRow.sales_qty)}</td>
+                  <td className={getMetricClass('sales_amount')}>{formatMoney(skcRow.sales_amount)}</td>
+                  <td className={getMetricClass('refund_qty')}>
+                    {formatInt(skcRow.refund_qty)}
+                  </td>
+                  <td className={getMetricClass('refund_amount')}>
+                    {formatMoney(skcRow.refund_amount)}
+                  </td>
+
+                  <td className={getMetricClass('refund_qty_ratio')}>
+                    {formatRate(
+                      spuRow.sales_qty ? skcRow.refund_qty / spuRow.sales_qty : 0,
+                    )}
+                  </td>
+
+                  <td className={getMetricClass('refund_amount_ratio')}>
+                    {formatRate(
+                      spuRow.sales_amount
+                        ? skcRow.refund_amount / spuRow.sales_amount
+                        : 0,
+                    )}
+                  </td>
+                </tr>
+              ))
+          : []
+
+        return (
+          <Fragment key={spuRow.spu}>
+            {spuRowNode}
+            {skcNodes}
+          </Fragment>
+        )
+      }),
+      !loading && displayedRows.length === 0 ? (
+        <tr key="empty">
+          <td colSpan={8} className="empty-cell">
+            暂无符合条件的数据
+          </td>
+        </tr>
+      ) : null,
+    ],
+    [displayedRows, expandedSpu, loading, sortState.key],
+  )
 
   return (
     <main className="refund-dashboard">
       <section className="filter-panel">
-        <div className="filter-grid">
-          <label>
-            时间维度
+        <div className="filter-grid filter-grid--toolbar-like">
+          <div className="toolbar-group">
+            <span className="toolbar-label">时间粒度</span>
+            <div className="segmented-control" role="tablist" aria-label="粒度切换">
+              {[
+                { value: 'day', label: '按天' },
+                { value: 'week', label: '按周' },
+                { value: 'month', label: '按月' },
+              ].map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`segment-button ${filters.grain === option.value ? 'segment-button--active' : ''}`}
+                  onClick={() => updateHeaderFilter({ grain: option.value })}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          
+          <div className="toolbar-group">
+            <span className="toolbar-label">店铺</span>
             <select
-              value={filters.grain}
-              onChange={(e) => setFilters((p) => ({ ...p, grain: e.target.value }))}
+              className="store-select"
+              value={filters.channel}
+              onChange={(e) => updateHeaderFilter({ channel: e.target.value })}
             >
-              <option value="day">按天</option>
-              <option value="week">按周</option>
-              <option value="month">按月</option>
+              <option value="">全部</option>
+              <option value="2vnpww-33">2vnpww-33 (US)</option>
+              <option value="lintico-fr">lintico-fr</option>
+              <option value="lintico-uk">lintico-uk</option>
             </select>
-          </label>
+          </div>
+          
+          <div className="toolbar-group toolbar-group--dates">
+            <span className="toolbar-label">日期范围</span>
+            <div className="date-range-control">
+              <label className="date-field">
+                <span>开始</span>
+                <input
+                  type={headerDateInputType}
+                  value={headerStartValue}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    if (filters.grain === 'day') {
+                      updateHeaderFilter({ date_from: v })
+                    } else if (filters.grain === 'week') {
+                      const r = weekToDateRange(v)
+                      if (r) updateHeaderFilter({ date_from: r.date_from })
+                    } else {
+                      const r = getMonthRange(v)
+                      if (r) updateHeaderFilter({ date_from: r.date_from })
+                    }
+                  }}
+                />
+              </label>
+              <label className="date-field">
+                <span>结束</span>
+                <input
+                  type={headerDateInputType}
+                  value={headerEndValue}
+                  onChange={(e) => {
+                    const v = e.target.value
+                    if (filters.grain === 'day') {
+                      updateHeaderFilter({ date_to: v })
+                    } else if (filters.grain === 'week') {
+                      const r = weekToDateRange(v)
+                      if (r) updateHeaderFilter({ date_to: r.date_to })
+                    } else {
+                      const r = getMonthRange(v)
+                      if (r) updateHeaderFilter({ date_to: r.date_to })
+                    }
+                  }}
+                />
+              </label>
+            </div>
+          </div>
 
-          <label>
-            开始月份
-            <input
-              type={filters.grain === 'day' ? 'date' : filters.grain === 'week' ? 'week' : 'month'}
-              value={timeStartValue}
-              onChange={(e) => {
-                const v = e.target.value
-
-                setTimeStartValue(v)
-
-                if (filters.grain === 'day') {
-                  setFilters((p) => ({ ...p, date_from: v }))
-                } else if (filters.grain === 'week') {
-                  const r = weekToDateRange(v)
-                  if (r) setFilters((p) => ({ ...p, date_from: r.date_from }))
-                } else {
-                  const r = getMonthRange(v)
-                  if (r) setFilters((p) => ({ ...p, date_from: r.date_from }))
-                }
-              }}
-            />
-          </label>
-
-          <label>
-            结束月份
-            <input
-              type={filters.grain === 'day' ? 'date' : filters.grain === 'week' ? 'week' : 'month'}
-              value={timeEndValue}
-              onChange={(e) => {
-                const v = e.target.value
-
-                setTimeEndValue(v)
-
-                if (filters.grain === 'day') {
-                  setFilters((p) => ({ ...p, date_to: v }))
-                } else if (filters.grain === 'week') {
-                  const r = weekToDateRange(v)
-                  if (r) setFilters((p) => ({ ...p, date_to: r.date_to }))
-                } else {
-                  const r = getMonthRange(v)
-                  if (r) setFilters((p) => ({ ...p, date_to: r.date_to }))
-                }
-              }}
-            />
-          </label>
-
-          <label>
-            品类
-            <input
-              placeholder="primary_product_type"
-              value={filters.category}
-              onChange={(e) => setFilters((p) => ({ ...p, category: e.target.value }))}
-            />
-          </label>
-
-          <label>
-            SPU
-            <input
-              placeholder="SPU ID"
-              value={filters.spu}
-              onChange={(e) => setFilters((p) => ({ ...p, spu: e.target.value }))}
-            />
-          </label>
-
-          <label>
-            SKC
-            <input
-              placeholder="SKC"
-              value={filters.skc}
-              onChange={(e) => setFilters((p) => ({ ...p, skc: e.target.value }))}
-            />
-          </label>
-
-          <label>
-            Top N SPU
-            <input
-              type="number"
-              min={1}
-              max={30}
-              value={filters.top_n}
-              onChange={(e) => setFilters((p) => ({ ...p, top_n: Number(e.target.value || 5) }))}
-            />
-          </label>
-
-          <button className="apply-btn" onClick={() => setSubmitted(filters)}>
-            查询
-          </button>
+          
         </div>
       </section>
 
@@ -360,21 +549,18 @@ function P2Dashboard() {
       <section className="metric-grid">
         <MetricCard
           title="订单数"
-          tag={{ label: '基础分母', tone: 'mint' }}
           value={formatInt(cards.order_count)}
           desc="指定周期内订单总数，用于退款订单占比计算。"
         />
 
         <MetricCard
           title="销量"
-          tag={{ label: '销售件数', tone: 'teal' }}
           value={formatInt(cards.sales_qty)}
           desc="指定周期内商品销售件数（剔除保险与价格调整行）。"
         />
 
         <MetricCard
           title="退款订单数"
-          tag={{ label: '按订单时间', tone: 'rose' }}
           value={formatInt(cards.refund_order_count)}
           desc="指定周期内发生退款的订单数。"
           highlight
@@ -382,7 +568,6 @@ function P2Dashboard() {
 
         <MetricCard
           title="退款金额"
-          tag={{ label: '退款总额', tone: 'rose' }}
           value={formatMoney(cards.refund_amount)}
           desc="指定周期内发生退款金额总和。"
           highlight
@@ -390,28 +575,24 @@ function P2Dashboard() {
 
         <MetricCard
           title="GMV"
-          tag={{ label: '口径①', tone: 'mint' }}
           value={formatMoney(cards.gmv)}
           desc="订单金额（实付+折扣+客诉代金券）。"
         />
 
         <MetricCard
           title="净实付金额"
-          tag={{ label: '口径②', tone: 'mint' }}
           value={formatMoney(cards.net_received_amount)}
           desc="GMV剔除客诉代金券后的实收。"
         />
 
         <MetricCard
           title="净GMV"
-          tag={{ label: '口径③', tone: 'mint' }}
           value={formatMoney(cards.net_revenue_amount)}
           desc="净实付金额再剔除退款后的净口径。"
         />
 
         <MetricCard
           title="退款金额占比"
-          tag={{ label: '重点监控', tone: 'rose' }}
           value={formatRate(cards.refund_amount_ratio)}
           desc="退款金额 / 总实收金额。"
           highlight
@@ -422,18 +603,165 @@ function P2Dashboard() {
         <div className="table-head">
           <div>
             <h3>商品退款表现表</h3>
+            <p className="table-note">默认查询退款金额Top20再排序为Top5</p>
           </div>
 
           <div className="table-sort-tools">
-            <label>
-              排序字段
-              <select value={sortKey} onChange={(e) => setSortKey(e.target.value)}>
-                <option value="refund_amount">退款金额</option>
-                <option value="refund_qty">退款数</option>
-                <option value="refund_qty_ratio">退款数占比</option>
-                <option value="refund_amount_ratio">退款金额占比</option>
-              </select>
-            </label>
+            <div className="table-sort-tools-row">
+            <div className="listing-date-group">
+              <label className="listing-date-field">
+                <span>上架时段</span>
+                <input
+                  type="date"
+                  value={filters.listing_date_from}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, listing_date_from: e.target.value }))}
+                />
+              </label>
+              <label className="listing-date-field">
+                <input
+                  type="date"
+                  value={filters.listing_date_to}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, listing_date_to: e.target.value }))}
+                />
+              </label>
+            </div>
+            <div className="picker-wrap">
+              <button
+                type="button"
+                className="picker-trigger"
+                onClick={() => {
+                  setSpuPickerOpen((v) => !v)
+                  setSkcPickerOpen(false)
+                }}
+              >
+                SPU筛选 {pendingSpus.length ? `(${pendingSpus.length})` : ''}
+              </button>
+              {spuPickerOpen ? (
+                <div className="picker-panel">
+                  <input
+                    placeholder="请输入搜索内容"
+                    value={spuKeyword}
+                    onChange={(e) => setSpuKeyword(e.target.value)}
+                  />
+                  <div className="picker-list">
+                    {filteredSpuOptions.map((item) => (
+                      <label key={item} className="picker-item">
+                        <input
+                          type="checkbox"
+                          checked={pendingSpus.includes(item)}
+                          onChange={(e) => {
+                            const spuRelatedSkcs = skcsBySpu.get(item) ?? []
+                            setPendingSpus((prevSpus) => {
+                              const nextSpus = e.target.checked
+                                ? [...new Set([...prevSpus, item])]
+                                : prevSpus.filter((v) => v !== item)
+                              setPendingSkcs((prevSkcs) => {
+                                if (e.target.checked) {
+                                  return [...new Set([...prevSkcs, ...spuRelatedSkcs])]
+                                }
+                                const nextSpuSet = new Set(nextSpus)
+                                const nextSkcs = prevSkcs.filter((skc) => {
+                                  if (!spuRelatedSkcs.includes(skc)) return true
+                                  const parentSpus = spusBySkc.get(skc) ?? []
+                                  return parentSpus.some((spu) => nextSpuSet.has(spu))
+                                })
+                                return nextSkcs
+                              })
+                              return nextSpus
+                            })
+                          }}
+                        />
+                        <span>{item}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="picker-wrap">
+              <button
+                type="button"
+                className="picker-trigger"
+                onClick={() => {
+                  setSkcPickerOpen((v) => !v)
+                  setSpuPickerOpen(false)
+                }}
+              >
+                SKC筛选 {pendingSkcs.length ? `(${pendingSkcs.length})` : ''}
+              </button>
+              {skcPickerOpen ? (
+                <div className="picker-panel">
+                  <input
+                    placeholder="请输入搜索内容"
+                    value={skcKeyword}
+                    onChange={(e) => setSkcKeyword(e.target.value)}
+                  />
+                  <div className="picker-list">
+                    {filteredSkcOptions.map((item) => (
+                      <label key={item} className="picker-item">
+                        <input
+                          type="checkbox"
+                          checked={pendingSkcs.includes(item)}
+                          onChange={(e) => {
+                            setPendingSkcs((prevSkcs) => {
+                              const nextSkcs = e.target.checked
+                                ? [...new Set([...prevSkcs, item])]
+                                : prevSkcs.filter((v) => v !== item)
+                              const nextSpuSet = new Set()
+                              for (const skc of nextSkcs) {
+                                const parentSpus = spusBySkc.get(skc) ?? []
+                                for (const spu of parentSpus) nextSpuSet.add(spu)
+                              }
+                              setPendingSpus([...nextSpuSet])
+                              return nextSkcs
+                            })
+                          }}
+                        />
+                        <span>{item}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            </div>
+            {pendingSpus.length > 0 || pendingSkcs.length > 0 || filters.listing_date_from || filters.listing_date_to || selectedSpus.length > 0 || selectedSkcs.length > 0 ? (
+            <div className="table-sort-tools-row table-sort-tools-row--actions">
+              <button
+                type="button"
+                className="picker-trigger picker-trigger--confirm"
+                onClick={() => {
+                  setSelectedSpus(pendingSpus)
+                  setSelectedSkcs(pendingSkcs)
+                  setConfirmKey(k => k + 1)
+                  if (!pendingSpus.length && !pendingSkcs.length && !filters.listing_date_from && !filters.listing_date_to) {
+                    setFilteredRows([])
+                  }
+                  setSpuPickerOpen(false)
+                  setSkcPickerOpen(false)
+                }}
+              >
+                确认查询
+              </button>
+              <button
+                type="button"
+                className="picker-trigger picker-trigger--clear"
+                onClick={() => {
+                    setPendingSpus([])
+                    setPendingSkcs([])
+                    setSelectedSpus([])
+                    setSelectedSkcs([])
+                    setFilteredRows([])
+                    setFilters((prev) => ({ ...prev, listing_date_from: '', listing_date_to: '' }))
+                    setSpuPickerOpen(false)
+                    setSkcPickerOpen(false)
+                  }}
+                >
+                  清空
+                </button>
+            </div>
+            ) : null}
           </div>
         </div>
 
@@ -441,109 +769,72 @@ function P2Dashboard() {
           <table>
             <thead>
               <tr>
-                <th>SPU</th>
-                <th>SKC</th>
-                <th>销量</th>
-                <th>销售额</th>
-                <th>退款数</th>
-                <th>退款金额</th>
-                <th>退款数占比</th>
-                <th>退款金额占比</th>
+                <th className="th-center">SPU</th>
+                <th className="th-center">SKC</th>
+                <th>
+                  <button
+                    type="button"
+                    className={`sort-header-btn ${sortState.key === 'sales_qty' ? 'sort-header-btn--active' : ''}`}
+                    onClick={() => toggleSort('sales_qty')}
+                  >
+                    销量
+                    {sortState.key === 'sales_qty' ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : ''}
+                  </button>
+                </th>
+                <th>
+                  <button
+                    type="button"
+                    className={`sort-header-btn ${sortState.key === 'sales_amount' ? 'sort-header-btn--active' : ''}`}
+                    onClick={() => toggleSort('sales_amount')}
+                  >
+                    销售额
+                    {sortState.key === 'sales_amount' ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : ''}
+                  </button>
+                </th>
+                <th>
+                  <button
+                    type="button"
+                    className={`sort-header-btn ${sortState.key === 'refund_qty' ? 'sort-header-btn--active' : ''}`}
+                    onClick={() => toggleSort('refund_qty')}
+                  >
+                    退款数
+                    {sortState.key === 'refund_qty' ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : ''}
+                  </button>
+                </th>
+                <th>
+                  <button
+                    type="button"
+                    className={`sort-header-btn ${sortState.key === 'refund_amount' ? 'sort-header-btn--active' : ''}`}
+                    onClick={() => toggleSort('refund_amount')}
+                  >
+                    退款金额
+                    {sortState.key === 'refund_amount' ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : ''}
+                  </button>
+                </th>
+                <th>
+                  <button
+                    type="button"
+                    className={`sort-header-btn ${sortState.key === 'refund_qty_ratio' ? 'sort-header-btn--active' : ''}`}
+                    onClick={() => toggleSort('refund_qty_ratio')}
+                  >
+                    退款数占比
+                    {sortState.key === 'refund_qty_ratio' ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : ''}
+                  </button>
+                </th>
+                <th>
+                  <button
+                    type="button"
+                    className={`sort-header-btn ${sortState.key === 'refund_amount_ratio' ? 'sort-header-btn--active' : ''}`}
+                    onClick={() => toggleSort('refund_amount_ratio')}
+                  >
+                    退款金额占比
+                    {sortState.key === 'refund_amount_ratio' ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : ''}
+                  </button>
+                </th>
               </tr>
             </thead>
 
-            <tbody>
-              {displayedRows.map((spuRow) => (
-                <Fragment key={spuRow.spu}>
-                  {(() => {
-                    const firstSkc = (spuRow.skc_rows ?? []).find(
-                      (row) => row.skc && row.skc !== 'UNKNOWN_SKC',
-                    )?.skc
-
-                    return (
-                      <tr
-                        key={`${spuRow.spu}-spu`}
-                        className="spu-row"
-                        onClick={() => {
-                          setExpandedSpu((prev) => ({
-                            ...prev,
-                            [spuRow.spu]: !prev[spuRow.spu],
-                          }))
-                        }}
-                      >
-                        <td className="spu-click-cell">
-                          <span className="expand-icon">
-                            {expandedSpu[spuRow.spu] ? '−' : '+'}
-                          </span>
-                          <span className="spu-cell-btn">{spuRow.spu}</span>
-                        </td>
-
-                        <td>{firstSkc ?? '-'}</td>
-                        <td>{formatInt(spuRow.sales_qty)}</td>
-                        <td>{formatMoney(spuRow.sales_amount)}</td>
-                        <td className={getRefundMetricClass('refund_qty')}>
-                          {formatInt(spuRow.refund_qty)}
-                        </td>
-                        <td className={getRefundMetricClass('refund_amount')}>
-                          {formatMoney(spuRow.refund_amount)}
-                        </td>
-                        <td className={getRefundMetricClass('refund_qty_ratio')}>
-                          {formatRate(spuRow.refund_qty_ratio)}
-                        </td>
-                        <td className={getRefundMetricClass('refund_amount_ratio')}>
-                          {formatRate(spuRow.refund_amount_ratio)}
-                        </td>
-                      </tr>
-                    )
-                  })()}
-
-                  {expandedSpu[spuRow.spu]
-                    ? (spuRow.skc_rows ?? [])
-                        .filter((skcRow) => skcRow.skc && skcRow.skc !== 'UNKNOWN_SKC')
-                        .map((skcRow) => (
-                          <tr key={`${spuRow.spu}-${skcRow.skc}`} className="skc-row">
-                            <td className="spu-click-cell skc-spu-cell">
-                              <span className="expand-icon expand-icon--placeholder" />
-                              <span>{spuRow.spu}</span>
-                            </td>
-
-                            <td className="skc-cell">{skcRow.skc}</td>
-                            <td>{formatInt(skcRow.sales_qty)}</td>
-                            <td>{formatMoney(skcRow.sales_amount)}</td>
-                            <td className={getRefundMetricClass('refund_qty')}>
-                              {formatInt(skcRow.refund_qty)}
-                            </td>
-                            <td className={getRefundMetricClass('refund_amount')}>
-                              {formatMoney(skcRow.refund_amount)}
-                            </td>
-
-                            <td className={getRefundMetricClass('refund_qty_ratio')}>
-                              {formatRate(
-                                spuRow.sales_qty ? skcRow.refund_qty / spuRow.sales_qty : 0,
-                              )}
-                            </td>
-
-                            <td className={getRefundMetricClass('refund_amount_ratio')}>
-                              {formatRate(
-                                spuRow.sales_amount
-                                  ? skcRow.refund_amount / spuRow.sales_amount
-                                  : 0,
-                              )}
-                            </td>
-                          </tr>
-                        ))
-                    : null}
-                </Fragment>
-              ))}
-
-              {!loading && displayedRows.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="empty-cell">
-                    暂无符合条件的数据
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
+            <tbody>{renderedTableRows}</tbody>
           </table>
         </div>
       </section>
