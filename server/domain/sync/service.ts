@@ -839,7 +839,7 @@ export class SyncService {
     }
   }
 
-  async sync(options: SyncCommandOptions) {
+  async syncSourceToTarget(options: SyncCommandOptions) {
     const config = loadSyncConfig(options.config)
     const statePath = resolveStatePath(options.config, config)
     const logPath = resolveRuntimePath(options.config, config.runtime.log_path)
@@ -847,45 +847,106 @@ export class SyncService {
     const dateFilter = buildDateFilter(options)
     const client = this.createClient(config, logger)
     const shopifyClient = this.createShopifyClient(config, logger)
-    const sqlitePath = resolveRuntimePath(options.config, config.runtime.sqlite_path)
-    logger.info(`Starting sync with config ${options.config}.`)
+    logger.info(`Starting source-to-target sync with config ${options.config}.`)
     const filteredRows = filterRowsByDate(
       (await client.listRecords(config.source)).map((record) => [record.record_id, record.fields] as [string, Record<string, unknown>]),
       dateFilter,
     )
     const transformed = filteredRows.map(([sourceKey, row]) => transformSourceRecord(sourceKey, row))
     const enriched = await enrichResultsWithShopify(transformed, config, logger, shopifyClient)
-    logger.info(`Filtered ${filteredRows.length} source rows for sync.`)
+    logger.info(`Filtered ${filteredRows.length} source rows for source-to-target sync.`)
     const synced = await syncResults(enriched.results, config, statePath, false, client, logger)
-    const sqlite = this.syncToSqlite(
-      sqlitePath,
-      synced.mirroredRecords,
-      dateFilter === null,
-      logger,
-    )
-    if (!sqlite.ok) {
-      synced.counters.failed += 1
-    }
-    const bigqueryCache = await this.syncBigQueryCache(config, sqlitePath, logger)
-    if (!bigqueryCache.ok) {
-      synced.counters.failed += 1
-    }
     logger.info(
-      `Sync finished: scanned=${synced.counters.scanned}, created=${synced.counters.created}, updated=${synced.counters.updated}, failed=${synced.counters.failed}, sqlite_inserted=${sqlite.inserted}, sqlite_updated=${sqlite.updated}, sqlite_deleted=${sqlite.deleted}, sqlite_failed=${sqlite.sqlite_failed}, bigquery_cache_enabled=${bigqueryCache.enabled}, bigquery_cache_ok=${bigqueryCache.ok}, bigquery_order_lines=${bigqueryCache.order_lines_upserted}, bigquery_refund_events=${bigqueryCache.refund_events_upserted}.`,
+      `Source-to-target sync finished: scanned=${synced.counters.scanned}, created=${synced.counters.created}, updated=${synced.counters.updated}, failed=${synced.counters.failed}.`,
     )
 
     return {
-      mode: 'sync',
+      mode: 'source-to-target',
       config,
       statePath,
       dateFilter,
       summary: summarizeResults(enriched.results),
       enrichment_summary: enriched.summary,
-      sqlite,
-      bigquery_cache: bigqueryCache,
+      sqlite: {
+        enabled: false,
+        ok: true,
+        path: null,
+        inserted: 0,
+        updated: 0,
+        deleted: 0,
+        sqlite_failed: 0,
+      },
+      bigquery_cache: {
+        enabled: false,
+        ok: true,
+        date_from: null,
+        date_to: null,
+        order_lines_upserted: 0,
+        refund_events_upserted: 0,
+        failed: 0,
+      },
       ...synced.counters,
       diagnostics: [...synced.diagnostics, ...enriched.diagnostics],
       state: synced.state,
+    }
+  }
+
+  async sync(options: SyncCommandOptions) {
+    return this.syncTargetToSqlite(options)
+  }
+
+  async syncTargetToSqlite(options: SyncCommandOptions) {
+    const config = loadSyncConfig(options.config)
+    const logPath = resolveRuntimePath(options.config, config.runtime.log_path)
+    const logger = createLogger(logPath)
+    const dateFilter = buildDateFilter(options)
+    const client = this.createClient(config, logger)
+    const sqlitePath = resolveRuntimePath(options.config, config.runtime.sqlite_path)
+    logger.info(`Starting target-to-sqlite sync with config ${options.config}.`)
+    const targetRows = filterRowsByDate(
+      (await client.listRecords(config.target)).map((record) => [record.record_id, record.fields] as [string, Record<string, unknown>]),
+      dateFilter,
+    )
+    const now = new Date().toISOString()
+    const mirroredRecords: SqliteMirrorRecord[] = targetRows.map(([recordId, fields]) => ({
+      record_id: recordId,
+      source_record_id: recordId,
+      source_record_index: 0,
+      synced_at: now,
+      fields,
+    }))
+    logger.info(`Fetched ${targetRows.length} target rows for target-to-sqlite sync.`)
+    const sqlite = this.syncToSqlite(
+      sqlitePath,
+      mirroredRecords,
+      dateFilter === null,
+      logger,
+    )
+    let failed = sqlite.ok ? 0 : 1
+    const bigqueryCache = await this.syncBigQueryCache(config, sqlitePath, logger)
+    if (!bigqueryCache.ok) {
+      failed += 1
+    }
+    logger.info(
+      `Target-to-sqlite sync finished: scanned=${targetRows.length}, failed=${failed}, sqlite_inserted=${sqlite.inserted}, sqlite_updated=${sqlite.updated}, sqlite_deleted=${sqlite.deleted}, sqlite_failed=${sqlite.sqlite_failed}, bigquery_cache_enabled=${bigqueryCache.enabled}, bigquery_cache_ok=${bigqueryCache.ok}, bigquery_order_lines=${bigqueryCache.order_lines_upserted}, bigquery_refund_events=${bigqueryCache.refund_events_upserted}.`,
+    )
+
+    return {
+      mode: 'sync',
+      config,
+      dateFilter,
+      summary: {
+        target_rows: targetRows.length,
+        mirrored_records: mirroredRecords.length,
+      },
+      sqlite,
+      bigquery_cache: bigqueryCache,
+      scanned: targetRows.length,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      failed,
+      diagnostics: [],
     }
   }
 

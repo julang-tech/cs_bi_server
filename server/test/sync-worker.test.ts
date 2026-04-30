@@ -13,8 +13,8 @@ async function testWorkerRunsImmediately() {
       error() {},
     },
     service: {
-      async sync() {
-        calls.push('sync')
+      async syncTargetToSqlite() {
+        calls.push('syncTargetToSqlite')
         return {
           created: 0,
           updated: 0,
@@ -50,7 +50,7 @@ async function testWorkerUsesIntervalAndSkipsOverlap() {
       error() {},
     },
     service: {
-      async sync() {
+      async syncTargetToSqlite() {
         calls.push(Date.now())
         resolves += 1
         await sleep(resolves === 1 ? 80 : 5)

@@ -24,6 +24,7 @@ npm.cmd run start
 
 ```powershell
 npm.cmd run sync:preview
+npm.cmd run sync:source-to-target
 npm.cmd run sync:run
 npm.cmd run sync:worker
 npm.cmd run sync:csv -- --source docs/客服跟进记录表_退款登记_退款登记.csv
@@ -81,14 +82,15 @@ GOOGLE_APPLICATION_CREDENTIALS=config/gcp/julang-dev-database-876c2efba122.json
 - 已提供 Node `app` / `sync` 两个正式入口
 - Node `app` 已接入真实 P3 计算链路
 - Node `app` 已支持从 SQLite BigQuery 缓存读取销量、商品和订单补齐数据，并支持 Feishu tenant token 获取和 bitable records 拉取
-- Node `sync` 已承接 Feishu/OpenClaw 同步、预览、SQLite 镜像和 CSV 预览能力
-- Node `sync:worker` 已支持启动即同步、之后每 2 小时自动刷新一次 SQLite 镜像和 BigQuery 本地缓存
+- Node `sync` 已承接 Feishu/OpenClaw 同步、目标表 SQLite 镜像、BigQuery 缓存和 CSV 预览能力
+- Node `sync:worker` 已支持启动即读取飞书目标表同步 SQLite、之后每 2 小时自动刷新一次 SQLite 镜像和 BigQuery 本地缓存
 
 ## SQLite Mirror Notes
 
-- `sync:run` 会双写飞书目标表和本地 SQLite 镜像，并在有 GCP 凭证时刷新最近 400 天 BigQuery 本地缓存。
-- `sync:preview` 只做预览，不写飞书、不写 SQLite。
-- `sync:worker` 是长期运行进程，启动后会立即执行一轮同步，之后按 `runtime.refresh_interval_minutes` 轮询，默认 `120` 分钟。
+- `sync:source-to-target` 会按需把飞书源表转换并写入飞书目标表，保留 Shopify 订单字段补齐。
+- `sync:run` 会读取飞书目标表同步本地 SQLite 镜像，并在有 GCP 凭证时刷新最近 400 天 BigQuery 本地缓存。
+- `sync:preview` 只预览源表到目标表的转换结果，不写飞书、不写 SQLite。
+- `sync:worker` 是长期运行进程，启动后会立即执行一轮 `sync:run`，之后按 `runtime.refresh_interval_minutes` 轮询，默认 `120` 分钟；它不写飞书目标表。
 
 ## Migration Note
 

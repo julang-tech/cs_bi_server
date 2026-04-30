@@ -326,11 +326,10 @@ async function testSyncPreviewAndRun() {
     ),
   )
 
-  const sync = await service.sync({ config: configPath })
-  assert.equal(sync.mode, 'sync')
+  const sync = await service.syncSourceToTarget({ config: configPath })
+  assert.equal(sync.mode, 'source-to-target')
   assert.equal(sync.created, 1)
-  assert.equal(sync.sqlite.ok, true)
-  assert.equal(sync.sqlite.inserted, 1)
+  assert.equal(sync.sqlite.enabled, false)
   assert.equal(sync.bigquery_cache.enabled, false)
   assert.equal(createdRecords.length, 1)
   assert.equal(createdRecords[0]?.['客户姓名'], 'Alice Example')
@@ -346,16 +345,8 @@ async function testSyncPreviewAndRun() {
   }
   assert.deepEqual(state.source_to_target_ids['rec-1'], ['target-rec-1'])
 
-  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
-  const sqliteRepo = new SqliteMirrorRepository(sqlitePath)
-  const sqliteRows = sqliteRepo.listActiveRows()
-  assert.equal(sqliteRows.length, 1)
-  assert.equal(sqliteRows[0]?.record_id, 'target-rec-1')
-  assert.equal(sqliteRows[0]?.fields['客户姓名'], 'Alice Example')
-  sqliteRepo.close()
-
-  const secondSync = await service.sync({ config: configPath })
-  assert.equal(secondSync.sqlite.updated, 1)
+  const secondSync = await service.syncSourceToTarget({ config: configPath })
+  assert.equal(secondSync.updated, 1)
   assert.equal(updatedRecords.length, 1)
 }
 
@@ -428,7 +419,7 @@ async function testShopifyBackfillOnlyFillsEmptyFields() {
     }),
   })
 
-  await service.sync({ config: configPath })
+  await service.syncSourceToTarget({ config: configPath })
   assert.equal(createdRecords[0]?.['物流状态'], '运输途中')
   assert.equal(createdRecords[0]?.['客户姓名'], 'Filled Name')
   assert.equal(createdRecords[0]?.['订单金额'], 88)
@@ -517,7 +508,7 @@ async function testSkuAmountStaysEmptyWhenComplaintSkuMissingOnMultiProductOrder
     ),
   )
 
-  await service.sync({ config: configPath })
+  await service.syncSourceToTarget({ config: configPath })
   assert.equal(createdRecords[0]?.['SKU金额'], undefined)
 }
 
@@ -717,6 +708,108 @@ async function testSyncSqliteFailureMarksRunFailed() {
   assert.equal(result.failed, 1)
 }
 
+async function testSyncTargetToSqliteReadsTargetTable() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const targetRecords: FeishuRecord[] = [
+    {
+      record_id: 'target-rec-1',
+      fields: {
+        记录日期: '2026/04/24',
+        订单号: 'LC910',
+        客诉SKU: 'SKU-910',
+        问题处理状态: '处理中',
+      },
+    },
+  ]
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords(table) {
+        assert.equal(table.table_id, 'target-table')
+        return targetRecords
+      },
+      async listFields() {
+        throw new Error('target-to-sqlite should not list target fields')
+      },
+      async createRecord() {
+        throw new Error('target-to-sqlite should not create target records')
+      },
+      async updateRecord() {
+        throw new Error('target-to-sqlite should not update target records')
+      },
+    }),
+    createShopifyClient: () => null,
+  })
+
+  const result = await service.sync({ config: configPath })
+  assert.equal(result.mode, 'sync')
+  assert.equal(result.scanned, 1)
+  assert.equal(result.sqlite.ok, true)
+  assert.equal(result.sqlite.inserted, 1)
+
+  const sqliteRepo = new SqliteMirrorRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+  const sqliteRows = sqliteRepo.listActiveRows()
+  assert.equal(sqliteRows.length, 1)
+  assert.equal(sqliteRows[0]?.record_id, 'target-rec-1')
+  assert.equal(sqliteRows[0]?.source_record_id, 'target-rec-1')
+  assert.equal(sqliteRows[0]?.source_record_index, 0)
+  assert.equal(sqliteRows[0]?.fields['问题处理状态'], '处理中')
+  sqliteRepo.close()
+}
+
+async function testSyncTargetToSqlitePrunesMissingTargetRecords() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const targetRecords: FeishuRecord[] = [
+    {
+      record_id: 'target-rec-1',
+      fields: {
+        记录日期: '2026/04/24',
+        订单号: 'LC910',
+      },
+    },
+    {
+      record_id: 'target-rec-2',
+      fields: {
+        记录日期: '2026/04/25',
+        订单号: 'LC911',
+      },
+    },
+  ]
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return targetRecords
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+  })
+
+  const first = await service.sync({ config: configPath })
+  assert.equal(first.sqlite.inserted, 2)
+
+  targetRecords.pop()
+  const second = await service.sync({ config: configPath })
+  assert.equal(second.sqlite.deleted, 1)
+
+  const sqliteRepo = new SqliteMirrorRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+  const sqliteRows = sqliteRepo.listActiveRows()
+  assert.equal(sqliteRows.length, 1)
+  assert.equal(sqliteRows[0]?.record_id, 'target-rec-1')
+  sqliteRepo.close()
+}
+
 async function testSyncRefreshesBigQueryCache() {
   const tmpDir = createTempDir()
   const configPath = createConfig(tmpDir)
@@ -852,6 +945,8 @@ async function run() {
   await testSqliteMirrorDeletesMissingRecords()
   await testSqliteMirrorRangeSyncDoesNotDeleteMissingRecords()
   await testSyncSqliteFailureMarksRunFailed()
+  await testSyncTargetToSqliteReadsTargetTable()
+  await testSyncTargetToSqlitePrunesMissingTargetRecords()
   await testSyncRefreshesBigQueryCache()
   await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
   console.log('Sync tests passed')

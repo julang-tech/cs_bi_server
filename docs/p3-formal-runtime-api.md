@@ -5,7 +5,7 @@
 ## Runtime Model
 
 - 客诉源
-  - `OpenClaw / Feishu` 多维表实时拉取
+  - 优先读取本地 SQLite 中的飞书目标表镜像，镜像不存在时回退到 `OpenClaw / Feishu` 目标表实时拉取
 - 订单与商品补数
   - 本地 SQLite BigQuery 缓存，由 `sync:run` / `sync:worker` 定时从 `Shopify BigQuery` 刷新
 - 服务内完成：

@@ -62,7 +62,7 @@ GOOGLE_APPLICATION_CREDENTIALS=config/gcp/julang-dev-database-876c2efba122.json
 ## Runtime Fields
 
 - `runtime.state_path`: 源记录到目标记录的同步状态文件
-- `runtime.log_path`: `sync` / `sync:worker` 共用日志文件
+- `runtime.log_path`: `sync` / `sync:source-to-target` / `sync:worker` 共用日志文件
 - `runtime.sqlite_path`: 本地 SQLite 镜像文件，P3 从这里读取 issue 数据和 BigQuery 本地缓存
 - `runtime.refresh_interval_minutes`: `sync:worker` 刷新间隔，默认 `120`
 
@@ -89,6 +89,8 @@ https://xxx.feishu.cn/base/AbCdEfGhIjKlMnOp?table=tbl123456789&view=vew987654321
 
 - `P3` 会优先读取 `runtime.sqlite_path` 指向的 SQLite 镜像；镜像不存在时才回退到飞书 `target` 表。
 - `P3` 的销量、商品排行和订单补齐读取同一个 SQLite 文件里的 BigQuery 缓存，不在 API 请求时实时查询 BigQuery。
-- `sync:run` 会双写飞书目标表和 SQLite 镜像，并在有 `GOOGLE_APPLICATION_CREDENTIALS` 时刷新最近 400 天 BigQuery 缓存。
-- `sync:preview` 不会写 SQLite。
+- `sync:source-to-target` 会按需把飞书源表转换并写入飞书目标表，保留 Shopify 订单字段补齐。
+- `sync:run` 会读取飞书目标表同步 SQLite 镜像，并在有 `GOOGLE_APPLICATION_CREDENTIALS` 时刷新最近 400 天 BigQuery 缓存。
+- `sync:preview` 不会写飞书，也不会写 SQLite。
+- `sync:worker` 定时执行的是目标表到 SQLite 的同步和 BigQuery 缓存刷新，不会写飞书目标表。
 - `config/sync/config.json`、`config/gcp/*.json`、`config/data/*`、`config/logs/*` 已加入 `.gitignore`。

@@ -9,7 +9,7 @@ type WorkerLogger = {
 }
 
 type WorkerService = {
-  sync: (options: { config: string }) => Promise<{
+  syncTargetToSqlite: (options: { config: string }) => Promise<{
     created: number
     updated: number
     failed: number
@@ -55,7 +55,7 @@ export function createSyncWorker(options: {
     running = true
     logger.info(`Sync worker ${trigger} run started.`)
     try {
-      const result = await service.sync({ config: options.configPath })
+      const result = await service.syncTargetToSqlite({ config: options.configPath })
       if (!result.sqlite.ok) {
         logger.error('Sync worker run completed with SQLite failure.')
       } else if (result.bigquery_cache?.enabled && !result.bigquery_cache.ok) {
