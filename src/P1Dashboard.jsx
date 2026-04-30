@@ -253,6 +253,7 @@ export default function P1Dashboard() {
           description="客户发送邮件的封数，按自然日汇总后作为总体待处理规模口径。"
           badge={{ label: '客户邮件封数', tone: 'cool' }}
           tone="sales"
+          layout="horizontal"
         />
         <SummaryCard
           title="回邮数"
@@ -262,6 +263,7 @@ export default function P1Dashboard() {
           description="客服回复邮件的封数，反映坐席实际处理量。"
           badge={{ label: '客服回复封数', tone: 'rose' }}
           tone="complaints"
+          layout="horizontal"
         />
         <SummaryCard
           title="平均会话排队时长"
@@ -271,9 +273,11 @@ export default function P1Dashboard() {
           description="客户邮件到人工回复的时间差均值，用于衡量响应效率。"
           badge={{ label: '客户首封到人工首回', tone: 'cool' }}
           tone="rate"
+          layout="horizontal"
         />
         <SummaryCard
           title="首次响应超时次数"
+          className="p1-timeout-summary-card"
           value={loading ? '--' : formatInteger(summary?.first_response_timeout_count)}
           rangeLabel="范围均值"
           rangeValue={loading ? '--' : formatDecimal(timeoutRangeAverage, 1)}
@@ -290,6 +294,7 @@ export default function P1Dashboard() {
           description="客户首封邮件到人工首回时间差大于 24 小时的次数，并补充范围内未回复规模。"
           badge={{ label: '>24h', tone: 'deep' }}
           tone="complaints"
+          layout="horizontal"
         />
       </section>
 

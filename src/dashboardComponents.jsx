@@ -41,11 +41,14 @@ export function SummaryCard({
   badge,
   tone,
   layout = 'stacked',
+  className = '',
 }) {
-  const className = ['summary-card', `summary-card--${tone}`, `summary-card--${layout}`].join(' ')
+  const cardClassName = ['summary-card', `summary-card--${tone}`, `summary-card--${layout}`, className]
+    .filter(Boolean)
+    .join(' ')
 
   return (
-    <article className={className}>
+    <article className={cardClassName}>
       <div className="summary-card__header">
         <h2>{title}</h2>
         <span className={`summary-badge summary-badge--${badge.tone}`}>{badge.label}</span>
@@ -221,19 +224,23 @@ export function TrendChart({ title, items, tone, formatter, deltaMode = 'percent
 export function MultiLineTrendChart({ series, ariaLabel = '总览趋势' }) {
   const [tooltip, setTooltip] = useState(null)
   const allValues = series.flatMap((item) => item.items.map((point) => point.value))
-  const max = Math.max(...allValues, 0)
-  const safeMax = max === 0 ? 1 : max
+  const minValue = Math.min(...allValues, 0)
+  const maxValue = Math.max(...allValues, 0)
+  const safeRange = maxValue === minValue ? 1 : maxValue - minValue
   const longestSeries = series.reduce(
     (current, item) => (item.items.length > current.items.length ? item : current),
     series[0],
   )
   const pointCount = longestSeries?.items.length ?? 0
   const chartBounds = {
-    left: 4,
+    left: 8,
     right: 96,
-    top: 8,
-    bottom: 92,
+    top: 10,
+    bottom: 86,
   }
+  const firstPoint = longestSeries?.items[0]
+  const latestPoint = longestSeries?.items[longestSeries.items.length - 1]
+  const axisFormatter = series[0]?.formatter ?? formatInteger
 
   function getPointData(items) {
     const xRange = chartBounds.right - chartBounds.left
@@ -242,14 +249,12 @@ export function MultiLineTrendChart({ series, ariaLabel = '总览趋势' }) {
     return items.map((item, index) => ({
       ...item,
       x: items.length === 1 ? 50 : chartBounds.left + (index / (items.length - 1)) * xRange,
-      y: chartBounds.bottom - (item.value / safeMax) * yRange,
+      y: chartBounds.bottom - ((item.value - minValue) / safeRange) * yRange,
     }))
   }
 
   function getTooltipClassName(point) {
-    const horizontal = point.x > 82 ? 'p1-trend-tooltip--left' : ''
-    const vertical = point.y < 24 ? 'p1-trend-tooltip--below' : ''
-    return ['trend-tooltip', 'p1-trend-tooltip', horizontal, vertical].filter(Boolean).join(' ')
+    return ['trend-tooltip', point.x > 82 ? 'trend-tooltip--left' : ''].filter(Boolean).join(' ')
   }
 
   if (!pointCount) {
@@ -260,10 +265,19 @@ export function MultiLineTrendChart({ series, ariaLabel = '总览趋势' }) {
     <div className="p1-trend-chart" onMouseLeave={() => setTooltip(null)}>
       <svg viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label={ariaLabel}>
         <g className="p1-trend-gridlines" aria-hidden="true">
-          {[20, 40, 60, 80].map((line) => (
-            <line key={line} x1="0" x2="100" y1={line} y2={line} />
+          {[25, 50, 75].map((line) => (
+            <line key={line} x1="8" x2="96" y1={line} y2={line} />
           ))}
         </g>
+        {tooltip ? (
+          <line
+            className="trend-chart__reference-line"
+            x1={tooltip.x}
+            x2={tooltip.x}
+            y1="10"
+            y2="86"
+          />
+        ) : null}
         {series.map((line) => {
           const pointData = getPointData(line.items)
           const points = pointData.map((item) => `${item.x},${item.y}`).join(' ')
@@ -285,11 +299,20 @@ export function MultiLineTrendChart({ series, ariaLabel = '总览趋势' }) {
             onFocus={() => setTooltip({ bucket: item.bucket, index, x: item.x, y: item.y })}
             tabIndex="0"
           >
-            <line className="p1-trend-hit-line" x1={item.x} x2={item.x} y1="0" y2="100" />
-            <circle className="trend-chart__hit-circle" cx={item.x} cy={item.y} r="5.5" />
+            <circle className="trend-chart__hit-circle" cx={item.x} cy={item.y} r="7" />
           </g>
         ))}
       </svg>
+      <span className="trend-chart__axis-label trend-chart__axis-label--top">
+        {axisFormatter(maxValue)}
+      </span>
+      <span className="trend-chart__axis-label trend-chart__axis-label--bottom">
+        {axisFormatter(minValue)}
+      </span>
+      <div className="trend-chart__bucket-labels" aria-hidden="true">
+        <span>{firstPoint?.bucket}</span>
+        <span>{latestPoint?.bucket}</span>
+      </div>
       {tooltip ? (
         <div className={getTooltipClassName(tooltip)} style={{ left: `${tooltip.x}%`, top: `${tooltip.y}%` }}>
           <span>{tooltip.bucket}</span>

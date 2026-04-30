@@ -316,17 +316,22 @@
 }
 
 .p1-summary-grid .summary-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 258px;
   padding: 30px 30px 28px;
 }
 
 .p1-summary-grid .summary-card__value {
-  font-size: clamp(52px, 5.4vw, 72px);
+  font-size: clamp(46px, 4.5vw, 64px);
 }
 
 .p1-summary-grid .summary-card__description {
-  max-width: 92%;
-  min-height: 0;
-  font-size: 17px;
+  max-width: 100%;
+  min-height: 48px;
+  margin-top: auto;
+  padding-top: 18px;
+  font-size: 16px;
 }
 
 .p3-summary-grid .summary-card {
@@ -441,6 +446,20 @@
   font-size: 17px;
 }
 
+.p1-timeout-summary-card .summary-card__metrics {
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.p1-timeout-summary-card .summary-card__metrics span {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.p1-timeout-summary-card .summary-card__metrics strong {
+  font-size: 15px;
+}
 .summary-card__description {
   max-width: 88%;
   min-height: 56px;
@@ -634,7 +653,7 @@
 
 .trend-chart__line {
   stroke: currentColor;
-  stroke-width: 2.15;
+  stroke-width: 1.65;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
@@ -970,7 +989,7 @@
 }
 
 .p1-trend-card {
-  min-height: 378px;
+  min-height: 300px;
 }
 
 .p1-workload-chart {
@@ -1084,81 +1103,58 @@
 }
 
 .p1-legend-item--inbound {
-  color: #2b7780;
+  color: #52728d;
 }
 
 .p1-legend-item--outbound {
-  color: #d39a2f;
+  color: #b65c68;
 }
 
 .p1-legend-item--timeout {
-  color: #cf6f84;
+  color: #3c8f89;
 }
 
 .p1-trend-chart {
   position: relative;
-  height: 320px;
+  height: 210px;
   margin: 0 18px 22px;
-  padding: 18px 18px 22px;
-  border: 1px solid #e8dfd3;
-  border-radius: 18px;
-  background:
-    linear-gradient(180deg, rgba(255, 253, 249, 0.86), rgba(248, 241, 231, 0.9)),
-    repeating-linear-gradient(0deg, transparent, transparent 45px, rgba(48, 65, 84, 0.06) 46px);
+  padding: 18px 12px 28px;
+  border: 1px solid rgba(227, 216, 201, 0.72);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 253, 249, 0.96), rgba(250, 246, 239, 0.78));
 }
 
 .p1-trend-chart svg {
   width: 100%;
   height: 100%;
+  overflow: visible;
 }
 
 .p1-trend-gridlines line {
-  stroke: rgba(48, 65, 84, 0.08);
+  stroke: rgba(48, 65, 84, 0.1);
   stroke-width: 0.35;
 }
 
 .p1-trend-line {
-  stroke-width: 1.8;
+  stroke-width: 1.35;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
 
 .p1-trend-line--inbound {
-  stroke: #2b7780;
+  stroke: #52728d;
 }
 
 .p1-trend-line--outbound {
-  stroke: #d39a2f;
+  stroke: #b65c68;
 }
 
 .p1-trend-line--timeout {
-  stroke: #cf6f84;
-  stroke-dasharray: 3 3;
-}
-
-.p1-trend-hit-line {
-  stroke: transparent;
-  stroke-width: 6;
+  stroke: #3c8f89;
 }
 
 .p1-trend-tooltip strong + strong {
   margin-top: 2px;
-}
-
-.p1-trend-tooltip {
-  transform: translate(-50%, calc(-100% - 12px));
-}
-
-.p1-trend-tooltip--left {
-  transform: translate(calc(-100% + 12px), calc(-100% - 12px));
-}
-
-.p1-trend-tooltip--below {
-  transform: translate(-50%, 12px);
-}
-
-.p1-trend-tooltip--left.p1-trend-tooltip--below {
-  transform: translate(calc(-100% + 12px), 12px);
 }
 
 @media (max-width: 1200px) {
@@ -1314,7 +1310,7 @@
     height: 220px;
     margin-left: 12px;
     margin-right: 12px;
-    padding: 14px;
+    padding: 18px 12px 28px;
   }
 
   .p1-trend-legend {
