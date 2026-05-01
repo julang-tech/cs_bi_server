@@ -1365,6 +1365,116 @@ async function testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders() {
   cache.close()
 }
 
+async function testSyncShopifyBiV2CacheKeysRefundEventsByRefundLine() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query(options: unknown) {
+        const query = String((options as { query?: string }).query ?? '')
+        if (query.includes('int_line_items_classified')) {
+          return [[{
+            order_id: 'order-refund-lines',
+            order_no: 'LC802',
+            line_key: 'order-refund-lines:line-1',
+            sku: 'SKU-802-M',
+            skc: 'SKC-802',
+            spu: 'SPU-802',
+            product_id: 'prod-802',
+            variant_id: 'var-802',
+            quantity: 1,
+            discounted_total_usd: 100,
+            is_insurance_item: false,
+            is_price_adjustment: false,
+            is_shipping_cost: false,
+          }]]
+        }
+        if (query.includes('FROM `julang-dev-database.shopify_dwd.dwd_orders_fact_usd`')) {
+          return [[{
+            order_id: 'order-refund-lines',
+            order_no: 'LC802',
+            shop_domain: '2vnpww-33.myshopify.com',
+            processed_date: '2026-04-10',
+            primary_product_type: 'Dress',
+            first_published_at_in_order: '2026-03-20',
+            is_regular_order: true,
+            is_gift_card_order: false,
+            gmv_usd: 120,
+            revenue_usd: 100,
+            net_revenue_usd: 50,
+          }]]
+        }
+        if (query.includes('dwd_refund_events')) {
+          return [[
+            {
+              refund_id: 'gid://shopify/Refund/802',
+              line_item_id: 'gid://shopify/LineItem/802-1',
+              order_id: 'order-refund-lines',
+              order_no: 'LC802',
+              sku: 'SKU-802-M',
+              refund_date: '2026-04-12',
+              refund_quantity: 1,
+              refund_subtotal_usd: 20,
+            },
+            {
+              refund_id: 'gid://shopify/Refund/802',
+              line_item_id: 'gid://shopify/LineItem/802-2',
+              order_id: 'order-refund-lines',
+              order_no: 'LC802',
+              sku: 'SKU-802-L',
+              refund_date: '2026-04-12',
+              refund_quantity: 1,
+              refund_subtotal_usd: 30,
+            },
+          ]]
+        }
+        return [[]]
+      },
+    }),
+  })
+
+  const result = await service.syncTargetToSqlite({ config: configPath })
+  const shopifyBiCache = (result as {
+    shopify_bi_cache?: {
+      enabled: boolean
+      ok: boolean
+      refund_events_upserted: number
+      error?: string
+    }
+  }).shopify_bi_cache
+  assert.equal(shopifyBiCache?.enabled, true)
+  assert.equal(shopifyBiCache?.ok, true, shopifyBiCache?.error)
+  assert.equal(shopifyBiCache?.refund_events_upserted, 2)
+
+  const sqliteRepo = new SqliteMirrorRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+  const rows = sqliteRepo
+    .unsafeDatabaseForTest()
+    .prepare('SELECT refund_id, sku FROM shopify_bi_refund_events ORDER BY sku')
+    .all()
+  assert.equal(rows.length, 2)
+  assert.notEqual(
+    String((rows[0] as { refund_id: unknown }).refund_id),
+    String((rows[1] as { refund_id: unknown }).refund_id),
+  )
+  sqliteRepo.close()
+}
+
 async function testSyncShopifyBiCacheQueriesUseStableSourceIds() {
   const tmpDir = createTempDir()
   const configPath = createConfig(tmpDir)
@@ -1409,8 +1519,11 @@ async function testSyncShopifyBiCacheQueriesUseStableSourceIds() {
         query.includes('CAST(re.refund_date AS STRING) AS refund_date') &&
         query.includes('refund_subtotal_usd'),
     ) ?? ''
-  assert.match(shopifyBiRefundQuery, /refund_id|JSON_VALUE\(TO_JSON_STRING\(re\), '\$\.refund_id'\)/)
-  assert.match(shopifyBiRefundQuery, /TO_HEX\(SHA256\(/)
+  assert.match(
+    shopifyBiRefundQuery,
+    /TO_HEX\(SHA256\(CONCAT\([\s\S]*COALESCE\(CAST\(re\.refund_id AS STRING\), ''\)[\s\S]*COALESCE\(CAST\(re\.line_item_id AS STRING\), ''\)[\s\S]*\)\)\) AS refund_id/,
+  )
+  assert.doesNotMatch(shopifyBiRefundQuery, /JSON_VALUE\(TO_JSON_STRING\(re\), '\$\.refund_id'\)/)
   assert.doesNotMatch(shopifyBiRefundQuery, /ROW_NUMBER\(\) OVER \(PARTITION BY re\.order_id, re\.sku, re\.refund_date ORDER BY re\.refund_subtotal\)/)
 }
 
@@ -1877,6 +1990,7 @@ async function run() {
   await testSyncShopifyBiCacheIfDueReturnsFailureWhenCoverageCheckFails()
   await testSyncShopifyBiCacheIfDueRefreshesWhenWindowMissing()
   await testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders()
+  await testSyncShopifyBiV2CacheKeysRefundEventsByRefundLine()
   await testSyncShopifyBiCacheQueriesUseStableSourceIds()
   await testSyncLegacyRefundCacheJoinsOrdersForOrderName()
   await testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache()

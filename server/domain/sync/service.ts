@@ -1414,25 +1414,29 @@ FROM parsed2
     const rows = extractRows(await client.query({
       query: `
 SELECT
-  COALESCE(
-    JSON_VALUE(TO_JSON_STRING(re), '$.refund_id'),
-    JSON_VALUE(TO_JSON_STRING(re), '$.id'),
-    TO_HEX(SHA256(CONCAT(
-      COALESCE(CAST(re.order_id AS STRING), ''),
-      '|',
-      COALESCE(CAST(re.sku AS STRING), ''),
-      '|',
-      COALESCE(CAST(re.refund_date AS STRING), ''),
-      '|',
-      COALESCE(CAST(re.quantity AS STRING), ''),
-      '|',
-      COALESCE(CAST(re.refund_subtotal AS STRING), '')
-    )))
-  ) AS refund_id,
+  TO_HEX(SHA256(CONCAT(
+    COALESCE(CAST(re.refund_id AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.line_item_id AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.order_id AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.sku AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.refund_date AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.quantity AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.refund_subtotal AS STRING), '')
+  ))) AS refund_id,
+  CAST(re.refund_id AS STRING) AS source_refund_id,
+  CAST(re.line_item_id AS STRING) AS line_item_id,
   CAST(re.order_id AS STRING) AS order_id,
   CAST(o.order_name AS STRING) AS order_no,
   CAST(re.sku AS STRING) AS sku,
   CAST(re.refund_date AS STRING) AS refund_date,
+  CAST(re.quantity AS STRING) AS source_refund_quantity,
+  CAST(re.refund_subtotal AS STRING) AS source_refund_subtotal,
   COALESCE(re.quantity, 0) AS refund_quantity,
   COALESCE(CAST(re.refund_subtotal AS NUMERIC) * COALESCE(CAST(o.usd_fx_rate AS NUMERIC), 1), 0) AS refund_subtotal_usd
 FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
@@ -1447,24 +1451,32 @@ WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
       const orderId = String(row.order_id ?? '')
       const sku = normalizeNullableText(row.sku)
       const refundDate = String(row.refund_date ?? '')
-      const refundId = String(
-        row.refund_id ??
-          stableSyntheticId([
-            orderId,
-            sku,
-            refundDate,
-            row.refund_quantity,
-            row.refund_subtotal_usd,
-          ]),
-      )
+      const sourceRefundId = normalizeNullableText(row.source_refund_id ?? row.refund_id)
+      const lineItemId = normalizeNullableText(row.line_item_id)
+      const refundQuantity = Number(row.refund_quantity ?? 0)
+      const refundSubtotalUsd = Number(row.refund_subtotal_usd ?? 0)
+      const returnedRefundId = String(row.refund_id ?? '').trim()
+      const isSqlHash = /^[0-9a-f]{64}$/i.test(returnedRefundId)
+      const refundId =
+        returnedRefundId && (!lineItemId || isSqlHash)
+          ? returnedRefundId
+          : stableSyntheticId([
+              sourceRefundId,
+              lineItemId,
+              orderId,
+              sku,
+              refundDate,
+              row.source_refund_quantity ?? refundQuantity,
+              row.source_refund_subtotal ?? refundSubtotalUsd,
+            ])
       return {
         refund_id: refundId,
         order_id: orderId,
         order_no: String(row.order_no ?? ''),
         sku,
         refund_date: refundDate,
-        refund_quantity: Number(row.refund_quantity ?? 0),
-        refund_subtotal_usd: Number(row.refund_subtotal_usd ?? 0),
+        refund_quantity: refundQuantity,
+        refund_subtotal_usd: refundSubtotalUsd,
       }
     }).filter((row) => row.refund_id && row.order_id && row.order_no && row.refund_date)
   }
