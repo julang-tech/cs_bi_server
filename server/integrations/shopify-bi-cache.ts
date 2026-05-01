@@ -155,6 +155,25 @@ export class SqliteShopifyBiCacheRepository {
         error TEXT
       );
     `)
+    this.ensureCacheRunsScopeIndex()
+  }
+
+  private ensureCacheRunsScopeIndex() {
+    const expectedColumns = ['scope', 'ok', 'date_from', 'date_to']
+    const existingColumns = this.db
+      .prepare("PRAGMA index_info('idx_shopify_bi_cache_runs_scope')")
+      .all()
+      .map((row) => String((row as { name: unknown }).name))
+
+    const hasUnexpectedColumns =
+      existingColumns.length > 0 &&
+      (existingColumns.length !== expectedColumns.length ||
+        existingColumns.some((column, index) => column !== expectedColumns[index]))
+
+    if (hasUnexpectedColumns) {
+      this.db.exec('DROP INDEX idx_shopify_bi_cache_runs_scope;')
+    }
+
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_shopify_bi_cache_runs_scope
       ON shopify_bi_cache_runs(scope, ok, date_from, date_to);

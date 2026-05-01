@@ -944,6 +944,20 @@ async function testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache() {
     }],
     refundEvents: [],
   })
+  legacy.unsafeDatabaseForTest().exec(`
+    CREATE TABLE IF NOT EXISTS shopify_bi_cache_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      scope TEXT NOT NULL,
+      date_from TEXT NOT NULL,
+      date_to TEXT NOT NULL,
+      ok INTEGER NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_shopify_bi_cache_runs_scope
+    ON shopify_bi_cache_runs(scope);
+  `)
   legacy.close()
 
   const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
@@ -973,6 +987,12 @@ async function testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache() {
     'shopify_bi_orders',
     'shopify_bi_refund_events',
   ])
+  const cacheRunIndexColumns = reopened
+    .unsafeDatabaseForTest()
+    .prepare("PRAGMA index_info('idx_shopify_bi_cache_runs_scope')")
+    .all()
+    .map((row) => String((row as { name: unknown }).name))
+  assert.deepEqual(cacheRunIndexColumns, ['scope', 'ok', 'date_from', 'date_to'])
   reopened.close()
 }
 
