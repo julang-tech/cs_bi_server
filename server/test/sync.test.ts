@@ -953,14 +953,16 @@ async function testSyncRefreshesShopifyBiV2Cache() {
       async query(options: unknown) {
         const query = String((options as { query?: string }).query ?? '')
         if (query.includes('int_line_items_classified')) {
+          const usesParsedSkuSpu =
+            query.includes('parsed_skc AS skc') && query.includes('parsed_spu AS spu')
           return [[{
             order_id: 'order-v2-1',
             order_no: 'LC800',
             line_key: 'order-v2-1:SKU-800:0',
-            sku: 'SKU-800-M',
-            skc: 'SKC-800',
-            spu: 'SPU-800',
-            product_id: 'prod-800',
+            sku: 'LWS-PT21BK-M',
+            skc: usesParsedSkuSpu ? 'LWS-PT21BK' : 'prod-123',
+            spu: usesParsedSkuSpu ? 'LWS-PT21BK' : 'prod-123',
+            product_id: 'prod-123',
             variant_id: 'var-800',
             quantity: 1,
             discounted_total_usd: 100,
@@ -1015,6 +1017,25 @@ async function testSyncRefreshesShopifyBiV2Cache() {
   assert.equal(shopifyBiCache?.orders_upserted, 1)
   assert.equal(shopifyBiCache?.order_lines_upserted, 1)
   assert.equal(shopifyBiCache?.refund_events_upserted, 1)
+
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+  const table = cache.queryP2SpuTable({
+    date_from: '2026-04-01',
+    date_to: '2026-04-30',
+    grain: 'month',
+  }, 20)
+  assert.equal(table.rows[0]?.spu, 'LWS-PT21BK')
+  assert.notEqual(table.rows[0]?.spu, 'prod-123')
+  const options = cache.queryP2SpuSkcOptions({
+    date_from: '2026-04-01',
+    date_to: '2026-04-30',
+    grain: 'month',
+  }).options
+  assert.deepEqual(options.spus, ['LWS-PT21BK'])
+  assert.deepEqual(options.skcs, ['LWS-PT21BK'])
+  assert.deepEqual(options.pairs, [{ spu: 'LWS-PT21BK', skc: 'LWS-PT21BK' }])
+  cache.close()
 }
 
 async function testSyncTargetToSqliteCanSkipBigQueryCacheRefreshes() {

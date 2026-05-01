@@ -332,6 +332,19 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
       }
     }
 
+    const effectiveSpuList = filters.spu_list?.length
+      ? filters.spu_list
+      : filters.spu
+        ? [filters.spu]
+        : ['__ALL__']
+    const effectiveSkcList = filters.skc_list?.length
+      ? filters.skc_list
+      : filters.skc
+        ? [filters.skc]
+        : ['__ALL__']
+    const spuFilterOn = Boolean(filters.spu_list?.length || filters.spu)
+    const skcFilterOn = Boolean(filters.skc_list?.length || filters.skc)
+
     const rows = extractRows(
       await this.client.query({
         query: `
@@ -363,6 +376,7 @@ WITH line_base AS (
     LEFT JOIN \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
       ON re.order_id = li.order_id
      AND re.sku = li.sku
+     AND re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
     WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
       AND NOT COALESCE(o.is_gift_card_order, FALSE)
       AND COALESCE(o.is_regular_order, FALSE) = TRUE
@@ -503,10 +517,10 @@ ORDER BY spu, row_type DESC, refund_amount DESC
         `,
         params: {
           ...this.buildParams(filters),
-          spu_filter_on: filters.spu_list?.length ? 1 : 0,
-          skc_filter_on: filters.skc_list?.length ? 1 : 0,
-          spu_list: filters.spu_list?.length ? filters.spu_list : ['__ALL__'],
-          skc_list: filters.skc_list?.length ? filters.skc_list : ['__ALL__'],
+          spu_filter_on: spuFilterOn ? 1 : 0,
+          skc_filter_on: skcFilterOn ? 1 : 0,
+          spu_list: effectiveSpuList,
+          skc_list: effectiveSkcList,
           top_n: topN,
         },
       }),
@@ -645,6 +659,7 @@ WITH parsed AS (
     AND COALESCE(o.is_regular_order, FALSE) = TRUE
     AND NOT COALESCE(li.is_insurance_item, FALSE)
     AND NOT COALESCE(li.is_price_adjustment, FALSE)
+    AND NOT COALESCE(li.is_shipping_cost, FALSE)
     AND (@category = '' OR o.primary_product_type = @category)
     AND (@channel = '' OR o.shop_domain = @channel)
     AND (

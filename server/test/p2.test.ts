@@ -293,6 +293,29 @@ async function testSpuTableExcludesShippingCostLines() {
 
   const spuTableSql = calls[0]?.query ?? ''
   assert.match(spuTableSql, /NOT COALESCE\(li\.is_shipping_cost, FALSE\)/)
+  assert.match(spuTableSql, /re\.refund_date BETWEEN DATE\(@date_from\) AND DATE\(@date_to\)/)
+}
+
+async function testSpuTableScalarFiltersFeedBigQueryListParams() {
+  const { client, calls } = createClient([[]])
+  const service = new P2Service(client)
+
+  await service.getSpuTable({ ...createFilters(), spu: 'LWS-PT21BK', skc: 'LWS-PT21BK' }, 20)
+
+  assert.equal(calls[0]?.params?.spu_filter_on, 1)
+  assert.equal(calls[0]?.params?.skc_filter_on, 1)
+  assert.deepEqual(calls[0]?.params?.spu_list, ['LWS-PT21BK'])
+  assert.deepEqual(calls[0]?.params?.skc_list, ['LWS-PT21BK'])
+}
+
+async function testSpuSkcOptionsExcludesShippingCostLines() {
+  const { client, calls } = createClient([[]])
+  const service = new P2Service(client)
+
+  await service.getSpuSkcOptions(createFilters())
+
+  const optionsSql = calls[0]?.query ?? ''
+  assert.match(optionsSql, /NOT COALESCE\(li\.is_shipping_cost, FALSE\)/)
 }
 
 async function testSpuTableUsesSqliteCacheWhenCovered() {
@@ -647,6 +670,8 @@ await testOverviewCacheErrorWithoutBigQueryDoesNotClaimFallback()
 await testCloseClosesCacheRepository()
 await testOverviewSalesQtyExcludesShippingCostLines()
 await testSpuTableExcludesShippingCostLines()
+await testSpuTableScalarFiltersFeedBigQueryListParams()
+await testSpuSkcOptionsExcludesShippingCostLines()
 await testSpuTableUsesSqliteCacheWhenCovered()
 await testSpuSkcOptionsUsesSqliteCacheWhenCovered()
 await testSpuTableFallsBackToBigQueryWhenCacheCoverageMissing()
