@@ -589,35 +589,12 @@
 
 .mini-chart {
   padding: 0;
-  color: var(--tone-muted);
-}
-
-.mini-chart--sales {
-  color: var(--tone-sales);
-}
-
-.mini-chart--complaints {
-  color: var(--tone-complaints);
-}
-
-.mini-chart--rate {
-  color: var(--tone-rate);
-}
-
-.mini-chart--neutral {
-  color: var(--tone-muted);
 }
 
 .mini-chart svg {
   width: 100%;
   height: 100%;
-}
-
-.mini-chart__line {
-  stroke: currentColor;
-  stroke-width: 2.2;
-  stroke-linejoin: round;
-  stroke-linecap: round;
+  display: block;
 }
 
 .mini-placeholder {

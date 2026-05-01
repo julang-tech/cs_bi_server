@@ -458,7 +458,7 @@
 .sort-header-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   width: 100%;
   border: 0;
   padding: 0;
@@ -482,7 +482,7 @@
 
 .refund-metric-cell {
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: center;
 }
 
 .sorted-metric-cell {
