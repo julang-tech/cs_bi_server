@@ -32,6 +32,14 @@ function createClient(rowsByCall: Array<Array<Record<string, unknown>>>) {
   }
 }
 
+function extractSqlSection(sql: string, from: string, to: string) {
+  const start = sql.indexOf(from)
+  const end = sql.indexOf(to, start + from.length)
+  assert.notEqual(start, -1, `Missing SQL section start: ${from}`)
+  assert.notEqual(end, -1, `Missing SQL section end: ${to}`)
+  return sql.slice(start, end)
+}
+
 async function testOverviewUsesAdr0007FinanceMetrics() {
   const { client, calls } = createClient([
     [{
@@ -63,8 +71,20 @@ async function testOverviewUsesAdr0007FinanceMetrics() {
   assert.match(overviewSql, /COALESCE\(o\.is_regular_order, FALSE\) = TRUE/)
   assert.match(overviewSql, /re\.refund_date BETWEEN DATE\(@date_from\) AND DATE\(@date_to\)/)
   assert.match(overviewSql, /CAST\(re\.refund_subtotal AS NUMERIC\) \* COALESCE\(CAST\(o\.usd_fx_rate AS NUMERIC\), 1\)/)
+  assert.doesNotMatch(overviewSql, /@spu IN UNNEST\(IFNULL\(o\.product_ids/)
+  assert.doesNotMatch(overviewSql, /@skc IN UNNEST\(IFNULL\(o\.skcs/)
+  assert.match(overviewSql, /EXISTS \(/)
+  assert.match(overviewSql, /parsed_spu/)
+  assert.match(overviewSql, /parsed_skc/)
   assert.doesNotMatch(overviewSql, /\bo\.gmv\b/)
   assert.doesNotMatch(overviewSql, /revenue_after_all_discounts/)
+
+  const salesQtySql = calls[1]?.query ?? ''
+  assert.doesNotMatch(salesQtySql, /@spu IN UNNEST\(IFNULL\(o\.product_ids/)
+  assert.doesNotMatch(salesQtySql, /@skc IN UNNEST\(IFNULL\(o\.skcs/)
+  assert.match(salesQtySql, /EXISTS \(/)
+  assert.match(salesQtySql, /parsed_spu/)
+  assert.match(salesQtySql, /parsed_skc/)
 
   assert.equal(payload.cards.gmv, 100)
   assert.equal(payload.cards.net_received_amount, 90)
@@ -293,7 +313,12 @@ async function testSpuTableExcludesShippingCostLines() {
 
   const spuTableSql = calls[0]?.query ?? ''
   assert.match(spuTableSql, /NOT COALESCE\(li\.is_shipping_cost, FALSE\)/)
-  assert.match(spuTableSql, /re\.refund_date BETWEEN DATE\(@date_from\) AND DATE\(@date_to\)/)
+  assert.match(spuTableSql, /sales_lines AS/)
+  assert.match(spuTableSql, /refund_event_agg AS/)
+  assert.match(spuTableSql, /refund_line_dim AS/)
+  assert.match(spuTableSql, /refund_event_agg AS \([\s\S]*re\.refund_date BETWEEN DATE\(@date_from\) AND DATE\(@date_to\)/)
+  const refundLineDimSql = extractSqlSection(spuTableSql, 'refund_line_dim AS', 'refund_agg AS')
+  assert.doesNotMatch(refundLineDimSql, /processed_date BETWEEN DATE\(@date_from\) AND DATE\(@date_to\)/)
 }
 
 async function testSpuTableScalarFiltersFeedBigQueryListParams() {
