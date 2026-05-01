@@ -7,7 +7,7 @@
 - 客诉源
   - 优先读取本地 SQLite 中的飞书目标表镜像，镜像不存在时回退到 `OpenClaw / Feishu` 目标表实时拉取
 - 订单与商品补数
-  - 本地 SQLite BigQuery 缓存，由 `sync:run` 刷新，或由 `sync:worker` 按覆盖窗口从 `Shopify BigQuery` 补齐
+  - 本地 SQLite Shopify BI cache，由 `sync:run` 刷新，或由 `sync:worker` 按覆盖窗口从 `Shopify BigQuery` 补齐
 - 服务内完成：
   - 标准化客诉记录
   - 三大类归类：`product / warehouse / logistics`
@@ -21,6 +21,8 @@ The sync worker maintains two SQLite-backed datasets:
 - Shopify BI cache: refreshed by date-window coverage. On worker startup and interval ticks, the worker checks whether the current cache window has a successful `shopify_bi_v2` run. If not, it refreshes the window from BigQuery.
 
 P2 and P3 read Shopify metrics from SQLite when the requested date range is covered. P2 may temporarily fall back to BigQuery while a first deployment backfill is still running.
+
+P3 reports Shopify metrics with source mode `sqlite shopify bi cache`, the shared SQLite fact cache used by both P2 and P3. The older wording `sqlite shopify bigquery cache` refers to legacy PR8 compatibility tables and should not appear after the shared cache migration is active.
 
 ## Run Locally
 
@@ -87,7 +89,7 @@ npm.cmd run dev
 
 - `summary.sales_qty`
   - Shopify 订单数汇总
-  - 来源：本地 SQLite BigQuery 缓存中的订单行数据
+  - 来源：本地 SQLite Shopify BI cache 中的订单行数据
 - `trends.sales_qty`
   - 按 `grain` 聚合后的订单数趋势
   - 与 `summary.sales_qty` 使用相同订单数口径

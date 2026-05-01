@@ -54,6 +54,8 @@
   },
   "meta": {
     "partial_data": false,
+    "source_mode": "sqlite_shopify_bi_cache",
+    "cache_generation": "2026-05-01T12:00:00.000Z",
     "notes": [
       "Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping; refund_amount is now refund-flow (events in window) not cohort (orders in window). See lintico-data-warehouse/shopify_data_sync/docs/decisions/0007-dwd-align-with-cs-bi-finance.md"
     ]
@@ -104,6 +106,8 @@
   ],
   "meta": {
     "partial_data": false,
+    "source_mode": "sqlite_shopify_bi_cache",
+    "cache_generation": "2026-05-01T12:00:00.000Z",
     "notes": []
   }
 }
@@ -124,9 +128,29 @@
 
 ---
 
-## 4. BigQuery 取数来源
+## 4. 数据来源与元数据
 
-### 4.1 核心表
+### 4.1 运行时取数路径
+
+P2 正常服务路径优先读取本地 SQLite Shopify BI cache。该 cache 由 `sync:worker` 按日期覆盖窗口刷新；BigQuery 是 cache refresh 的上游来源，不再是 SQLite 覆盖范围存在时的常规 P2 在线服务路径。
+
+当请求日期范围未被 SQLite cache 覆盖，或 SQLite cache 暂不可用时，P2 会回退到 BigQuery 查询并在响应元数据中标记来源。
+
+首次部署 cache schema 升级后，worker 完成初始 Shopify BI cache refresh 之前，接口返回 `bigquery_fallback` 属于预期行为。
+
+### 4.2 Response Meta
+
+每个 P2 响应都包含 `meta`：
+
+- `meta.source_mode`: `sqlite_shopify_bi_cache` 表示请求日期范围已被 SQLite cache 覆盖并由 cache 返回；`bigquery_fallback` 表示 cache 覆盖缺失或 cache 不可用，本次响应由 BigQuery 返回。
+- `meta.cache_generation`: SQLite 响应包含该字段，表示覆盖当前请求日期范围的最近一次成功 cache refresh 时间戳。
+- `meta.partial_data`: 存在局部失败或凭证缺失等降级时为 `true`。
+- `meta.notes`: 包含 ADR-0007 指标口径说明，以及 cache 不可用、BigQuery 凭证缺失等 fallback 说明。
+
+### 4.3 Shopify BI Cache 上游表
+
+以下 BigQuery 表用于刷新 SQLite Shopify BI cache；当 SQLite 覆盖请求日期范围时，P2 不直接查询这些表：
+
 - `julang-dev-database.shopify_dwd.dwd_orders_fact`
   - 订单级指标：`processed_date`, `cs_bi_gmv`, `cs_bi_revenue`, `cs_bi_net_revenue`, `is_regular_order`, `is_gift_card_order`, `first_published_at_in_order`, `shop_domain`, `primary_product_type`
 - `julang-dev-database.shopify_dwd.dwd_refund_events`
