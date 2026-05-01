@@ -31,6 +31,7 @@ export interface P1Summary {
 export interface P1AgentRow {
   agent_name: string
   outbound_email_count: number
+  reply_span_hours?: number | null
   avg_outbound_emails_per_hour_by_span: number
   avg_outbound_emails_per_hour_by_schedule: number
   qa_reply_counts: { excellent: number; pass: number; fail: number }

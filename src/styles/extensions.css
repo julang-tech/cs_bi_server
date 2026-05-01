@@ -87,6 +87,10 @@
   stroke-width: 0.35;
 }
 
+.workload-average-label {
+  color: var(--accent);
+}
+
 /* Generic trend chart hit/axis helpers used inside P1 workload trend */
 
 .trend-chart__reference-line {

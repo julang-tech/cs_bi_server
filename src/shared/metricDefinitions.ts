@@ -112,6 +112,12 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
         title: '坐席工作量',
         items: [
           {
+            id: 'p1.agent_reply_span_hours',
+            name: '首末封时间跨度',
+            short: '坐席首封到末封之间的时间跨度。',
+            detail: '用于解释按首末封估算的每小时回邮数；当前前端优先使用上游返回的 reply_span_hours，没有该字段时按总回邮数 / 每小时回邮数均值（首末封）反推。',
+          },
+          {
             id: 'p1.agent_hourly_reply_span',
             name: '每小时回邮数均值（首末封）',
             short: '按坐席首封到末封时间跨度估算每小时回邮数。',

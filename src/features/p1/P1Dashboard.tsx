@@ -228,7 +228,6 @@ export default function P1Dashboard() {
       extensions={
         <WorkloadAnalysis
           workloadRows={current?.agent_workload ?? []}
-          trendRows={history?.agent_workload_trends ?? []}
           loading={loading}
         />
       }
