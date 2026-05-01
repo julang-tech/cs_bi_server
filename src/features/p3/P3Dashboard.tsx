@@ -11,6 +11,7 @@ import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount, getPeriodLengthDays,
   getCurrentPeriodLabel,
 } from '../../shared/utils/datePeriod'
+import { getMetricDescription } from '../../shared/metricDefinitions'
 import { IssueStructure } from './IssueStructure'
 import { ProductComplaintRanking } from './ProductComplaintRanking'
 import type { Grain, P3Dashboard as P3DashboardData, P3IssueShareItem, P3ProductRankingRow } from '../../api/types'
@@ -89,6 +90,7 @@ export default function P3Dashboard() {
   const cards = [
     {
       key: 'sales_qty', label: '订单数', sparkline: true,
+      description: getMetricDescription('p3.sales_qty'),
       currentValue: current?.summary.sales_qty,
       previousValue: previous?.summary.sales_qty,
       historyTrend: history?.trends.sales_qty ?? [],
@@ -97,6 +99,7 @@ export default function P3Dashboard() {
     },
     {
       key: 'complaint_count', label: '客诉量', sparkline: true,
+      description: getMetricDescription('p3.complaint_count'),
       currentValue: current?.summary.complaint_count,
       previousValue: previous?.summary.complaint_count,
       historyTrend: history?.trends.complaint_count ?? [],
@@ -105,6 +108,7 @@ export default function P3Dashboard() {
     },
     {
       key: 'complaint_rate', label: '客诉率', sparkline: true,
+      description: getMetricDescription('p3.complaint_rate'),
       currentValue: current?.summary.complaint_rate,
       previousValue: previous?.summary.complaint_rate,
       historyTrend: history?.trends.complaint_rate ?? [],
@@ -113,6 +117,7 @@ export default function P3Dashboard() {
     },
     {
       key: 'product_count', label: '产品问题客诉量', sparkline: true,
+      description: getMetricDescription('p3.issue_product_count'),
       currentValue: issueCount(current, 'product'),
       previousValue: issueCount(previous, 'product'),
       historyTrend: history?.trends.issue_product_count ?? [],
@@ -121,6 +126,7 @@ export default function P3Dashboard() {
     },
     {
       key: 'logistics_count', label: '物流问题客诉量', sparkline: false,
+      description: getMetricDescription('p3.issue_logistics_count'),
       currentValue: issueCount(current, 'logistics'),
       previousValue: issueCount(previous, 'logistics'),
       historyTrend: history?.trends.issue_logistics_count ?? [],
@@ -129,6 +135,7 @@ export default function P3Dashboard() {
     },
     {
       key: 'warehouse_count', label: '仓库问题客诉量', sparkline: false,
+      description: getMetricDescription('p3.issue_warehouse_count'),
       currentValue: issueCount(current, 'warehouse'),
       previousValue: issueCount(previous, 'warehouse'),
       historyTrend: history?.trends.issue_warehouse_count ?? [],
@@ -193,6 +200,7 @@ export default function P3Dashboard() {
                 key={c.key}
                 variant="current"
                 label={c.label}
+                description={c.description}
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
                 delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
                 periodAverage={periodAverage}
@@ -218,12 +226,14 @@ export default function P3Dashboard() {
               const peakText = loading || !c.historyTrend.length ? '--' : c.formatter(peak)
               return (
                 <KpiCard key={c.key} variant="history" label={c.label}
+                  description={c.description}
                   total={meanText} periodAverage={meanText}
                   rateMode={{ mean: meanText, peak: peakText }} />
               )
             }
             return (
               <KpiCard key={c.key} variant="history" label={c.label}
+                description={c.description}
                 total={loading ? '--' : c.formatter(total)}
                 periodAverage={loading ? '--' : c.formatter(c.historyTrend.length ? total / c.historyTrend.length : 0)} />
             )

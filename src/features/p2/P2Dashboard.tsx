@@ -11,6 +11,7 @@ import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount, getPeriodLengthDays,
   getCurrentPeriodLabel,
 } from '../../shared/utils/datePeriod'
+import { getMetricDescription } from '../../shared/metricDefinitions'
 import { ProductRefundTable } from './ProductRefundTable'
 import type { Grain, P2Filters, P2Overview, P2OverviewCards, TrendPoint } from '../../api/types'
 
@@ -79,15 +80,16 @@ export default function P2Dashboard() {
     formatter: (n: number) => string
     deltaMode: 'percent' | 'pp'
     isRate: boolean
+    description: string
   }> = [
-    { key: 'order_count', label: '订单数', sparkline: true, formatter: formatInteger, deltaMode: 'percent', isRate: false },
-    { key: 'sales_qty', label: '销量', sparkline: false, formatter: formatInteger, deltaMode: 'percent', isRate: false },
-    { key: 'refund_order_count', label: '退款订单数', sparkline: false, formatter: formatInteger, deltaMode: 'percent', isRate: false },
-    { key: 'refund_amount', label: '退款金额', sparkline: true, formatter: formatMoney, deltaMode: 'percent', isRate: false },
-    { key: 'gmv', label: 'GMV', sparkline: true, formatter: formatMoney, deltaMode: 'percent', isRate: false },
-    { key: 'net_received_amount', label: '净实付金额', sparkline: false, formatter: formatMoney, deltaMode: 'percent', isRate: false },
-    { key: 'net_revenue_amount', label: '净 GMV', sparkline: false, formatter: formatMoney, deltaMode: 'percent', isRate: false },
-    { key: 'refund_amount_ratio', label: '退款金额占比', sparkline: true, formatter: formatPercent1, deltaMode: 'pp', isRate: true },
+    { key: 'order_count', label: '订单数', sparkline: true, formatter: formatInteger, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.order_count') },
+    { key: 'sales_qty', label: '销量', sparkline: false, formatter: formatInteger, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.sales_qty') },
+    { key: 'refund_order_count', label: '退款订单数', sparkline: false, formatter: formatInteger, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.refund_order_count') },
+    { key: 'refund_amount', label: '退款金额', sparkline: true, formatter: formatMoney, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.refund_amount') },
+    { key: 'gmv', label: 'GMV', sparkline: true, formatter: formatMoney, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.gmv') },
+    { key: 'net_received_amount', label: '净实付金额', sparkline: false, formatter: formatMoney, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.net_received_amount') },
+    { key: 'net_revenue_amount', label: '净 GMV', sparkline: false, formatter: formatMoney, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.net_revenue_amount') },
+    { key: 'refund_amount_ratio', label: '退款金额占比', sparkline: true, formatter: formatPercent1, deltaMode: 'pp', isRate: true, description: getMetricDescription('p2.refund_amount_ratio') },
   ]
 
   const enrichedCards = cards.map((c) => {
@@ -142,6 +144,7 @@ export default function P2Dashboard() {
                 key={c.key}
                 variant="current"
                 label={c.label}
+                description={c.description}
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
                 delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
                 periodAverage={periodAverage}
@@ -167,12 +170,14 @@ export default function P2Dashboard() {
               const peakText = loading || !c.historyTrend.length ? '--' : c.formatter(peak)
               return (
                 <KpiCard key={c.key} variant="history" label={c.label}
+                  description={c.description}
                   total={meanText} periodAverage={meanText}
                   rateMode={{ mean: meanText, peak: peakText }} />
               )
             }
             return (
               <KpiCard key={c.key} variant="history" label={c.label}
+                description={c.description}
                 total={loading ? '--' : c.formatter(total)}
                 periodAverage={loading ? '--' : c.formatter(c.historyTrend.length ? total / c.historyTrend.length : 0)} />
             )

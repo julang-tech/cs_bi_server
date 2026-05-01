@@ -2,9 +2,10 @@ import { useState } from 'react'
 import P1Dashboard from './features/p1/P1Dashboard'
 import P2Dashboard from './features/p2/P2Dashboard'
 import P3Dashboard from './features/p3/P3Dashboard'
+import MetricDefinitionsPage from './features/metrics/MetricDefinitionsPage'
 
 interface PageOption {
-  value: 'p1' | 'p2' | 'p3'
+  value: 'p1' | 'p2' | 'p3' | 'metrics'
   title: string
   description: string
 }
@@ -25,6 +26,11 @@ const PAGE_OPTIONS: PageOption[] = [
     title: '客诉总览看板',
     description: '查看销量、客诉量、客诉率和整体问题规模',
   },
+  {
+    value: 'metrics',
+    title: '指标口径',
+    description: '查看指标公式、时间口径、币种与数据来源说明',
+  },
 ]
 
 function PlaceholderPage({ title }: { title: string }) {
@@ -36,7 +42,7 @@ function PlaceholderPage({ title }: { title: string }) {
 }
 
 function App() {
-  const [activePage, setActivePage] = useState<'p1' | 'p2' | 'p3'>('p1')
+  const [activePage, setActivePage] = useState<PageOption['value']>('p1')
   const activePageMeta = PAGE_OPTIONS.find((item) => item.value === activePage) ?? PAGE_OPTIONS[0]
 
   return (
@@ -72,6 +78,8 @@ function App() {
           <P3Dashboard />
         ) : activePage === 'p2' ? (
           <P2Dashboard />
+        ) : activePage === 'metrics' ? (
+          <MetricDefinitionsPage />
         ) : (
           <PlaceholderPage title={activePageMeta.title} />
         )}

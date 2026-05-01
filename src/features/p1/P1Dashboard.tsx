@@ -11,6 +11,7 @@ import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount, getPeriodLengthDays,
   getCurrentPeriodLabel,
 } from '../../shared/utils/datePeriod'
+import { getMetricDescription } from '../../shared/metricDefinitions'
 import { WorkloadAnalysis } from './WorkloadAnalysis'
 import type { Grain, P1Dashboard as P1DashboardData, TrendPoint } from '../../api/types'
 
@@ -78,6 +79,7 @@ export default function P1Dashboard() {
     {
       key: 'inbound_email_count',
       label: '来邮数',
+      description: getMetricDescription('p1.inbound_email_count'),
       sparkline: true,
       currentValue: current?.summary.inbound_email_count,
       previousValue: previous?.summary.inbound_email_count,
@@ -92,6 +94,7 @@ export default function P1Dashboard() {
     {
       key: 'outbound_email_count',
       label: '回邮数',
+      description: getMetricDescription('p1.outbound_email_count'),
       sparkline: true,
       currentValue: current?.summary.outbound_email_count,
       previousValue: previous?.summary.outbound_email_count,
@@ -106,6 +109,7 @@ export default function P1Dashboard() {
     {
       key: 'avg_queue_hours',
       label: '平均会话排队时长',
+      description: getMetricDescription('p1.avg_queue_hours'),
       sparkline: true,
       currentValue: current?.summary.avg_queue_hours,
       previousValue: previous?.summary.avg_queue_hours,
@@ -120,6 +124,7 @@ export default function P1Dashboard() {
     {
       key: 'first_response_timeout_count',
       label: '首次响应超时次数',
+      description: getMetricDescription('p1.first_response_timeout_count'),
       sparkline: true,
       currentValue: current?.summary.first_response_timeout_count,
       previousValue: previous?.summary.first_response_timeout_count,
@@ -134,6 +139,7 @@ export default function P1Dashboard() {
     {
       key: 'first_email_count',
       label: '首封邮件数',
+      description: getMetricDescription('p1.first_email_count'),
       sparkline: false,
       currentValue: current?.summary.first_email_count,
       previousValue: previous?.summary.first_email_count,
@@ -148,6 +154,7 @@ export default function P1Dashboard() {
     {
       key: 'unreplied_email_count',
       label: '还没回复数',
+      description: getMetricDescription('p1.unreplied_email_count'),
       sparkline: false,
       currentValue: current?.summary.unreplied_email_count,
       previousValue: previous?.summary.unreplied_email_count,
@@ -216,6 +223,7 @@ export default function P1Dashboard() {
                 key={c.key}
                 variant="current"
                 label={c.label}
+                description={c.description}
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
                 delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
                 periodAverage={periodAverage}
@@ -239,6 +247,7 @@ export default function P1Dashboard() {
                 key={c.key}
                 variant="history"
                 label={c.label}
+                description={c.description}
                 total={loading ? '--' : c.formatter(total)}
                 periodAverage={loading ? '--' : c.formatter(c.historyTrend.length ? total / c.historyTrend.length : 0)}
               />

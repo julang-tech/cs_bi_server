@@ -668,8 +668,179 @@
 }
 
 /* ===========================================================================
+   Metric definitions page
+   =========================================================================== */
+
+.metric-doc-shell {
+  display: grid;
+  gap: var(--space-4);
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding-top: var(--space-2);
+}
+
+.metric-doc-hero {
+  display: grid;
+  gap: var(--space-2);
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.metric-doc-hero h1 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.metric-doc-hero p {
+  max-width: 880px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.metric-doc-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.metric-doc-toc {
+  position: sticky;
+  top: 16px;
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.metric-doc-toc a {
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  color: var(--muted-strong);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.metric-doc-toc a:hover {
+  background: var(--surface-subtle);
+  color: var(--accent);
+}
+
+.metric-doc-content {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.metric-doc-group {
+  display: grid;
+  gap: var(--space-3);
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  scroll-margin-top: 16px;
+}
+
+.metric-doc-group__header {
+  display: grid;
+  gap: 6px;
+}
+
+.metric-doc-group__header h2 {
+  font-size: 18px;
+}
+
+.metric-doc-group__header p,
+.metric-doc-section h3 {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.metric-doc-section {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.metric-doc-section h3 {
+  font-weight: 700;
+}
+
+.metric-definition-list {
+  display: grid;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.metric-definition-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.56fr);
+  gap: var(--space-4);
+  padding: 12px 14px;
+  background: var(--surface);
+}
+
+.metric-definition-item + .metric-definition-item {
+  border-top: 1px solid var(--border);
+}
+
+.metric-definition-item__main {
+  display: grid;
+  gap: 6px;
+}
+
+.metric-definition-item__main h4 {
+  margin: 0;
+  color: var(--heading);
+  font-size: 14px;
+}
+
+.metric-definition-item__main p,
+.metric-definition-item__meta span {
+  color: var(--muted-strong);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.metric-definition-item__meta {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.metric-definition-item__meta code {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  color: var(--heading);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: normal;
+}
+
+/* ===========================================================================
    Responsive tweaks for extensions
    =========================================================================== */
+
+@media (max-width: 1100px) {
+  .metric-doc-layout,
+  .metric-definition-item {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-doc-toc {
+    position: static;
+  }
+}
 
 @media (max-width: 900px) {
   .table-head {
