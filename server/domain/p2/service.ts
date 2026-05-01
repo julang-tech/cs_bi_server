@@ -1,5 +1,7 @@
 import fs from 'node:fs'
 import { BigQuery } from '@google-cloud/bigquery'
+import { SqliteShopifyBiCacheRepository } from '../../integrations/shopify-bi-cache.js'
+import { loadP3RuntimeConfig } from '../../integrations/sync-config.js'
 
 export type P2Filters = {
   date_from: string
@@ -21,6 +23,26 @@ type BigQueryLike = {
 
 type BigQueryRows = Array<Record<string, unknown>>
 
+type P2OverviewCards = {
+  order_count: number
+  sales_qty: number
+  refund_order_count: number
+  refund_amount: number
+  gmv: number
+  net_received_amount: number
+  net_revenue_amount: number
+  refund_amount_ratio: number
+  avg_order_amount: number
+}
+
+export type P2CacheRepository = {
+  hasCoverage(dateFrom: string, dateTo: string): boolean
+  getGeneration(dateFrom: string, dateTo: string): string
+  queryP2Overview(filters: P2Filters): {
+    cards: P2OverviewCards
+  }
+}
+
 function extractRows(result: unknown): BigQueryRows {
   if (!Array.isArray(result)) {
     return []
@@ -41,9 +63,32 @@ const ADR_0007_METRIC_NOTE =
   'Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping; refund_amount is now refund-flow (events in window) not cohort (orders in window). See lintico-data-warehouse/shopify_data_sync/docs/decisions/0007-dwd-align-with-cs-bi-finance.md'
 
 export class P2Service {
-  constructor(private readonly client: BigQueryLike | null) {}
+  constructor(
+    private readonly client: BigQueryLike | null,
+    private readonly cacheRepository: P2CacheRepository | null = null,
+  ) {}
 
   async getOverview(filters: P2Filters) {
+    let cacheFallbackNote: string | null = null
+    try {
+      if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
+        const payload = this.cacheRepository.queryP2Overview(filters)
+        return {
+          filters,
+          cards: payload.cards,
+          meta: {
+            partial_data: false,
+            source_mode: 'sqlite_shopify_bi_cache',
+            cache_generation: this.cacheRepository.getGeneration(filters.date_from, filters.date_to),
+            notes: [ADR_0007_METRIC_NOTE],
+          },
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      cacheFallbackNote = `SQLite Shopify BI cache unavailable; fell back to BigQuery: ${message}`
+    }
+
     if (!this.client) {
       return {
         filters,
@@ -60,7 +105,10 @@ export class P2Service {
         },
         meta: {
           partial_data: true,
-          notes: ['BigQuery credentials not found; returning empty overview.'],
+          notes: [
+            ...(cacheFallbackNote ? [cacheFallbackNote] : []),
+            'BigQuery credentials not found; returning empty overview.',
+          ],
         },
       }
     }
@@ -179,7 +227,11 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
       },
       meta: {
         partial_data: false,
-        notes: [ADR_0007_METRIC_NOTE],
+        source_mode: 'bigquery_fallback',
+        notes: [
+          ADR_0007_METRIC_NOTE,
+          ...(cacheFallbackNote ? [cacheFallbackNote] : []),
+        ],
       },
     }
   }
@@ -557,5 +609,17 @@ WHERE parsed_skc IS NOT NULL
 export function createP2Service() {
   const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS
   const hasBigQuery = Boolean(credentialsPath && fs.existsSync(credentialsPath))
-  return new P2Service(hasBigQuery ? new BigQuery() : null)
+  const syncConfigPath = process.env.SYNC_CONFIG_PATH ?? 'config/sync/config.json'
+  let cacheRepository: P2CacheRepository | null = null
+
+  try {
+    if (fs.existsSync(syncConfigPath)) {
+      const { runtime } = loadP3RuntimeConfig(syncConfigPath)
+      cacheRepository = new SqliteShopifyBiCacheRepository(runtime.sqlitePath)
+    }
+  } catch {
+    cacheRepository = null
+  }
+
+  return new P2Service(hasBigQuery ? new BigQuery() : null, cacheRepository)
 }
