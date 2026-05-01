@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import { BigQuery } from '@google-cloud/bigquery'
 import { SqliteShopifyBiCacheRepository } from '../../integrations/shopify-bi-cache.js'
 import { loadP3RuntimeConfig } from '../../integrations/sync-config.js'
+import { TtlCache } from '../p3/cache.js'
 
 export type P2Filters = {
   date_from: string
@@ -69,6 +70,12 @@ type P2Meta = {
   notes: string[]
 }
 
+type P2OverviewPayload = {
+  filters: P2Filters
+  cards: P2OverviewCards
+  meta: P2Meta
+}
+
 type P2SpuTablePayload = {
   filters: P2Filters
   rows: P2SpuTableRow[]
@@ -111,7 +118,22 @@ function toText(value: unknown) {
 const ADR_0007_METRIC_NOTE =
   'Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping; refund_amount is now refund-flow (events in window) not cohort (orders in window). See lintico-data-warehouse/shopify_data_sync/docs/decisions/0007-dwd-align-with-cs-bi-finance.md'
 
+function buildSqliteResponseCacheKey(
+  endpoint: 'overview' | 'spu-table' | 'spu-skc-options',
+  generation: string,
+  filters: P2Filters,
+  topN?: number,
+) {
+  return topN === undefined
+    ? JSON.stringify([endpoint, generation, filters])
+    : JSON.stringify([endpoint, generation, filters, topN])
+}
+
 export class P2Service {
+  private readonly overviewCache = new TtlCache<P2OverviewPayload>(300_000)
+  private readonly spuTableCache = new TtlCache<P2SpuTablePayload>(300_000)
+  private readonly optionsCache = new TtlCache<P2SpuSkcOptionsPayload>(300_000)
+
   constructor(
     private readonly client: BigQueryLike | null,
     private readonly cacheRepository: P2CacheRepository | null = null,
@@ -121,21 +143,27 @@ export class P2Service {
     this.cacheRepository?.close?.()
   }
 
-  async getOverview(filters: P2Filters) {
+  async getOverview(filters: P2Filters): Promise<P2OverviewPayload> {
     let cacheUnavailableMessage: string | null = null
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
+        const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
+        const cacheKey = buildSqliteResponseCacheKey('overview', generation, filters)
+        const cached = this.overviewCache.get(cacheKey)
+        if (cached) {
+          return cached
+        }
         const payload = this.cacheRepository.queryP2Overview(filters)
-        return {
+        return this.overviewCache.set(cacheKey, {
           filters,
           cards: payload.cards,
           meta: {
             partial_data: false,
             source_mode: 'sqlite_shopify_bi_cache',
-            cache_generation: this.cacheRepository.getGeneration(filters.date_from, filters.date_to),
+            cache_generation: generation,
             notes: [ADR_0007_METRIC_NOTE],
           },
-        }
+        })
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -296,17 +324,23 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
     let cacheUnavailableMessage: string | null = null
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
+        const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
+        const cacheKey = buildSqliteResponseCacheKey('spu-table', generation, filters, topN)
+        const cached = this.spuTableCache.get(cacheKey)
+        if (cached) {
+          return cached
+        }
         const payload = this.cacheRepository.queryP2SpuTable(filters, topN)
-        return {
+        return this.spuTableCache.set(cacheKey, {
           filters,
           rows: payload.rows,
           meta: {
             partial_data: false,
             source_mode: 'sqlite_shopify_bi_cache',
-            cache_generation: this.cacheRepository.getGeneration(filters.date_from, filters.date_to),
+            cache_generation: generation,
             notes: [],
           },
-        }
+        })
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -649,17 +683,23 @@ ORDER BY spu, row_type DESC, refund_amount DESC
     let cacheUnavailableMessage: string | null = null
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
+        const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
+        const cacheKey = buildSqliteResponseCacheKey('spu-skc-options', generation, filters)
+        const cached = this.optionsCache.get(cacheKey)
+        if (cached) {
+          return cached
+        }
         const payload = this.cacheRepository.queryP2SpuSkcOptions(filters)
-        return {
+        return this.optionsCache.set(cacheKey, {
           filters,
           options: payload.options,
           meta: {
             partial_data: false,
             source_mode: 'sqlite_shopify_bi_cache',
-            cache_generation: this.cacheRepository.getGeneration(filters.date_from, filters.date_to),
+            cache_generation: generation,
             notes: [],
           },
-        }
+        })
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)

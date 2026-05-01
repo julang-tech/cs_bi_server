@@ -406,6 +406,148 @@ async function testSpuSkcOptionsUsesSqliteCacheWhenCovered() {
   assert.deepEqual(payload.meta.notes, [])
 }
 
+async function testOverviewCachesSqliteResponsesByGeneration() {
+  let sqliteCalls = 0
+  let generationCalls = 0
+  const service = new P2Service(null, {
+    hasCoverage: () => true,
+    getGeneration: () => {
+      generationCalls += 1
+      return 'generation-1'
+    },
+    queryP2Overview: () => {
+      sqliteCalls += 1
+      return {
+        cards: {
+          order_count: sqliteCalls,
+          sales_qty: 0,
+          refund_order_count: 0,
+          refund_amount: 0,
+          gmv: 0,
+          net_received_amount: 0,
+          net_revenue_amount: 0,
+          refund_amount_ratio: 0,
+          avg_order_amount: 0,
+        },
+      }
+    },
+    queryP2SpuTable: () => ({ rows: [] }),
+    queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
+  })
+
+  const first = await service.getOverview(createFilters())
+  const second = await service.getOverview(createFilters())
+
+  assert.equal(first.cards.order_count, 1)
+  assert.equal(second.cards.order_count, 1)
+  assert.equal(sqliteCalls, 1)
+  assert.equal(generationCalls, 2)
+}
+
+async function testSpuTableCachesSqliteResponsesByGenerationAndTopN() {
+  let sqliteCalls = 0
+  const service = new P2Service(null, {
+    hasCoverage: () => true,
+    getGeneration: () => 'generation-1',
+    queryP2Overview: () => {
+      throw new Error('overview not used')
+    },
+    queryP2SpuTable: () => {
+      sqliteCalls += 1
+      return {
+        rows: [{
+          spu: `SPU-${sqliteCalls}`,
+          sales_qty: 0,
+          sales_amount: 0,
+          refund_qty: 0,
+          refund_amount: 0,
+          refund_qty_ratio: 0,
+          refund_amount_ratio: 0,
+          skc_rows: [],
+        }],
+      }
+    },
+    queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
+  })
+
+  const first = await service.getSpuTable(createFilters(), 20)
+  const second = await service.getSpuTable(createFilters(), 20)
+  const differentTopN = await service.getSpuTable(createFilters(), 10)
+
+  assert.equal(first.rows[0]?.spu, 'SPU-1')
+  assert.equal(second.rows[0]?.spu, 'SPU-1')
+  assert.equal(differentTopN.rows[0]?.spu, 'SPU-2')
+  assert.equal(sqliteCalls, 2)
+}
+
+async function testSpuSkcOptionsCachesSqliteResponsesByGeneration() {
+  let sqliteCalls = 0
+  const service = new P2Service(null, {
+    hasCoverage: () => true,
+    getGeneration: () => 'generation-1',
+    queryP2Overview: () => {
+      throw new Error('overview not used')
+    },
+    queryP2SpuTable: () => ({ rows: [] }),
+    queryP2SpuSkcOptions: () => {
+      sqliteCalls += 1
+      return {
+        options: {
+          spus: [`SPU-${sqliteCalls}`],
+          skcs: [`SKC-${sqliteCalls}`],
+          pairs: [{ spu: `SPU-${sqliteCalls}`, skc: `SKC-${sqliteCalls}` }],
+        },
+      }
+    },
+  })
+
+  const first = await service.getSpuSkcOptions(createFilters())
+  const second = await service.getSpuSkcOptions(createFilters())
+
+  assert.deepEqual(first.options.spus, ['SPU-1'])
+  assert.deepEqual(second.options.spus, ['SPU-1'])
+  assert.equal(sqliteCalls, 1)
+}
+
+async function testOverviewCacheInvalidatesWhenGenerationChanges() {
+  let sqliteCalls = 0
+  let generationCalls = 0
+  const service = new P2Service(null, {
+    hasCoverage: () => true,
+    getGeneration: () => {
+      generationCalls += 1
+      return `generation-${generationCalls}`
+    },
+    queryP2Overview: () => {
+      sqliteCalls += 1
+      return {
+        cards: {
+          order_count: sqliteCalls,
+          sales_qty: 0,
+          refund_order_count: 0,
+          refund_amount: 0,
+          gmv: 0,
+          net_received_amount: 0,
+          net_revenue_amount: 0,
+          refund_amount_ratio: 0,
+          avg_order_amount: 0,
+        },
+      }
+    },
+    queryP2SpuTable: () => ({ rows: [] }),
+    queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
+  })
+
+  const first = await service.getOverview(createFilters())
+  const second = await service.getOverview(createFilters())
+
+  assert.equal(first.cards.order_count, 1)
+  assert.equal(first.meta.cache_generation, 'generation-1')
+  assert.equal(second.cards.order_count, 2)
+  assert.equal(second.meta.cache_generation, 'generation-2')
+  assert.equal(sqliteCalls, 2)
+}
+
 async function testSpuTableFallsBackToBigQueryWhenCacheCoverageMissing() {
   const { client, calls } = createClient([[
     {
@@ -699,6 +841,10 @@ await testSpuTableScalarFiltersFeedBigQueryListParams()
 await testSpuSkcOptionsExcludesShippingCostLines()
 await testSpuTableUsesSqliteCacheWhenCovered()
 await testSpuSkcOptionsUsesSqliteCacheWhenCovered()
+await testOverviewCachesSqliteResponsesByGeneration()
+await testSpuTableCachesSqliteResponsesByGenerationAndTopN()
+await testSpuSkcOptionsCachesSqliteResponsesByGeneration()
+await testOverviewCacheInvalidatesWhenGenerationChanges()
 await testSpuTableFallsBackToBigQueryWhenCacheCoverageMissing()
 await testSpuSkcOptionsFallsBackToBigQueryWhenCacheFails()
 await testSpuTableCacheErrorWithoutBigQueryDoesNotClaimFallback()
