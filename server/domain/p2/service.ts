@@ -41,6 +41,7 @@ export type P2CacheRepository = {
   queryP2Overview(filters: P2Filters): {
     cards: P2OverviewCards
   }
+  close?: () => void
 }
 
 function extractRows(result: unknown): BigQueryRows {
@@ -68,8 +69,12 @@ export class P2Service {
     private readonly cacheRepository: P2CacheRepository | null = null,
   ) {}
 
+  close() {
+    this.cacheRepository?.close?.()
+  }
+
   async getOverview(filters: P2Filters) {
-    let cacheFallbackNote: string | null = null
+    let cacheUnavailableMessage: string | null = null
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
         const payload = this.cacheRepository.queryP2Overview(filters)
@@ -86,7 +91,7 @@ export class P2Service {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      cacheFallbackNote = `SQLite Shopify BI cache unavailable; fell back to BigQuery: ${message}`
+      cacheUnavailableMessage = message
     }
 
     if (!this.client) {
@@ -106,7 +111,9 @@ export class P2Service {
         meta: {
           partial_data: true,
           notes: [
-            ...(cacheFallbackNote ? [cacheFallbackNote] : []),
+            ...(cacheUnavailableMessage
+              ? [`SQLite Shopify BI cache unavailable: ${cacheUnavailableMessage}`]
+              : []),
             'BigQuery credentials not found; returning empty overview.',
           ],
         },
@@ -230,7 +237,11 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
         source_mode: 'bigquery_fallback',
         notes: [
           ADR_0007_METRIC_NOTE,
-          ...(cacheFallbackNote ? [cacheFallbackNote] : []),
+          ...(cacheUnavailableMessage
+            ? [
+                `SQLite Shopify BI cache unavailable; fell back to BigQuery: ${cacheUnavailableMessage}`,
+              ]
+            : []),
         ],
       },
     }

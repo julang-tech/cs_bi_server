@@ -73,6 +73,10 @@ export async function buildApp(overrides?: {
   const p2Service = createP2Service()
   const app = Fastify({ logger: true })
 
+  app.addHook('onClose', async () => {
+    p2Service.close()
+  })
+
   app.get('/healthz', async () => ({ status: 'ok' }))
 
   app.get('/api/bi/p1/dashboard', async (request, reply) => {

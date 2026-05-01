@@ -189,6 +189,65 @@ async function testOverviewFallsBackToBigQueryWhenCacheFails() {
   )
 }
 
+async function testOverviewCacheErrorWithoutBigQueryDoesNotClaimFallback() {
+  const service = new P2Service(null, {
+    hasCoverage: () => {
+      throw new Error('cache database locked')
+    },
+    getGeneration: () => 'unused',
+    queryP2Overview: () => {
+      throw new Error('cache overview should not be queried')
+    },
+  })
+
+  const payload = await service.getOverview(createFilters())
+
+  assert.equal(payload.meta.partial_data, true)
+  assert.deepEqual(payload.cards, {
+    order_count: 0,
+    sales_qty: 0,
+    refund_order_count: 0,
+    refund_amount: 0,
+    gmv: 0,
+    net_received_amount: 0,
+    net_revenue_amount: 0,
+    refund_amount_ratio: 0,
+    avg_order_amount: 0,
+  })
+  assert.ok(
+    payload.meta.notes.some((note) =>
+      note.includes('SQLite Shopify BI cache unavailable: cache database locked'),
+    ),
+  )
+  assert.ok(
+    payload.meta.notes.some((note) =>
+      note.includes('BigQuery credentials not found; returning empty overview.'),
+    ),
+  )
+  assert.equal(
+    payload.meta.notes.some((note) => /fell back to BigQuery/.test(note)),
+    false,
+  )
+}
+
+async function testCloseClosesCacheRepository() {
+  let closeCount = 0
+  const service = new P2Service(null, {
+    hasCoverage: () => false,
+    getGeneration: () => 'unused',
+    queryP2Overview: () => {
+      throw new Error('cache overview should not be queried')
+    },
+    close: () => {
+      closeCount += 1
+    },
+  })
+
+  service.close()
+
+  assert.equal(closeCount, 1)
+}
+
 async function testOverviewSalesQtyExcludesShippingCostLines() {
   const { client, calls } = createClient([
     [{
@@ -227,6 +286,8 @@ await testOverviewUsesAdr0007FinanceMetrics()
 await testOverviewUsesSqliteCacheWhenCovered()
 await testOverviewFallsBackToBigQueryWhenCacheCoverageMissing()
 await testOverviewFallsBackToBigQueryWhenCacheFails()
+await testOverviewCacheErrorWithoutBigQueryDoesNotClaimFallback()
+await testCloseClosesCacheRepository()
 await testOverviewSalesQtyExcludesShippingCostLines()
 await testSpuTableExcludesShippingCostLines()
 
