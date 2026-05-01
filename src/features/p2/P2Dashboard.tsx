@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { DashboardShell } from '../../shared/components/DashboardShell'
 import { FilterBar } from '../../shared/components/FilterBar'
-import { FocusLineChart, type FocusMetricSpec } from '../../shared/components/FocusLineChart'
+import { FocusLineChart, type FocusMetricSpec, type FocusMetricSummary } from '../../shared/components/FocusLineChart'
 import { KpiCard } from '../../shared/components/KpiCard'
 import { KpiSection } from '../../shared/components/KpiSection'
 import { useDashboardData } from '../../shared/hooks/useDashboardData'
@@ -9,7 +9,7 @@ import { fetchRefundOverview } from '../../api/p2'
 import { formatInteger, formatMoney, formatPercent } from '../../shared/utils/format'
 import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount, getPeriodLengthDays,
-  getCurrentPeriodLabel,
+  getCurrentPeriodLabel, getPreviousHistoryRange,
 } from '../../shared/utils/datePeriod'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { ProductRefundTable } from './ProductRefundTable'
@@ -54,6 +54,7 @@ export default function P2Dashboard() {
 
   const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
   const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
+  const previousHistoryRange = useMemo(() => getPreviousHistoryRange(historyRange), [historyRange])
 
   function handleGrainChange(next: Grain) {
     setGrain(next)
@@ -62,15 +63,14 @@ export default function P2Dashboard() {
 
   const baseFilters = { grain, channel: store } as const
 
-  const { current, previous, history, loading, error } = useDashboardData<typeof baseFilters, P2Overview>({
+  const { current, previous, history, previousHistory, loading, error } = useDashboardData<typeof baseFilters, P2Overview>({
     baseFilters,
-    currentPeriod, previousPeriod, historyRange,
+    currentPeriod, previousPeriod, historyRange, previousHistoryRange,
     fetcher: (filters, signal) => fetchRefundOverview(filters as never, signal),
   })
 
   const periodCount = getPeriodCount(historyRange, grain)
   const currentPeriodDays = getPeriodLengthDays(currentPeriod)
-  const periodLabelByGrain = { day: '天', week: '周', month: '月' } as const
 
   const formatPercent1 = (n: number) => formatPercent(n, 1)
 
@@ -110,6 +110,54 @@ export default function P2Dashboard() {
     history: c.historyTrend,
     current: c.currentTrend,
   }))
+
+  // Per-metric summary line for focus chart
+  const rangeLabel = grain === 'day' ? `近 ${periodCount} 天`
+    : grain === 'week' ? `近 ${periodCount} 周`
+    : `近 ${periodCount} 月`
+  const summaryByKey: Record<string, FocusMetricSummary> = {}
+  for (const c of enrichedCards) {
+    const total = c.historyTrend.reduce((s, p) => s + p.value, 0)
+    const count = c.historyTrend.length
+    const mean = count ? total / count : 0
+    const peak = count ? Math.max(...c.historyTrend.map((p) => p.value)) : 0
+    const prevTrend = previousHistory?.trends?.[c.key] ?? []
+    const prevTotal = prevTrend.reduce((s, p) => s + p.value, 0)
+    const prevCount = prevTrend.length
+    const prevMean = prevCount ? prevTotal / prevCount : null
+    let delta: FocusMetricSummary['delta']
+    if (c.isRate) {
+      if (prevMean === null) delta = { tone: 'muted', text: '-' }
+      else {
+        const diff = mean - prevMean
+        delta = diff === 0
+          ? { tone: 'neutral', text: '0.00pp' }
+          : { tone: diff > 0 ? 'up' : 'down', text: `${diff > 0 ? '↑' : '↓'} ${Math.abs(diff * 100).toFixed(2)}pp` }
+      }
+      summaryByKey[c.key] = {
+        items: [
+          { label: '区间均值', value: count ? c.formatter(mean) : '--' },
+          { label: '区间峰值', value: count ? c.formatter(peak) : '--' },
+        ],
+        delta,
+      }
+    } else {
+      if (!prevTotal) delta = { tone: 'muted', text: '-' }
+      else {
+        const ratio = (total - prevTotal) / prevTotal
+        delta = ratio === 0
+          ? { tone: 'neutral', text: '0.0%' }
+          : { tone: ratio > 0 ? 'up' : 'down', text: `${ratio > 0 ? '↑' : '↓'} ${Math.abs(ratio * 100).toFixed(1)}%` }
+      }
+      summaryByKey[c.key] = {
+        items: [
+          { label: `${rangeLabel}累计`, value: count ? c.formatter(total) : '--' },
+          { label: '区间均值', value: count ? c.formatter(mean) : '--' },
+        ],
+        delta,
+      }
+    }
+  }
 
   return (
     <DashboardShell
@@ -163,45 +211,9 @@ export default function P2Dashboard() {
           metrics={focusMetrics}
           activeKey={activeMetricKey}
           onActiveKeyChange={(next) => setActiveMetricKey(next as CardKey)}
+          summaryByKey={summaryByKey}
         />
       )}
-      historySection={
-        <KpiSection
-          title="历史区间"
-          subtitle={`${historyRange.date_from} - ${historyRange.date_to} · 共 ${periodCount} 个完整周期 · 按${periodLabelByGrain[grain]}聚合`}
-          variant="history"
-        >
-          {enrichedCards.map((c) => {
-            const total = c.historyTrend.reduce((s, p) => s + p.value, 0)
-            if (c.isRate) {
-              const mean = c.historyTrend.length ? total / c.historyTrend.length : 0
-              const peak = c.historyTrend.length ? Math.max(...c.historyTrend.map((p) => p.value)) : 0
-              const meanText = loading || !c.historyTrend.length ? '--' : c.formatter(mean)
-              const peakText = loading || !c.historyTrend.length ? '--' : c.formatter(peak)
-              return (
-                <KpiCard key={c.key} variant="history" label={c.label}
-                  description={c.description}
-                  total={meanText} periodAverage={meanText}
-                  rateMode={{ mean: meanText, peak: peakText }}
-                  metricKey={c.key}
-                  active={activeMetricKey === c.key}
-                  onSelect={(next) => setActiveMetricKey(next as CardKey)}
-                  sparkline={c.historyTrend} />
-              )
-            }
-            return (
-              <KpiCard key={c.key} variant="history" label={c.label}
-                description={c.description}
-                total={loading ? '--' : c.formatter(total)}
-                periodAverage={loading ? '--' : c.formatter(c.historyTrend.length ? total / c.historyTrend.length : 0)}
-                metricKey={c.key}
-                active={activeMetricKey === c.key}
-                onSelect={(next) => setActiveMetricKey(next as CardKey)}
-                sparkline={c.historyTrend} />
-            )
-          })}
-        </KpiSection>
-      }
       extensions={
         <ProductRefundTable baseFilters={{ ...baseFilters, ...historyRange } as P2Filters} />
       }

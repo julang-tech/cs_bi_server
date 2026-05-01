@@ -21,12 +21,27 @@ export interface FocusMetricSpec {
   current: TrendPoint[]
 }
 
+export interface FocusMetricSummary {
+  // Pre-formatted aggregate items, e.g.:
+  //   absolute: [{label: "近 14 天累计", value: "9,170"}, {label: "区间均值", value: "655"}]
+  //   rate:     [{label: "区间均值", value: "7.5%"}, {label: "区间峰值", value: "15.8%"}]
+  items: Array<{ label: string; value: string }>
+  delta?: {
+    tone: 'up' | 'down' | 'neutral' | 'muted'
+    text: string                   // e.g. "↑ 12.3%" or "-"
+    label?: string                 // e.g. "vs 上 14 天" (default "vs 上一区间")
+  }
+}
+
 interface FocusLineChartProps {
   metrics: FocusMetricSpec[]
   defaultKey?: string
   activeKey?: string
   onActiveKeyChange?: (next: string) => void
   ariaLabel?: string
+  // Optional summary line shown between the tabs and the plot. Map keyed by
+  // metric.key so the summary updates when the active tab changes.
+  summaryByKey?: Record<string, FocusMetricSummary | undefined>
 }
 
 interface ChartRow {
@@ -104,6 +119,7 @@ export function FocusLineChart({
   activeKey,
   onActiveKeyChange,
   ariaLabel,
+  summaryByKey,
 }: FocusLineChartProps) {
   const [internalActiveKey, setInternalActiveKey] = useState<string>(defaultKey ?? metrics[0]?.key ?? '')
   const selectedKey = activeKey ?? internalActiveKey
@@ -112,6 +128,8 @@ export function FocusLineChart({
     () => metrics.find((m) => m.key === selectedKey) ?? metrics[0],
     [metrics, selectedKey],
   )
+
+  const summary = active ? summaryByKey?.[active.key] : undefined
 
   const data = useMemo(() => (active ? buildSeries(active.history, active.current) : []), [active])
 
@@ -179,6 +197,26 @@ export function FocusLineChart({
           </button>
         ))}
       </div>
+      {summary ? (
+        <div className="focus-chart__summary">
+          {summary.items.map((item, idx) => (
+            <span key={item.label} className="focus-chart__summary-item">
+              {idx > 0 ? <span className="focus-chart__summary-divider" aria-hidden="true">·</span> : null}
+              <small>{item.label}</small>
+              <strong>{item.value}</strong>
+            </span>
+          ))}
+          {summary.delta ? (
+            <span className="focus-chart__summary-item">
+              <span className="focus-chart__summary-divider" aria-hidden="true">·</span>
+              <small>{summary.delta.label ?? 'vs 上一区间'}</small>
+              <strong className={`focus-chart__summary-delta focus-chart__summary-delta--${summary.delta.tone}`}>
+                {summary.delta.text}
+              </strong>
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       <div className="focus-chart__plot">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>

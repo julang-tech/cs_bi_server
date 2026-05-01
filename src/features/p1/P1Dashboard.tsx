@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { DashboardShell } from '../../shared/components/DashboardShell'
 import { FilterBar } from '../../shared/components/FilterBar'
-import { FocusLineChart, type FocusMetricSpec } from '../../shared/components/FocusLineChart'
+import { FocusLineChart, type FocusMetricSpec, type FocusMetricSummary } from '../../shared/components/FocusLineChart'
 import { KpiCard } from '../../shared/components/KpiCard'
 import { KpiSection } from '../../shared/components/KpiSection'
 import { useDashboardData } from '../../shared/hooks/useDashboardData'
@@ -9,7 +9,7 @@ import { fetchP1Dashboard } from '../../api/p1'
 import { formatHours, formatInteger } from '../../shared/utils/format'
 import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount, getPeriodLengthDays,
-  getCurrentPeriodLabel,
+  getCurrentPeriodLabel, getPreviousHistoryRange,
 } from '../../shared/utils/datePeriod'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { WorkloadAnalysis } from './WorkloadAnalysis'
@@ -56,6 +56,7 @@ export default function P1Dashboard() {
 
   const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
   const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
+  const previousHistoryRange = useMemo(() => getPreviousHistoryRange(historyRange), [historyRange])
 
   function handleGrainChange(next: Grain) {
     setGrain(next)
@@ -64,17 +65,17 @@ export default function P1Dashboard() {
 
   const baseFilters = { grain, agent_name: agentName } as const
 
-  const { current, previous, history, loading, error } = useDashboardData<typeof baseFilters, P1DashboardData>({
+  const { current, previous, history, previousHistory, loading, error } = useDashboardData<typeof baseFilters, P1DashboardData>({
     baseFilters,
     currentPeriod,
     previousPeriod,
     historyRange,
+    previousHistoryRange,
     fetcher: (filters, signal) => fetchP1Dashboard(filters as never, signal),
   })
 
   const periodCount = getPeriodCount(historyRange, grain)
   const currentPeriodDays = getPeriodLengthDays(currentPeriod)
-  const periodLabelByGrain = { day: '天', week: '周', month: '月' } as const
 
   const cards = [
     {
@@ -147,6 +148,35 @@ export default function P1Dashboard() {
     current: c.currentTrend,
   }))
 
+  // Per-metric summary line for focus chart
+  const rangeLabel = grain === 'day' ? `近 ${periodCount} 天`
+    : grain === 'week' ? `近 ${periodCount} 周`
+    : `近 ${periodCount} 月`
+  type P1TrendKey = keyof NonNullable<P1DashboardData['trends']>
+  const summaryByKey: Record<string, FocusMetricSummary> = {}
+  for (const c of cards) {
+    const total = c.historyTrend.reduce((s, p) => s + p.value, 0)
+    const count = c.historyTrend.length
+    const mean = count ? total / count : 0
+    const prevTrend = (previousHistory?.trends?.[c.key as P1TrendKey] ?? []) as TrendPoint[]
+    const prevTotal = prevTrend.reduce((s, p) => s + p.value, 0)
+    let delta: FocusMetricSummary['delta']
+    if (!prevTotal) delta = { tone: 'muted', text: '-' }
+    else {
+      const ratio = (total - prevTotal) / prevTotal
+      delta = ratio === 0
+        ? { tone: 'neutral', text: '0.0%' }
+        : { tone: ratio > 0 ? 'up' : 'down', text: `${ratio > 0 ? '↑' : '↓'} ${Math.abs(ratio * 100).toFixed(1)}%` }
+    }
+    summaryByKey[c.key] = {
+      items: [
+        { label: `${rangeLabel}累计`, value: count ? c.formatter(total) : '--' },
+        { label: '区间均值', value: count ? c.formatter(mean) : '--' },
+      ],
+      delta,
+    }
+  }
+
   return (
     <DashboardShell
       filterBar={
@@ -212,33 +242,9 @@ export default function P1Dashboard() {
           metrics={focusMetrics}
           activeKey={activeMetricKey}
           onActiveKeyChange={setActiveMetricKey}
+          summaryByKey={summaryByKey}
         />
       )}
-      historySection={
-        <KpiSection
-          title="历史区间"
-          subtitle={`${historyRange.date_from} - ${historyRange.date_to} · 共 ${periodCount} 个完整周期 · 按${periodLabelByGrain[grain]}聚合`}
-          variant="history"
-        >
-          {cards.map((c) => {
-            const total = c.historyTrend.reduce((s, p) => s + p.value, 0)
-            return (
-              <KpiCard
-                key={c.key}
-                variant="history"
-                label={c.label}
-                description={c.description}
-                total={loading ? '--' : c.formatter(total)}
-                periodAverage={loading ? '--' : c.formatter(c.historyTrend.length ? total / c.historyTrend.length : 0)}
-                metricKey={c.key}
-                active={activeMetricKey === c.key}
-                onSelect={setActiveMetricKey}
-                sparkline={c.historyTrend}
-              />
-            )
-          })}
-        </KpiSection>
-      }
       extensions={
         <WorkloadAnalysis
           workloadRows={current?.agent_workload ?? []}

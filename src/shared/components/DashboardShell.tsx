@@ -4,13 +4,12 @@ interface DashboardShellProps {
   filterBar: ReactNode
   currentPeriodSection: ReactNode
   focusChart: ReactNode
-  historySection: ReactNode
   extensions?: ReactNode
   banner?: ReactNode
 }
 
 export function DashboardShell({
-  filterBar, currentPeriodSection, focusChart, historySection,
+  filterBar, currentPeriodSection, focusChart,
   extensions, banner,
 }: DashboardShellProps) {
   return (
@@ -21,7 +20,6 @@ export function DashboardShell({
       {banner}
       {currentPeriodSection}
       {focusChart}
-      {historySection}
       {extensions}
     </main>
   )

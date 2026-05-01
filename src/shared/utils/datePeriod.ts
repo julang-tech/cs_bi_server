@@ -144,6 +144,15 @@ export function getPeriodLengthDays(window: PeriodWindow): number {
   return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1
 }
 
+// Same-length range immediately before the given window. Used for "vs 上一区间"
+// comparison on the focus chart summary line.
+export function getPreviousHistoryRange(window: PeriodWindow): PeriodWindow {
+  const days = getPeriodLengthDays(window)
+  const newEnd = shiftDate(parseDateInput(window.date_from), -1)
+  const newStart = shiftDate(newEnd, -(days - 1))
+  return { date_from: formatDateInput(newStart), date_to: formatDateInput(newEnd) }
+}
+
 // ---------- ISO week / month helpers for grain-aware HTML inputs ----------
 
 // ISO week number (1..53), Monday-start, weeks belong to year of their Thursday.

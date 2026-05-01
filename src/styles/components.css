@@ -676,6 +676,51 @@
   color: #ffffff;
 }
 
+.focus-chart__summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle, var(--chip-bg));
+}
+
+.focus-chart__summary-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.focus-chart__summary-item small {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+.focus-chart__summary-item strong {
+  color: var(--heading);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+.focus-chart__summary-divider {
+  color: var(--border);
+  font-size: var(--fs-xs);
+}
+
+.focus-chart__summary-delta--up { color: var(--tone-up); }
+.focus-chart__summary-delta--down { color: var(--tone-down); }
+.focus-chart__summary-delta--neutral { color: var(--muted); }
+.focus-chart__summary-delta--muted { color: var(--muted-strong); }
+
 .focus-chart__plot {
   position: relative;
   height: 280px;
