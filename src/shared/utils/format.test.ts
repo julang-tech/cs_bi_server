@@ -10,6 +10,12 @@ describe('format', () => {
     expect(formatInteger(undefined)).toBe('0')
   })
 
+  it('truncates fractional input to integer (no decimal noise)', () => {
+    expect(formatInteger(17036.411123)).toBe('17,036')
+    expect(formatInteger(131.0)).toBe('131')
+    expect(formatInteger(0.4)).toBe('0')
+  })
+
   it('formats percent with default 2 digits', () => {
     expect(formatPercent(0.1234)).toBe('12.34%')
     expect(formatPercent(0.1234, 1)).toBe('12.3%')
@@ -28,8 +34,9 @@ describe('format', () => {
     expect(formatDecimal(null)).toBe('0.0')
   })
 
-  it('formats money with $ prefix', () => {
+  it('formats money with $ prefix and no decimal noise', () => {
     expect(formatMoney(1234)).toBe('$1,234')
+    expect(formatMoney(17036.411123)).toBe('$17,036')
     expect(formatMoney(null)).toBe('--')
   })
 })
