@@ -1021,6 +1021,7 @@ async function testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders() {
   const tmpDir = createTempDir()
   const configPath = createConfig(tmpDir)
   let sawRefundDrivenOrderQuery = false
+  let sawRefundDrivenOrderLineQuery = false
 
   const service = new SyncService({
     createClient: () => ({
@@ -1042,21 +1043,26 @@ async function testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders() {
       async query(options: unknown) {
         const query = String((options as { query?: string }).query ?? '')
         if (query.includes('int_line_items_classified')) {
-          return [[{
-            order_id: 'order-refund-sync',
-            order_no: 'LC801',
-            line_key: 'order-refund-sync:SKU-801:0',
-            sku: 'SKU-801-M',
-            skc: 'SKC-801',
-            spu: 'SPU-801',
-            product_id: 'prod-801',
-            variant_id: 'var-801',
-            quantity: 1,
-            discounted_total_usd: 100,
-            is_insurance_item: false,
-            is_price_adjustment: false,
-            is_shipping_cost: false,
-          }]]
+          sawRefundDrivenOrderLineQuery =
+            query.includes('dwd_refund_events') &&
+            /refund_date\s+BETWEEN\s+DATE\(@date_from\)\s+AND\s+DATE\(@date_to\)/.test(query)
+          return sawRefundDrivenOrderLineQuery
+            ? [[{
+                order_id: 'order-refund-sync',
+                order_no: 'LC801',
+                line_key: 'order-refund-sync:SKU-801:0',
+                sku: 'SKU-801-M',
+                skc: 'SKC-801',
+                spu: 'SPU-801',
+                product_id: 'prod-801',
+                variant_id: 'var-801',
+                quantity: 1,
+                discounted_total_usd: 100,
+                is_insurance_item: false,
+                is_price_adjustment: false,
+                is_shipping_cost: false,
+              }]]
+            : [[]]
         }
         if (query.includes('FROM `julang-dev-database.shopify_dwd.dwd_orders_fact_usd`')) {
           sawRefundDrivenOrderQuery =
@@ -1098,6 +1104,7 @@ async function testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders() {
 
   await service.syncTargetToSqlite({ config: configPath })
   assert.equal(sawRefundDrivenOrderQuery, true)
+  assert.equal(sawRefundDrivenOrderLineQuery, true)
 
   const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
   const cache = new SqliteShopifyBiCacheRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
@@ -1110,6 +1117,16 @@ async function testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders() {
   assert.equal(cards.net_received_amount, 0)
   assert.equal(cards.refund_order_count, 1)
   assert.equal(cards.refund_amount, 40)
+  const skcFilteredCards = cache.queryP2Overview({
+    date_from: '2026-04-01',
+    date_to: '2026-04-30',
+    grain: 'month',
+    skc: 'SKC-801',
+  }).cards
+  assert.equal(skcFilteredCards.order_count, 0)
+  assert.equal(skcFilteredCards.net_received_amount, 0)
+  assert.equal(skcFilteredCards.refund_order_count, 1)
+  assert.equal(skcFilteredCards.refund_amount, 40)
   cache.close()
 }
 
