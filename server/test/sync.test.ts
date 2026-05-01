@@ -927,6 +927,55 @@ async function testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror() {
   sqliteRepo.close()
 }
 
+async function testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache() {
+  const tmpDir = createTempDir()
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const legacy = new SqliteMirrorRepository(sqlitePath)
+  legacy.replaceBigQueryCacheWindow({
+    dateFrom: '2026-04-01',
+    dateTo: '2026-04-01',
+    orderLines: [{
+      order_no: 'LC100',
+      processed_date: '2026-04-01',
+      sku: 'SKU-1',
+      skc: 'SKC-1',
+      spu: 'SPU-1',
+      quantity: 1,
+    }],
+    refundEvents: [],
+  })
+  legacy.close()
+
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+  cache.close()
+
+  const reopened = new SqliteMirrorRepository(sqlitePath)
+  assert.equal(reopened.hasBigQueryCacheRows(), true)
+  const tables = reopened
+    .unsafeDatabaseForTest()
+    .prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type = 'table'
+        AND name IN (
+          'shopify_bi_orders',
+          'shopify_bi_order_lines',
+          'shopify_bi_refund_events',
+          'shopify_bi_cache_runs'
+        )
+      ORDER BY name
+    `)
+    .all()
+    .map((row) => String((row as { name: unknown }).name))
+  assert.deepEqual(tables, [
+    'shopify_bi_cache_runs',
+    'shopify_bi_order_lines',
+    'shopify_bi_orders',
+    'shopify_bi_refund_events',
+  ])
+  reopened.close()
+}
+
 async function run() {
   testTransformBasicFields()
   testTransformSplitsMultiSkuRows()
@@ -949,6 +998,7 @@ async function run() {
   await testSyncTargetToSqlitePrunesMissingTargetRecords()
   await testSyncRefreshesBigQueryCache()
   await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
+  await testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache()
   console.log('Sync tests passed')
 }
 

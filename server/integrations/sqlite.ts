@@ -622,6 +622,10 @@ export class SqliteMirrorRepository {
     return Number(row.order_lines ?? 0) > 0 || Number(row.refund_events ?? 0) > 0
   }
 
+  unsafeDatabaseForTest() {
+    return this.db
+  }
+
   close() {
     this.db.close()
   }
