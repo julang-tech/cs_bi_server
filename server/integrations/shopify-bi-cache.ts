@@ -157,7 +157,7 @@ export class SqliteShopifyBiCacheRepository {
     `)
     this.db.exec(`
       CREATE INDEX IF NOT EXISTS idx_shopify_bi_cache_runs_scope
-      ON shopify_bi_cache_runs(scope);
+      ON shopify_bi_cache_runs(scope, ok, date_from, date_to);
     `)
   }
 }
