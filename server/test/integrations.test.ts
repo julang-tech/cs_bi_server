@@ -371,9 +371,90 @@ async function testSqliteIssueProviderAndP3Service() {
     })
 
     assert.ok(payload.meta.source_modes.includes('sqlite mirrored target records'))
+    assert.ok(payload.meta.source_modes.includes('sqlite shopify bi cache'))
     assert.equal(payload.summary.complaint_count, 1)
   } finally {
     process.env.GOOGLE_APPLICATION_CREDENTIALS = originalCredentials
+  }
+}
+
+async function testP3ServiceFallsBackToFeishuWhenSqliteMirrorMissing() {
+  const tmpDir = createTempDir()
+  const configPath = path.join(tmpDir, 'config', 'sync', 'config.json')
+  const sqlitePath = path.join(tmpDir, 'config', 'data', 'missing.sqlite')
+  writeJson(configPath, {
+    feishu: { app_id: 'cli_xxx', app_secret: 'secret' },
+    source: { app_token: 'source-app', table_id: 'source-table', view_id: 'source-view' },
+    target: { app_token: 'target-app', table_id: 'target-table', view_id: 'target-view' },
+    runtime: {
+      state_path: './data/state.json',
+      log_path: './data/sync.log',
+      sqlite_path: './data/missing.sqlite',
+      refresh_interval_minutes: 120,
+    },
+  })
+
+  assert.equal(fs.existsSync(sqlitePath), false)
+
+  const originalFetch = globalThis.fetch
+  let authCalls = 0
+  let recordsCalls = 0
+  globalThis.fetch = (async (input: string | URL) => {
+    const url = String(input)
+    if (url.includes('/auth/v3/tenant_access_token/internal')) {
+      authCalls += 1
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: 'tenant-token',
+        }),
+        { status: 200 },
+      )
+    }
+
+    recordsCalls += 1
+    return new Response(
+      JSON.stringify({
+        code: 0,
+        data: {
+          items: [],
+        },
+      }),
+      { status: 200 },
+    )
+  }) as typeof fetch
+
+  try {
+    const service = createP3Service(process.cwd(), configPath)
+    const payload = await service.getDashboard({
+      date_from: '2026-04-01',
+      date_to: '2026-04-30',
+      grain: 'week',
+      date_basis: 'order_date',
+    })
+
+    assert.equal(fs.existsSync(sqlitePath), true)
+    assert.equal(authCalls, 1)
+    assert.equal(recordsCalls, 1)
+    assert.ok(payload.meta.source_modes.includes('feishu/openclaw runtime fetch'))
+    assert.equal(payload.meta.source_modes.includes('sqlite mirrored target records'), false)
+    assert.ok(payload.meta.source_modes.includes('sqlite shopify bi cache'))
+
+    const secondService = createP3Service(process.cwd(), configPath)
+    const secondPayload = await secondService.getDashboard({
+      date_from: '2026-04-01',
+      date_to: '2026-04-30',
+      grain: 'week',
+      date_basis: 'order_date',
+    })
+
+    assert.equal(authCalls, 2)
+    assert.equal(recordsCalls, 2)
+    assert.ok(secondPayload.meta.source_modes.includes('feishu/openclaw runtime fetch'))
+    assert.equal(secondPayload.meta.source_modes.includes('sqlite mirrored target records'), false)
+    assert.ok(secondPayload.meta.source_modes.includes('sqlite shopify bi cache'))
+  } finally {
+    globalThis.fetch = originalFetch
   }
 }
 
@@ -424,6 +505,7 @@ async function run() {
   await testFeishuIssueProviderSuccess()
   await testFeishuIssueProviderFailure()
   await testSqliteIssueProviderAndP3Service()
+  await testP3ServiceFallsBackToFeishuWhenSqliteMirrorMissing()
   testCreateP3ServiceAppliesBigQueryProxyConfig()
   console.log('P3 integration tests passed')
 }

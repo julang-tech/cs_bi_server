@@ -296,13 +296,12 @@ export class SqliteMirrorRepository {
       sqlite_failed: 0,
     }
 
-    const existingRows = this.db
-      .prepare('SELECT source_record_id, source_record_index FROM feishu_target_records')
-      .all() as Array<{ source_record_id: string; source_record_index: number }>
-    const existingKeys = new Set(
-      existingRows.map((row) => `${row.source_record_id}#${row.source_record_index}`),
-    )
-    const nextKeys = new Set(records.map((record) => `${record.source_record_id}#${record.source_record_index}`))
+    const isFullTargetMirrorRebuild =
+      mode.pruneMissing &&
+      records.every(
+        (record) =>
+          record.record_id === record.source_record_id && record.source_record_index === 0,
+      )
 
     const upsert = this.db.prepare(`
       INSERT INTO feishu_target_records (
@@ -381,6 +380,33 @@ export class SqliteMirrorRepository {
 
     this.db.exec('BEGIN')
     try {
+      let existingRows = this.db
+        .prepare(`
+          SELECT record_id, source_record_id, source_record_index
+          FROM feishu_target_records
+        `)
+        .all() as Array<{
+          record_id: string
+          source_record_id: string
+          source_record_index: number
+        }>
+
+      if (
+        isFullTargetMirrorRebuild &&
+        existingRows.some((row) => row.record_id !== row.source_record_id)
+      ) {
+        this.db.prepare('DELETE FROM feishu_target_records').run()
+        stats.deleted += existingRows.length
+        existingRows = []
+      }
+
+      const existingKeys = new Set(
+        existingRows.map((row) => `${row.source_record_id}#${row.source_record_index}`),
+      )
+      const nextKeys = new Set(
+        records.map((record) => `${record.source_record_id}#${record.source_record_index}`),
+      )
+
       for (const item of records) {
         const key = `${item.source_record_id}#${item.source_record_index}`
         const fields = item.fields
@@ -620,6 +646,10 @@ export class SqliteMirrorRepository {
       )
       .get() as { order_lines: number; refund_events: number }
     return Number(row.order_lines ?? 0) > 0 || Number(row.refund_events ?? 0) > 0
+  }
+
+  unsafeDatabaseForTest() {
+    return this.db
   }
 
   close() {

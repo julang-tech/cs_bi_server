@@ -54,6 +54,8 @@
   },
   "meta": {
     "partial_data": false,
+    "source_mode": "sqlite_shopify_bi_cache",
+    "cache_generation": "2026-05-01T12:00:00.000Z",
     "notes": [
       "Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping; refund_amount is now refund-flow (events in window) not cohort (orders in window). See lintico-data-warehouse/shopify_data_sync/docs/decisions/0007-dwd-align-with-cs-bi-finance.md"
     ]
@@ -104,6 +106,8 @@
   ],
   "meta": {
     "partial_data": false,
+    "source_mode": "sqlite_shopify_bi_cache",
+    "cache_generation": "2026-05-01T12:00:00.000Z",
     "notes": []
   }
 }
@@ -124,25 +128,44 @@
 
 ---
 
-## 4. BigQuery 取数来源
+## 4. 数据来源与元数据
 
-### 4.1 核心表
-- `julang-dev-database.shopify_dwd.dwd_orders_fact`
-  - 订单级指标：`processed_date`, `cs_bi_gmv`, `cs_bi_revenue`, `cs_bi_net_revenue`, `is_regular_order`, `is_gift_card_order`, `first_published_at_in_order`, `shop_domain`, `primary_product_type`
+### 4.1 运行时取数路径
+
+P2 正常服务路径优先读取本地 SQLite Shopify BI cache。该 cache 由 `sync:worker` 按日期覆盖窗口刷新；BigQuery 是 cache refresh 的上游来源，不再是 SQLite 覆盖范围存在时的常规 P2 在线服务路径。
+
+当请求日期范围未被 SQLite cache 覆盖，或 SQLite cache 暂不可用时，P2 会回退到 BigQuery 查询并在响应元数据中标记来源。
+
+首次部署 cache schema 升级后，worker 完成初始 Shopify BI cache refresh 之前，接口返回 `bigquery_fallback` 属于预期行为。
+
+### 4.2 Response Meta
+
+每个 P2 响应都包含 `meta`：
+
+- `meta.source_mode`: `sqlite_shopify_bi_cache` 表示请求日期范围已被 SQLite cache 覆盖并由 cache 返回；`bigquery_fallback` 表示 cache 覆盖缺失或 cache 不可用，本次响应由 BigQuery 返回。
+- `meta.cache_generation`: SQLite 响应包含该字段，表示覆盖当前请求日期范围的最近一次成功 cache refresh 时间戳。
+- `meta.partial_data`: 存在局部失败或凭证缺失等降级时为 `true`。
+- `meta.notes`: 包含 ADR-0007 指标口径说明，以及 cache 不可用、BigQuery 凭证缺失等 fallback 说明。
+
+### 4.3 Shopify BI Cache 上游表
+
+以下 BigQuery 表用于刷新 SQLite Shopify BI cache；当 SQLite 覆盖请求日期范围时，P2 不直接查询这些表：
+
+- `julang-dev-database.shopify_dwd.dwd_orders_fact_usd`
+  - 订单级指标：`order_id`, `order_name`, `processed_date`, `usd_fx_rate`, `cs_bi_gmv_usd`, `cs_bi_revenue_usd`, `cs_bi_net_revenue_usd`, `is_regular_order`, `is_gift_card_order`, `first_published_at_in_order`, `shop_domain`, `primary_product_type`
+  - 当前 v2 shared cache 的 orders、order-lines、refunds refresh 都依赖该 USD 事实表：orders 直接读取该表；order-lines 通过 `order_id` join 该表取订单号与汇率；refunds 通过 `order_id` join 该表取订单号与汇率。
 - `julang-dev-database.shopify_dwd.dwd_refund_events`
   - 退款级指标：`refund_date`, `refund_subtotal`, `quantity`, `order_id`, `sku`
 - `julang-dev-database.shopify_intermediate.int_line_items_classified`
   - 件数/商品明细：`sku`, `quantity`, `discounted_total`, `is_insurance_item`, `is_price_adjustment`, `is_shipping_cost`, `variant_id`, `product_id`
-- `julang-dev-database.shopify_intermediate.int_product_skc`
-  - SKC辅助字段：`skc`, `color_value`, `variant_id`
-- `julang-dev-database.product_information_database.dim_product_sku`
-  - 业务映射：`sku_id`, `spu_id`, `skc_id`（有则优先）
+
+当前 P2/P3 shared Shopify BI cache refresh 不 join `shopify_intermediate.int_product_skc` 或 `product_information_database.dim_product_sku`。旧 PR8 BigQuery cache 曾使用 `dim_product_sku` 做部分映射，但该表不是当前 v2 shared cache 的取数来源。
 
 ---
 
-## 5. SPU/SKC 解析口径（当前实现）
+## 5. SPU/SKC 解析口径（当前 v2 shared cache）
 
-当 `dim_product_sku` 无映射时，按 SKU 解析（与你要求一致）：
+当前 v2 shared cache 在 `fetchShopifyBiOrderLines` 中直接从 line item `sku` 解析 SKC/SPU，不依赖 SKU 维表映射：
 
 - `SKC`：`sku` 去掉最后一段
   - 例：`LWS-PT21WH-L -> LWS-PT21WH`

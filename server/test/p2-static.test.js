@@ -18,10 +18,13 @@ assert.match(
 assert.doesNotMatch(serviceSource, /\bo\.gmv\b/)
 assert.doesNotMatch(serviceSource, /revenue_after_all_discounts/)
 assert.match(serviceSource, /ADR-0007/)
+assert.match(serviceSource, /sqlite_shopify_bi_cache/)
+assert.match(serviceSource, /bigquery_fallback/)
+assert.match(serviceSource, /cache_generation/)
 
 const shippingCostFilters = serviceSource.match(
   /NOT COALESCE\(li\.is_shipping_cost, FALSE\)/g,
 )
-assert.equal(shippingCostFilters?.length, 2)
+assert.equal(shippingCostFilters?.length, 3)
 
 console.log('P2 static SQL tests passed')

@@ -11,6 +11,12 @@ import {
   type SqliteSyncStats,
 } from '../../integrations/sqlite.js'
 import {
+  SqliteShopifyBiCacheRepository,
+  type ShopifyBiOrder,
+  type ShopifyBiOrderLine,
+  type ShopifyBiRefundEvent,
+} from '../../integrations/shopify-bi-cache.js'
+import {
   inferLogisticsStatusFromShopify,
   matchSkuAmount,
   ShopifyClient,
@@ -42,6 +48,7 @@ export type SyncCommandOptions = {
   date?: string
   from?: string
   to?: string
+  refreshBigQueryCache?: boolean
 }
 
 export type SyncCsvOptions = {
@@ -85,6 +92,19 @@ type SyncBigQueryCacheSummary = {
   order_lines_upserted: number
   refund_events_upserted: number
   failed: number
+  error?: string
+}
+
+type SyncShopifyBiCacheSummary = {
+  enabled: boolean
+  ok: boolean
+  date_from: string
+  date_to: string
+  orders_upserted: number
+  order_lines_upserted: number
+  refund_events_upserted: number
+  failed: number
+  skipped?: boolean
   error?: string
 }
 
@@ -170,6 +190,21 @@ function resolveBigQueryCacheWindow(now = new Date()) {
 function normalizeNullableText(value: unknown) {
   const text = String(value ?? '').trim()
   return text || null
+}
+
+function normalizeBoolean(value: unknown) {
+  if (typeof value === 'boolean') {
+    return value
+  }
+  if (typeof value === 'number') {
+    return value !== 0
+  }
+  const text = String(value ?? '').trim().toLowerCase()
+  return ['1', 'true', 't', 'yes', 'y'].includes(text)
+}
+
+function stableSyntheticId(parts: unknown[]) {
+  return parts.map((part) => String(part ?? '').trim()).join(':')
 }
 
 function readState(statePath: string): SyncState {
@@ -923,12 +958,39 @@ export class SyncService {
       logger,
     )
     let failed = sqlite.ok ? 0 : 1
-    const bigqueryCache = await this.syncBigQueryCache(config, sqlitePath, logger)
+    const refreshBigQueryCache = options.refreshBigQueryCache ?? true
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow()
+    const bigqueryCache = refreshBigQueryCache
+      ? await this.syncBigQueryCache(config, sqlitePath, logger)
+      : {
+          enabled: false,
+          ok: true,
+          date_from: dateFrom,
+          date_to: dateTo,
+          order_lines_upserted: 0,
+          refund_events_upserted: 0,
+          failed: 0,
+        }
     if (!bigqueryCache.ok) {
       failed += 1
     }
+    const shopifyBiCache = refreshBigQueryCache
+      ? await this.syncShopifyBiCache(config, sqlitePath, logger)
+      : {
+          enabled: false,
+          ok: true,
+          date_from: dateFrom,
+          date_to: dateTo,
+          orders_upserted: 0,
+          order_lines_upserted: 0,
+          refund_events_upserted: 0,
+          failed: 0,
+        }
+    if (!shopifyBiCache.ok) {
+      failed += 1
+    }
     logger.info(
-      `Target-to-sqlite sync finished: scanned=${targetRows.length}, failed=${failed}, sqlite_inserted=${sqlite.inserted}, sqlite_updated=${sqlite.updated}, sqlite_deleted=${sqlite.deleted}, sqlite_failed=${sqlite.sqlite_failed}, bigquery_cache_enabled=${bigqueryCache.enabled}, bigquery_cache_ok=${bigqueryCache.ok}, bigquery_order_lines=${bigqueryCache.order_lines_upserted}, bigquery_refund_events=${bigqueryCache.refund_events_upserted}.`,
+      `Target-to-sqlite sync finished: scanned=${targetRows.length}, failed=${failed}, sqlite_inserted=${sqlite.inserted}, sqlite_updated=${sqlite.updated}, sqlite_deleted=${sqlite.deleted}, sqlite_failed=${sqlite.sqlite_failed}, bigquery_cache_enabled=${bigqueryCache.enabled}, bigquery_cache_ok=${bigqueryCache.ok}, bigquery_order_lines=${bigqueryCache.order_lines_upserted}, bigquery_refund_events=${bigqueryCache.refund_events_upserted}, shopify_bi_cache_enabled=${shopifyBiCache.enabled}, shopify_bi_cache_ok=${shopifyBiCache.ok}, shopify_bi_orders=${shopifyBiCache.orders_upserted}, shopify_bi_order_lines=${shopifyBiCache.order_lines_upserted}, shopify_bi_refund_events=${shopifyBiCache.refund_events_upserted}.`,
     )
 
     return {
@@ -941,12 +1003,61 @@ export class SyncService {
       },
       sqlite,
       bigquery_cache: bigqueryCache,
+      shopify_bi_cache: shopifyBiCache,
       scanned: targetRows.length,
       created: 0,
       updated: 0,
       skipped: 0,
       failed,
       diagnostics: [],
+    }
+  }
+
+  async syncShopifyBiCacheIfDue(options: { config: string }) {
+    const config = loadSyncConfig(options.config)
+    const sqlitePath = resolveRuntimePath(options.config, config.runtime.sqlite_path)
+    const logger = createLogger(resolveRuntimePath(options.config, config.runtime.log_path))
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow()
+    let repository: SqliteShopifyBiCacheRepository | null = null
+    try {
+      repository = new SqliteShopifyBiCacheRepository(sqlitePath)
+      if (repository.hasCoverage(dateFrom, dateTo)) {
+        logger.info(`Shopify BI cache skipped: existing coverage for ${dateFrom} to ${dateTo}.`)
+        return {
+          enabled: true,
+          ok: true,
+          date_from: dateFrom,
+          date_to: dateTo,
+          orders_upserted: 0,
+          order_lines_upserted: 0,
+          refund_events_upserted: 0,
+          failed: 0,
+          skipped: true,
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error(`Shopify BI cache due-check failed: ${message}`)
+      return {
+        enabled: true,
+        ok: false,
+        date_from: dateFrom,
+        date_to: dateTo,
+        orders_upserted: 0,
+        order_lines_upserted: 0,
+        refund_events_upserted: 0,
+        failed: 1,
+        skipped: false,
+        error: message,
+      }
+    } finally {
+      repository?.close()
+    }
+
+    const result = await this.syncShopifyBiCache(config, sqlitePath, logger)
+    return {
+      ...result,
+      skipped: false,
     }
   }
 
@@ -1032,6 +1143,344 @@ export class SyncService {
     }
   }
 
+  private async syncShopifyBiCache(
+    config: SyncConfig,
+    sqlitePath: string,
+    logger: SyncLogger,
+  ): Promise<SyncShopifyBiCacheSummary> {
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow()
+    const client = this.createBigQueryClient(config, logger)
+    if (!client) {
+      logger.warn('Shopify BI cache sync skipped: credentials not found.')
+      return {
+        enabled: false,
+        ok: true,
+        date_from: dateFrom,
+        date_to: dateTo,
+        orders_upserted: 0,
+        order_lines_upserted: 0,
+        refund_events_upserted: 0,
+        failed: 0,
+      }
+    }
+
+    const startedAt = new Date().toISOString()
+    let repository: SqliteShopifyBiCacheRepository | null = null
+    try {
+      logger.info(`Starting Shopify BI cache sync for ${dateFrom} to ${dateTo}.`)
+      const [orders, orderLines, refundEvents] = await Promise.all([
+        this.fetchShopifyBiOrders(client, dateFrom, dateTo),
+        this.fetchShopifyBiOrderLines(client, dateFrom, dateTo),
+        this.fetchShopifyBiRefundEvents(client, dateFrom, dateTo),
+      ])
+      repository = new SqliteShopifyBiCacheRepository(sqlitePath)
+      const stats = repository.replaceWindow({
+        dateFrom,
+        dateTo,
+        orders,
+        orderLines,
+        refundEvents,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+      })
+      logger.info(
+        `Shopify BI cache synced to ${sqlitePath}: orders=${stats.orders_upserted}, order_lines=${stats.order_lines_upserted}, refund_events=${stats.refund_events_upserted}.`,
+      )
+      return {
+        enabled: true,
+        ok: true,
+        date_from: dateFrom,
+        date_to: dateTo,
+        ...stats,
+        failed: 0,
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.error(`Shopify BI cache sync failed: ${message}`)
+      return {
+        enabled: true,
+        ok: false,
+        date_from: dateFrom,
+        date_to: dateTo,
+        orders_upserted: 0,
+        order_lines_upserted: 0,
+        refund_events_upserted: 0,
+        failed: 1,
+        error: message,
+      }
+    } finally {
+      repository?.close()
+    }
+  }
+
+  private async fetchShopifyBiOrders(
+    client: BigQueryLike,
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<ShopifyBiOrder[]> {
+    const rows = extractRows(await client.query({
+      query: `
+SELECT
+  CAST(o.order_id AS STRING) AS order_id,
+  CAST(o.order_name AS STRING) AS order_no,
+  CAST(o.shop_domain AS STRING) AS shop_domain,
+  CAST(o.processed_date AS STRING) AS processed_date,
+  CAST(o.primary_product_type AS STRING) AS primary_product_type,
+  CAST(DATE(o.first_published_at_in_order) AS STRING) AS first_published_at_in_order,
+  COALESCE(o.is_regular_order, FALSE) AS is_regular_order,
+  COALESCE(o.is_gift_card_order, FALSE) AS is_gift_card_order,
+  COALESCE(o.cs_bi_gmv_usd, 0) AS gmv_usd,
+  COALESCE(o.cs_bi_revenue_usd, 0) AS revenue_usd,
+  COALESCE(o.cs_bi_net_revenue_usd, 0) AS net_revenue_usd
+FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
+WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+  OR o.order_id IN (
+    SELECT DISTINCT re.order_id
+    FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
+    WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+  )
+      `,
+      params: { date_from: dateFrom, date_to: dateTo },
+    }))
+
+    return rows.map((row) => ({
+      order_id: String(row.order_id ?? ''),
+      order_no: String(row.order_no ?? ''),
+      shop_domain: normalizeNullableText(row.shop_domain),
+      processed_date: String(row.processed_date ?? ''),
+      primary_product_type: normalizeNullableText(row.primary_product_type),
+      first_published_at_in_order: normalizeNullableText(row.first_published_at_in_order),
+      is_regular_order: normalizeBoolean(row.is_regular_order),
+      is_gift_card_order: normalizeBoolean(row.is_gift_card_order),
+      gmv_usd: Number(row.gmv_usd ?? 0),
+      revenue_usd: Number(row.revenue_usd ?? 0),
+      net_revenue_usd: Number(row.net_revenue_usd ?? 0),
+    })).filter((row) => row.order_id && row.order_no && row.processed_date)
+  }
+
+  private async fetchShopifyBiOrderLines(
+    client: BigQueryLike,
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<ShopifyBiOrderLine[]> {
+    const rows = extractRows(await client.query({
+      query: `
+WITH eligible_orders AS (
+  SELECT o.order_id
+  FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
+  WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+    OR o.order_id IN (
+      SELECT DISTINCT re.order_id
+      FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
+      WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+    )
+),
+parsed AS (
+  SELECT
+    li.*,
+    o.order_name,
+    o.usd_fx_rate,
+    CASE
+      WHEN li.sku IS NULL OR TRIM(li.sku) = '' THEN 'N/A'
+      WHEN STRPOS(TRIM(li.sku), '-') > 0 THEN REGEXP_REPLACE(TRIM(li.sku), r'-[^-]+$', '')
+      ELSE TRIM(li.sku)
+    END AS parsed_skc
+  FROM \`julang-dev-database.shopify_intermediate.int_line_items_classified\` li
+  JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
+    ON o.order_id = li.order_id
+  JOIN eligible_orders eo
+    ON eo.order_id = li.order_id
+),
+parsed2 AS (
+  SELECT
+    *,
+    REGEXP_EXTRACT(parsed_skc, r'([^-]+)$') AS skc_last_segment,
+    CASE
+      WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+      ELSE ''
+    END AS skc_prefix,
+    CASE
+      WHEN parsed_skc = 'N/A' THEN 'N/A'
+      WHEN REGEXP_CONTAINS(REGEXP_EXTRACT(parsed_skc, r'([^-]+)$'), r'\\d') THEN
+        CASE
+          WHEN (
+            CASE
+              WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+              ELSE ''
+            END
+          ) != '' THEN CONCAT(
+            CASE
+              WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+              ELSE ''
+            END,
+            '-',
+            COALESCE(
+              REGEXP_EXTRACT(REGEXP_EXTRACT(parsed_skc, r'([^-]+)$'), r'^([a-zA-Z]*\\d+)'),
+              REGEXP_EXTRACT(parsed_skc, r'([^-]+)$')
+            )
+          )
+          ELSE COALESCE(
+            REGEXP_EXTRACT(REGEXP_EXTRACT(parsed_skc, r'([^-]+)$'), r'^([a-zA-Z]*\\d+)'),
+            REGEXP_EXTRACT(parsed_skc, r'([^-]+)$')
+          )
+        END
+      ELSE
+        CASE
+          WHEN (
+            CASE
+              WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+              ELSE ''
+            END
+          ) != '' THEN
+            CASE
+              WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+              ELSE ''
+            END
+          ELSE REGEXP_EXTRACT(parsed_skc, r'([^-]+)$')
+        END
+    END AS parsed_spu
+  FROM parsed
+)
+SELECT
+  CAST(order_id AS STRING) AS order_id,
+  CAST(order_name AS STRING) AS order_no,
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(parsed2), '$.line_item_id'),
+    JSON_VALUE(TO_JSON_STRING(parsed2), '$.id'),
+    TO_HEX(SHA256(CONCAT(
+      COALESCE(CAST(order_id AS STRING), ''),
+      '|',
+      COALESCE(CAST(sku AS STRING), ''),
+      '|',
+      COALESCE(CAST(product_id AS STRING), ''),
+      '|',
+      COALESCE(CAST(variant_id AS STRING), ''),
+      '|',
+      COALESCE(CAST(quantity AS STRING), ''),
+      '|',
+      COALESCE(CAST(discounted_total AS STRING), ''),
+      '|',
+      COALESCE(CAST(is_insurance_item AS STRING), ''),
+      '|',
+      COALESCE(CAST(is_price_adjustment AS STRING), ''),
+      '|',
+      COALESCE(CAST(is_shipping_cost AS STRING), '')
+    )))
+  ) AS line_key,
+  CAST(sku AS STRING) AS sku,
+  parsed_skc AS skc,
+  parsed_spu AS spu,
+  CAST(product_id AS STRING) AS product_id,
+  CAST(variant_id AS STRING) AS variant_id,
+  COALESCE(quantity, 0) AS quantity,
+  COALESCE(CAST(discounted_total AS NUMERIC) * COALESCE(CAST(usd_fx_rate AS NUMERIC), 1), 0) AS discounted_total_usd,
+  COALESCE(is_insurance_item, FALSE) AS is_insurance_item,
+  COALESCE(is_price_adjustment, FALSE) AS is_price_adjustment,
+  COALESCE(is_shipping_cost, FALSE) AS is_shipping_cost
+FROM parsed2
+      `,
+      params: { date_from: dateFrom, date_to: dateTo },
+    }))
+
+    return rows.map((row) => {
+      const orderId = String(row.order_id ?? '')
+      const sku = normalizeNullableText(row.sku)
+      const lineKey = String(
+        row.line_key ?? stableSyntheticId([orderId, sku, row.variant_id, row.product_id]),
+      )
+      return {
+        order_id: orderId,
+        order_no: String(row.order_no ?? ''),
+        line_key: lineKey,
+        sku,
+        skc: normalizeNullableText(row.skc),
+        spu: normalizeNullableText(row.spu),
+        product_id: normalizeNullableText(row.product_id),
+        variant_id: normalizeNullableText(row.variant_id),
+        quantity: Number(row.quantity ?? 0),
+        discounted_total_usd: Number(row.discounted_total_usd ?? 0),
+        is_insurance_item: normalizeBoolean(row.is_insurance_item),
+        is_price_adjustment: normalizeBoolean(row.is_price_adjustment),
+        is_shipping_cost: normalizeBoolean(row.is_shipping_cost),
+      }
+    }).filter((row) => row.order_id && row.order_no && row.line_key)
+  }
+
+  private async fetchShopifyBiRefundEvents(
+    client: BigQueryLike,
+    dateFrom: string,
+    dateTo: string,
+  ): Promise<ShopifyBiRefundEvent[]> {
+    const rows = extractRows(await client.query({
+      query: `
+SELECT
+  TO_HEX(SHA256(CONCAT(
+    COALESCE(CAST(re.refund_id AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.line_item_id AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.order_id AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.sku AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.refund_date AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.quantity AS STRING), ''),
+    '|',
+    COALESCE(CAST(re.refund_subtotal AS STRING), '')
+  ))) AS refund_id,
+  CAST(re.refund_id AS STRING) AS source_refund_id,
+  CAST(re.line_item_id AS STRING) AS line_item_id,
+  CAST(re.order_id AS STRING) AS order_id,
+  CAST(o.order_name AS STRING) AS order_no,
+  CAST(re.sku AS STRING) AS sku,
+  CAST(re.refund_date AS STRING) AS refund_date,
+  CAST(re.quantity AS STRING) AS source_refund_quantity,
+  CAST(re.refund_subtotal AS STRING) AS source_refund_subtotal,
+  COALESCE(re.quantity, 0) AS refund_quantity,
+  COALESCE(CAST(re.refund_subtotal AS NUMERIC) * COALESCE(CAST(o.usd_fx_rate AS NUMERIC), 1), 0) AS refund_subtotal_usd
+FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
+JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
+  ON re.order_id = o.order_id
+WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+      `,
+      params: { date_from: dateFrom, date_to: dateTo },
+    }))
+
+    return rows.map((row) => {
+      const orderId = String(row.order_id ?? '')
+      const sku = normalizeNullableText(row.sku)
+      const refundDate = String(row.refund_date ?? '')
+      const sourceRefundId = normalizeNullableText(row.source_refund_id ?? row.refund_id)
+      const lineItemId = normalizeNullableText(row.line_item_id)
+      const refundQuantity = Number(row.refund_quantity ?? 0)
+      const refundSubtotalUsd = Number(row.refund_subtotal_usd ?? 0)
+      const returnedRefundId = String(row.refund_id ?? '').trim()
+      const isSqlHash = /^[0-9a-f]{64}$/i.test(returnedRefundId)
+      const refundId =
+        returnedRefundId && (!lineItemId || isSqlHash)
+          ? returnedRefundId
+          : stableSyntheticId([
+              sourceRefundId,
+              lineItemId,
+              orderId,
+              sku,
+              refundDate,
+              row.source_refund_quantity ?? refundQuantity,
+              row.source_refund_subtotal ?? refundSubtotalUsd,
+            ])
+      return {
+        refund_id: refundId,
+        order_id: orderId,
+        order_no: String(row.order_no ?? ''),
+        sku,
+        refund_date: refundDate,
+        refund_quantity: refundQuantity,
+        refund_subtotal_usd: refundSubtotalUsd,
+      }
+    }).filter((row) => row.refund_id && row.order_id && row.order_no && row.refund_date)
+  }
+
   private async fetchBigQueryOrderLines(
     client: BigQueryLike,
     dateFrom: string,
@@ -1078,11 +1527,13 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
     const rows = extractRows(await client.query({
       query: `
 SELECT
-  order_name AS order_no,
-  sku,
-  CAST(refund_date AS STRING) AS refund_date
-FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\`
-WHERE refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+  o.order_name AS order_no,
+  re.sku,
+  CAST(re.refund_date AS STRING) AS refund_date
+FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
+JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
+  ON o.order_id = re.order_id
+WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
       `,
       params: {
         date_from: dateFrom,
