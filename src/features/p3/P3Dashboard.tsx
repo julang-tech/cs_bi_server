@@ -178,7 +178,7 @@ export default function P3Dashboard() {
         ) : null
       }
       currentPeriodSection={
-        <KpiSection title="当前周期" subtitle={`数据截至 ${currentPeriod.date_to}（T-1）`} variant="current">
+        <KpiSection title="当前周期" subtitle={`数据截至 ${currentPeriod.date_to}`} variant="current">
           {cards.map((c) => {
             const periodAverage = c.isRate
               ? (loading || c.currentValue === undefined || c.currentValue === null

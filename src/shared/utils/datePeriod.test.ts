@@ -1,14 +1,17 @@
 import { describe, it, expect } from 'vitest'
 import {
   formatDateInput, parseDateInput, shiftDate,
-  getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange,
+  getDataReadyDate, getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange,
+  getCurrentPeriodLabel,
   alignHistoryRangeToGrain, isHistoryRangeValid,
   getPeriodCount, getPeriodLengthDays,
   formatWeekInput, formatMonthInput,
   weekInputToRange, monthInputToRange,
 } from './datePeriod'
 
-const today = new Date(2026, 4, 1)  // 2026-05-01 (Friday); T-1 = 2026-04-30 (Thursday)
+const today = new Date(2026, 4, 1, 12)  // 2026-05-01 12:00; ready date = 2026-04-30
+const beforeCutoff = new Date(2026, 4, 2, 2, 59)  // ready date = 2026-04-30
+const afterCutoff = new Date(2026, 4, 2, 3, 0)  // ready date = 2026-05-01
 
 describe('formatDateInput / parseDateInput / shiftDate', () => {
   it('round-trips a date', () => {
@@ -25,28 +28,53 @@ describe('formatDateInput / parseDateInput / shiftDate', () => {
   })
 })
 
-describe('getCurrentPeriod (A semantics)', () => {
-  it('day = T-1 to T-1', () => {
+describe('getDataReadyDate', () => {
+  it('uses T-2 before the 03:00 BigQuery backfill cutoff', () => {
+    expect(formatDateInput(getDataReadyDate(beforeCutoff))).toBe('2026-04-30')
+  })
+  it('uses T-1 at and after the 03:00 BigQuery backfill cutoff', () => {
+    expect(formatDateInput(getDataReadyDate(afterCutoff))).toBe('2026-05-01')
+  })
+})
+
+describe('getCurrentPeriod (rolling windows aligned to data readiness)', () => {
+  it('day = ready date to ready date', () => {
     expect(getCurrentPeriod('day', today)).toEqual({
       date_from: '2026-04-30', date_to: '2026-04-30',
     })
   })
-  it('week = Monday through T-1, not future days in the same week', () => {
-    // T-1 = 2026-04-30 (Thu). Do not request Friday-Sunday because T-1 cache is not ready.
+  it('week = latest 7 ready days', () => {
     expect(getCurrentPeriod('week', today)).toEqual({
-      date_from: '2026-04-27', date_to: '2026-04-30',
+      date_from: '2026-04-24', date_to: '2026-04-30',
     })
   })
-  it('month = month start through T-1', () => {
-    // T-1 = 2026-04-30. Month = April 2026.
+  it('month = latest 30 ready days', () => {
     expect(getCurrentPeriod('month', today)).toEqual({
       date_from: '2026-04-01', date_to: '2026-04-30',
     })
   })
-  it('month does not include later days when T-1 is mid-month', () => {
-    expect(getCurrentPeriod('month', new Date(2026, 4, 15))).toEqual({
-      date_from: '2026-05-01', date_to: '2026-05-14',
+  it('does not move to yesterday before the 03:00 cutoff', () => {
+    expect(getCurrentPeriod('day', beforeCutoff)).toEqual({
+      date_from: '2026-04-30', date_to: '2026-04-30',
     })
+  })
+  it('moves to yesterday at the 03:00 cutoff', () => {
+    expect(getCurrentPeriod('day', afterCutoff)).toEqual({
+      date_from: '2026-05-01', date_to: '2026-05-01',
+    })
+  })
+  it('month remains a rolling 30-day window when the ready date is mid-month', () => {
+    expect(getCurrentPeriod('month', new Date(2026, 4, 15, 12))).toEqual({
+      date_from: '2026-04-15', date_to: '2026-05-14',
+    })
+  })
+})
+
+describe('getCurrentPeriodLabel', () => {
+  it('names the rolling current periods', () => {
+    expect(getCurrentPeriodLabel('day')).toBe('昨日')
+    expect(getCurrentPeriodLabel('week')).toBe('近 7 天')
+    expect(getCurrentPeriodLabel('month')).toBe('近 30 天')
   })
 })
 
@@ -56,33 +84,32 @@ describe('getPreviousPeriod', () => {
       date_from: '2026-04-29', date_to: '2026-04-29',
     })
   })
-  it('week = full prior Mon-Sun', () => {
+  it('week = prior 7-day rolling window', () => {
     expect(getPreviousPeriod('week', today)).toEqual({
-      date_from: '2026-04-20', date_to: '2026-04-26',
+      date_from: '2026-04-17', date_to: '2026-04-23',
     })
   })
-  it('month = full prior month', () => {
+  it('month = prior 30-day rolling window', () => {
     expect(getPreviousPeriod('month', today)).toEqual({
-      date_from: '2026-03-01', date_to: '2026-03-31',
+      date_from: '2026-03-02', date_to: '2026-03-31',
     })
   })
 })
 
 describe('getDefaultHistoryRange', () => {
-  it('day = 14 days ending T-2', () => {
+  it('day = 14 days ending at the ready date', () => {
     expect(getDefaultHistoryRange('day', today)).toEqual({
-      date_from: '2026-04-16', date_to: '2026-04-29',
+      date_from: '2026-04-17', date_to: '2026-04-30',
     })
   })
-  it('week = 8 prior complete weeks', () => {
-    // Last completed Sunday = 2026-04-26. 8 weeks back's Monday = 2026-03-02.
+  it('week = 7 complete prior weeks plus the ready-date week to date', () => {
     expect(getDefaultHistoryRange('week', today)).toEqual({
-      date_from: '2026-03-02', date_to: '2026-04-26',
+      date_from: '2026-03-09', date_to: '2026-04-30',
     })
   })
-  it('month = 2 prior complete months', () => {
+  it('month = previous month plus the ready-date month to date', () => {
     expect(getDefaultHistoryRange('month', today)).toEqual({
-      date_from: '2026-02-01', date_to: '2026-03-31',
+      date_from: '2026-03-01', date_to: '2026-04-30',
     })
   })
 })
@@ -105,14 +132,14 @@ describe('alignHistoryRangeToGrain', () => {
 })
 
 describe('isHistoryRangeValid', () => {
-  it('rejects overlap with current period', () => {
+  it('rejects dates after the ready date', () => {
     expect(isHistoryRangeValid(
-      { date_from: '2026-04-15', date_to: '2026-04-30' }, 'day', today,
+      { date_from: '2026-04-15', date_to: '2026-05-01' }, 'day', beforeCutoff,
     )).toBe(false)
   })
-  it('accepts non-overlapping', () => {
+  it('accepts dates through the ready date', () => {
     expect(isHistoryRangeValid(
-      { date_from: '2026-04-15', date_to: '2026-04-29' }, 'day', today,
+      { date_from: '2026-04-15', date_to: '2026-04-30' }, 'day', beforeCutoff,
     )).toBe(true)
   })
 })

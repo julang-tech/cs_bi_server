@@ -9,6 +9,7 @@ import { fetchRefundOverview } from '../../api/p2'
 import { formatInteger, formatMoney, formatPercent } from '../../shared/utils/format'
 import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount, getPeriodLengthDays,
+  getCurrentPeriodLabel,
 } from '../../shared/utils/datePeriod'
 import { ProductRefundTable } from './ProductRefundTable'
 import type { Grain, P2Filters, P2Overview, P2OverviewCards, TrendPoint } from '../../api/types'
@@ -127,7 +128,7 @@ export default function P2Dashboard() {
         ) : null
       }
       currentPeriodSection={
-        <KpiSection title="当前周期" subtitle={`数据截至 ${currentPeriod.date_to}（T-1）`} variant="current">
+        <KpiSection title={getCurrentPeriodLabel(grain)} subtitle={`数据截至 ${currentPeriod.date_to}`} variant="current">
           {enrichedCards.map((c) => {
             const periodAverage = c.isRate
               ? (loading || c.currentValue === undefined || c.currentValue === null
