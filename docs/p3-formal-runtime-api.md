@@ -18,7 +18,7 @@
 The sync worker maintains two SQLite-backed datasets:
 
 - Feishu target mirror: refreshed on `runtime.refresh_interval_minutes`.
-- Shopify BI cache: refreshed by date-window coverage. On worker startup and interval ticks, the worker checks whether the current cache window has a successful `shopify_bi_v2` run. If not, it refreshes the window from BigQuery.
+- Shopify BI cache: on worker startup, `syncTargetToSqlite({ refreshBigQueryCache: true })` refreshes the Shopify BI cache window from BigQuery before the due-check path runs. On interval ticks, the worker skips that unconditional refresh and uses the Shopify BI cache due-check; if the current cache window lacks a successful `shopify_bi_v2` run, it refreshes the window from BigQuery.
 
 P2 and P3 read Shopify metrics from SQLite when the requested date range is covered. P2 may temporarily fall back to BigQuery while a first deployment backfill is still running.
 
