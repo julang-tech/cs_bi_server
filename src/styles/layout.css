@@ -6,10 +6,6 @@
   min-height: 100vh;
 }
 
-.app-shell--sidebar-collapsed {
-  grid-template-columns: 96px minmax(0, 1fr);
-}
-
 .side-nav {
   position: sticky;
   top: 0;
@@ -23,29 +19,12 @@
   backdrop-filter: blur(18px);
 }
 
-.side-nav--collapsed {
-  align-items: center;
-  padding-left: 14px;
-  padding-right: 14px;
-}
-
 .side-nav__brand {
-  display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(52px, 1fr);
-  align-items: stretch;
-  gap: var(--space-3);
   padding: 20px;
   border-radius: 28px;
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow-soft);
-}
-
-.side-nav--collapsed .side-nav__brand {
-  display: flex;
-  width: 100%;
-  justify-content: center;
-  padding: 0;
 }
 
 .side-nav__brand-copy {
@@ -59,31 +38,6 @@
   font-family: var(--heading-font);
   font-size: 30px;
   line-height: 1;
-}
-
-.side-nav__toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-width: 52px;
-  min-height: 100%;
-  border: 1px solid #e6ddd0;
-  border-radius: 18px;
-  background: #fffdfa;
-  color: #4e5d70;
-  font: inherit;
-  font-size: var(--space-5);
-  line-height: 1;
-  cursor: pointer;
-}
-
-.side-nav--collapsed .side-nav__toggle {
-  width: 100%;
-  height: 52px;
-  border: 0;
-  border-radius: 28px;
-  background: transparent;
 }
 
 .eyebrow {
@@ -118,8 +72,7 @@
   transition:
     transform 0.2s ease,
     border-color 0.2s ease,
-    background-color 0.2s ease,
-    grid-template-columns 0.2s ease;
+    background-color 0.2s ease;
 }
 
 .side-nav__item:hover {
@@ -131,21 +84,6 @@
 .side-nav__item--active {
   border-color: rgba(202, 113, 72, 0.24);
   background: linear-gradient(135deg, #fffaf2, #f6eadf);
-}
-
-.side-nav--collapsed .side-nav__item {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-height: 52px;
-  padding: 0 10px;
-  text-align: center;
-}
-
-.side-nav--collapsed .side-nav__text strong {
-  font-size: 17px;
-  line-height: 1;
 }
 
 .side-nav__text strong,
@@ -200,22 +138,6 @@
 
   .side-nav__menu {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .app-shell--sidebar-collapsed {
-    grid-template-columns: 1fr;
-  }
-
-  .side-nav--collapsed {
-    align-items: stretch;
-    padding-left: 14px;
-    padding-right: 14px;
-  }
-
-  .side-nav--collapsed .side-nav__item {
-    min-height: 52px;
-    padding: 0 10px;
-    text-align: center;
   }
 }
 
