@@ -411,19 +411,17 @@
    =========================================================================== */
 
 .focus-chart {
-  display: grid;
-  gap: var(--space-3);
-  padding: var(--space-4);
+  padding: 14px;
   border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--surface);
-  box-shadow: none;
 }
 
 .focus-chart__tabs {
-  display: inline-flex;
+  display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  margin-bottom: var(--space-3);
 }
 
 .focus-chart__tab {
@@ -434,13 +432,12 @@
   background: var(--surface);
   color: var(--muted-strong);
   font: inherit;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--fs-sm);
   cursor: pointer;
   transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    border-color 0.2s ease;
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .focus-chart__tab:hover {
@@ -456,97 +453,33 @@
 
 .focus-chart__plot {
   position: relative;
-  height: 260px;
-  padding: 14px var(--space-3) 24px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface-subtle);
-}
-
-.focus-chart__plot svg {
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.focus-chart__band {
-  fill: transparent;
-}
-
-.focus-chart__band--history {
-  fill: rgba(31, 41, 37, 0.035);
-}
-
-.focus-chart__band--current {
-  fill: rgba(11, 110, 79, 0.05);
-}
-
-.focus-chart__divider {
-  stroke: rgba(11, 110, 79, 0.36);
-  stroke-width: 0.5;
-  stroke-dasharray: 1.5 1.5;
-}
-
-.focus-chart__mean-line {
-  stroke: rgba(48, 65, 84, 0.35);
-  stroke-width: 0.45;
-  stroke-dasharray: 1.5 2;
-}
-
-.focus-chart__line {
-  stroke: var(--accent);
-  stroke-width: 1.6;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-
-.focus-chart__latest {
-  fill: var(--accent);
-  stroke: var(--surface);
-  stroke-width: 0.6;
-}
-
-.focus-chart__hit {
-  cursor: pointer;
-  outline: 0;
-}
-
-.focus-chart__hit:focus circle {
-  fill: rgba(11, 110, 79, 0.08);
+  height: 280px;
 }
 
 .focus-chart__tooltip {
-  position: absolute;
-  z-index: 2;
-  min-width: 138px;
-  padding: 10px var(--space-3);
-  border: 1px solid rgba(48, 65, 84, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.98);
-  color: var(--text);
+  background: var(--surface);
   box-shadow: var(--shadow-soft);
-  pointer-events: none;
-  transform: translate(-50%, calc(-100% - var(--space-3)));
+  font-size: 13px;
+  color: var(--text);
 }
 
-.focus-chart__tooltip--left {
-  transform: translate(calc(-100% + var(--space-4)), calc(-100% - var(--space-3)));
-}
-
-.focus-chart__tooltip span,
-.focus-chart__tooltip strong {
-  display: block;
-}
-
-.focus-chart__tooltip span {
+.focus-chart__tooltip-label {
   color: var(--muted);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: 600;
 }
 
-.focus-chart__tooltip strong {
-  margin-top: var(--space-1);
+.focus-chart__tooltip-value {
+  color: var(--heading);
   font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ===========================================================================
@@ -760,7 +693,7 @@
   }
 
   .focus-chart__plot {
-    height: 240px;
+    height: 260px;
   }
 }
 
