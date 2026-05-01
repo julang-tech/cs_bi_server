@@ -810,6 +810,48 @@ async function testSyncTargetToSqlitePrunesMissingTargetRecords() {
   sqliteRepo.close()
 }
 
+function testSqliteMirrorFullTargetSyncClearsLegacySourceMappings() {
+  const tmpDir = createTempDir()
+  const sqliteRepo = new SqliteMirrorRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+
+  sqliteRepo.syncRecords([
+    {
+      record_id: 'target-rec-legacy',
+      source_record_id: 'source-rec-legacy',
+      source_record_index: 0,
+      synced_at: '2026-04-24T00:00:00.000Z',
+      fields: {
+        记录日期: '2026/04/24',
+        订单号: 'LC912',
+      },
+    },
+  ])
+
+  const result = sqliteRepo.syncRecords([
+    {
+      record_id: 'target-rec-legacy',
+      source_record_id: 'target-rec-legacy',
+      source_record_index: 0,
+      synced_at: '2026-04-25T00:00:00.000Z',
+      fields: {
+        记录日期: '2026/04/25',
+        订单号: 'LC912',
+        问题处理状态: '处理中',
+      },
+    },
+  ])
+
+  assert.equal(result.inserted, 1)
+  assert.equal(result.deleted, 1)
+
+  const sqliteRows = sqliteRepo.listActiveRows()
+  assert.equal(sqliteRows.length, 1)
+  assert.equal(sqliteRows[0]?.record_id, 'target-rec-legacy')
+  assert.equal(sqliteRows[0]?.source_record_id, 'target-rec-legacy')
+  assert.equal(sqliteRows[0]?.fields['问题处理状态'], '处理中')
+  sqliteRepo.close()
+}
+
 async function testSyncRefreshesBigQueryCache() {
   const tmpDir = createTempDir()
   const configPath = createConfig(tmpDir)
@@ -1982,6 +2024,7 @@ async function run() {
   await testSyncSqliteFailureMarksRunFailed()
   await testSyncTargetToSqliteReadsTargetTable()
   await testSyncTargetToSqlitePrunesMissingTargetRecords()
+  testSqliteMirrorFullTargetSyncClearsLegacySourceMappings()
   await testSyncRefreshesBigQueryCache()
   await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
   await testSyncRefreshesShopifyBiV2Cache()
