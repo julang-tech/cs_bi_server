@@ -176,13 +176,14 @@ export function createP3Service(repoRoot: string, syncConfigPath: string) {
   }
 
   if (runtimeConfig) {
+    const sqliteExists = fs.existsSync(runtimeConfig.runtime.sqlitePath)
     const sqliteCache = new SqliteShopifyBiCacheRepository(runtimeConfig.runtime.sqlitePath)
     salesRepository = sqliteCache
     enrichmentRepository = sqliteCache
     sourceModes.push('sqlite shopify bi cache')
 
     try {
-      if (fs.existsSync(runtimeConfig.runtime.sqlitePath)) {
+      if (sqliteExists) {
         issueProvider = new SqliteIssueProvider(repoRoot, runtimeConfig.runtime.sqlitePath)
         sourceModes.unshift('sqlite mirrored target records')
       } else {
