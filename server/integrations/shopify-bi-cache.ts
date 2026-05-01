@@ -281,8 +281,24 @@ export class SqliteShopifyBiCacheRepository {
             COUNT(DISTINCT re.order_id) AS refund_order_count,
             COALESCE(SUM(re.refund_subtotal_usd), 0) AS refund_amount
           FROM shopify_bi_refund_events re
-          JOIN filtered_orders o ON o.order_id = re.order_id
+          JOIN shopify_bi_orders o ON o.order_id = re.order_id
           WHERE re.refund_date BETWEEN @date_from AND @date_to
+            AND o.is_gift_card_order = 0
+            AND o.is_regular_order = 1
+            AND (@category = '' OR o.primary_product_type = @category)
+            AND (@channel = '' OR o.shop_domain = @channel)
+            AND (@listing_date_from = '' OR o.first_published_at_in_order >= @listing_date_from)
+            AND (@listing_date_to = '' OR o.first_published_at_in_order <= @listing_date_to)
+            AND (
+              (@skc = '' AND @spu = '')
+              OR EXISTS (
+                SELECT 1
+                FROM shopify_bi_order_lines li
+                WHERE li.order_id = re.order_id
+                  AND (@skc = '' OR li.skc = @skc)
+                  AND (@spu = '' OR li.spu = @spu)
+              )
+            )
         )
         SELECT
           COUNT(DISTINCT o.order_id) AS order_count,

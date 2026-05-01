@@ -1072,6 +1072,157 @@ async function testShopifyBiCacheReplacesDateWindowTransactionally() {
   cache.close()
 }
 
+async function testShopifyBiCacheRefundFlowUsesRefundDateWindow() {
+  const tmpDir = createTempDir()
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+
+  cache.replaceWindow({
+    dateFrom: '2026-03-01',
+    dateTo: '2026-04-30',
+    orders: [{
+      order_id: 'order-refund-flow',
+      order_no: 'LC200',
+      shop_domain: '2vnpww-33.myshopify.com',
+      processed_date: '2026-03-20',
+      primary_product_type: 'Dress',
+      first_published_at_in_order: '2026-03-01',
+      is_regular_order: true,
+      is_gift_card_order: false,
+      gmv_usd: 120,
+      revenue_usd: 100,
+      net_revenue_usd: 90,
+    }],
+    orderLines: [{
+      order_id: 'order-refund-flow',
+      order_no: 'LC200',
+      line_key: 'order-refund-flow:SKU-2:0',
+      sku: 'SKU-2-M',
+      skc: 'SKU-2',
+      spu: 'SKU',
+      product_id: 'prod-2',
+      variant_id: 'var-2',
+      quantity: 1,
+      discounted_total_usd: 100,
+      is_insurance_item: false,
+      is_price_adjustment: false,
+      is_shipping_cost: false,
+    }],
+    refundEvents: [{
+      refund_id: 'refund-flow-1',
+      order_id: 'order-refund-flow',
+      order_no: 'LC200',
+      sku: 'SKU-2-M',
+      refund_date: '2026-04-02',
+      refund_quantity: 1,
+      refund_subtotal_usd: 50,
+    }],
+  })
+
+  const cards = cache.queryP2Overview({
+    date_from: '2026-04-01',
+    date_to: '2026-04-30',
+    grain: 'month',
+  }).cards
+  assert.equal(cards.order_count, 0)
+  assert.equal(cards.net_received_amount, 0)
+  assert.equal(cards.refund_order_count, 1)
+  assert.equal(cards.refund_amount, 50)
+  assert.equal(cards.refund_amount_ratio, 0)
+  cache.close()
+}
+
+async function testShopifyBiCacheReplaceWindowRollsBackOnInsertFailure() {
+  const tmpDir = createTempDir()
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+
+  cache.replaceWindow({
+    dateFrom: '2026-04-01',
+    dateTo: '2026-04-30',
+    orders: [{
+      order_id: 'order-rollback',
+      order_no: 'LC300',
+      shop_domain: '2vnpww-33.myshopify.com',
+      processed_date: '2026-04-10',
+      primary_product_type: 'Dress',
+      first_published_at_in_order: '2026-03-01',
+      is_regular_order: true,
+      is_gift_card_order: false,
+      gmv_usd: 120,
+      revenue_usd: 100,
+      net_revenue_usd: 90,
+    }],
+    orderLines: [{
+      order_id: 'order-rollback',
+      order_no: 'LC300',
+      line_key: 'order-rollback:SKU-3:0',
+      sku: 'SKU-3-M',
+      skc: 'SKU-3',
+      spu: 'SKU',
+      product_id: 'prod-3',
+      variant_id: 'var-3',
+      quantity: 1,
+      discounted_total_usd: 100,
+      is_insurance_item: false,
+      is_price_adjustment: false,
+      is_shipping_cost: false,
+    }],
+    refundEvents: [],
+  })
+
+  assert.throws(() => {
+    cache.replaceWindow({
+      dateFrom: '2026-04-01',
+      dateTo: '2026-04-30',
+      orders: [
+        {
+          order_id: 'order-rollback',
+          order_no: 'LC300',
+          shop_domain: '2vnpww-33.myshopify.com',
+          processed_date: '2026-04-10',
+          primary_product_type: 'Dress',
+          first_published_at_in_order: '2026-03-01',
+          is_regular_order: true,
+          is_gift_card_order: false,
+          gmv_usd: 10,
+          revenue_usd: 10,
+          net_revenue_usd: 10,
+        },
+        {
+          order_id: 'order-rollback',
+          order_no: 'LC300-DUP',
+          shop_domain: '2vnpww-33.myshopify.com',
+          processed_date: '2026-04-10',
+          primary_product_type: 'Dress',
+          first_published_at_in_order: '2026-03-01',
+          is_regular_order: true,
+          is_gift_card_order: false,
+          gmv_usd: 20,
+          revenue_usd: 20,
+          net_revenue_usd: 20,
+        },
+      ],
+      orderLines: [],
+      refundEvents: [],
+    })
+  })
+
+  const cards = cache.queryP2Overview({
+    date_from: '2026-04-01',
+    date_to: '2026-04-30',
+    grain: 'month',
+  }).cards
+  assert.equal(cards.order_count, 1)
+  assert.equal(cards.sales_qty, 1)
+  assert.equal(cards.gmv, 120)
+  assert.equal(cards.net_received_amount, 100)
+  assert.equal(cards.net_revenue_amount, 90)
+  cache.close()
+}
+
 async function run() {
   testTransformBasicFields()
   testTransformSplitsMultiSkuRows()
@@ -1096,6 +1247,8 @@ async function run() {
   await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
   await testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache()
   await testShopifyBiCacheReplacesDateWindowTransactionally()
+  await testShopifyBiCacheRefundFlowUsesRefundDateWindow()
+  await testShopifyBiCacheReplaceWindowRollsBackOnInsertFailure()
   console.log('Sync tests passed')
 }
 
