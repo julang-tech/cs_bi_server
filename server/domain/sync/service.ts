@@ -48,6 +48,7 @@ export type SyncCommandOptions = {
   date?: string
   from?: string
   to?: string
+  refreshBigQueryCache?: boolean
 }
 
 export type SyncCsvOptions = {
@@ -103,6 +104,7 @@ type SyncShopifyBiCacheSummary = {
   order_lines_upserted: number
   refund_events_upserted: number
   failed: number
+  skipped?: boolean
   error?: string
 }
 
@@ -956,11 +958,34 @@ export class SyncService {
       logger,
     )
     let failed = sqlite.ok ? 0 : 1
-    const bigqueryCache = await this.syncBigQueryCache(config, sqlitePath, logger)
+    const refreshBigQueryCache = options.refreshBigQueryCache ?? true
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow()
+    const bigqueryCache = refreshBigQueryCache
+      ? await this.syncBigQueryCache(config, sqlitePath, logger)
+      : {
+          enabled: false,
+          ok: true,
+          date_from: dateFrom,
+          date_to: dateTo,
+          order_lines_upserted: 0,
+          refund_events_upserted: 0,
+          failed: 0,
+        }
     if (!bigqueryCache.ok) {
       failed += 1
     }
-    const shopifyBiCache = await this.syncShopifyBiCache(config, sqlitePath, logger)
+    const shopifyBiCache = refreshBigQueryCache
+      ? await this.syncShopifyBiCache(config, sqlitePath, logger)
+      : {
+          enabled: false,
+          ok: true,
+          date_from: dateFrom,
+          date_to: dateTo,
+          orders_upserted: 0,
+          order_lines_upserted: 0,
+          refund_events_upserted: 0,
+          failed: 0,
+        }
     if (!shopifyBiCache.ok) {
       failed += 1
     }
@@ -985,6 +1010,38 @@ export class SyncService {
       skipped: 0,
       failed,
       diagnostics: [],
+    }
+  }
+
+  async syncShopifyBiCacheIfDue(options: { config: string }) {
+    const config = loadSyncConfig(options.config)
+    const sqlitePath = resolveRuntimePath(options.config, config.runtime.sqlite_path)
+    const logger = createLogger(resolveRuntimePath(options.config, config.runtime.log_path))
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow()
+    const repository = new SqliteShopifyBiCacheRepository(sqlitePath)
+    try {
+      if (repository.hasCoverage(dateFrom, dateTo)) {
+        logger.info(`Shopify BI cache skipped: existing coverage for ${dateFrom} to ${dateTo}.`)
+        return {
+          enabled: true,
+          ok: true,
+          date_from: dateFrom,
+          date_to: dateTo,
+          orders_upserted: 0,
+          order_lines_upserted: 0,
+          refund_events_upserted: 0,
+          failed: 0,
+          skipped: true,
+        }
+      }
+    } finally {
+      repository.close()
+    }
+
+    const result = await this.syncShopifyBiCache(config, sqlitePath, logger)
+    return {
+      ...result,
+      skipped: false,
     }
   }
 

@@ -1017,6 +1017,179 @@ async function testSyncRefreshesShopifyBiV2Cache() {
   assert.equal(shopifyBiCache?.refund_events_upserted, 1)
 }
 
+async function testSyncTargetToSqliteCanSkipBigQueryCacheRefreshes() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  let bigQueryCalls = 0
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query() {
+        bigQueryCalls += 1
+        return [[]]
+      },
+    }),
+  })
+
+  const result = await service.syncTargetToSqlite({
+    config: configPath,
+    refreshBigQueryCache: false,
+  })
+
+  assert.equal(bigQueryCalls, 0)
+  assert.equal(result.bigquery_cache.enabled, false)
+  assert.equal(result.bigquery_cache.ok, true)
+  assert.equal(result.shopify_bi_cache.enabled, false)
+  assert.equal(result.shopify_bi_cache.ok, true)
+}
+
+async function testSyncShopifyBiCacheIfDueSkipsWhenWindowCovered() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+  cache.replaceWindow({
+    dateFrom: '2000-01-01',
+    dateTo: '2999-12-31',
+    orders: [],
+    orderLines: [],
+    refundEvents: [],
+  })
+  cache.close()
+  let bigQueryCalls = 0
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query() {
+        bigQueryCalls += 1
+        return [[]]
+      },
+    }),
+  })
+
+  const result = await service.syncShopifyBiCacheIfDue({ config: configPath })
+
+  assert.equal(bigQueryCalls, 0)
+  assert.equal(result.enabled, true)
+  assert.equal(result.ok, true)
+  assert.equal(result.skipped, true)
+  assert.equal(result.failed, 0)
+}
+
+async function testSyncShopifyBiCacheIfDueRefreshesWhenWindowMissing() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  let bigQueryCalls = 0
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query(options: unknown) {
+        bigQueryCalls += 1
+        const query = String((options as { query?: string }).query ?? '')
+        if (query.includes('int_line_items_classified')) {
+          return [[{
+            order_id: 'order-due-1',
+            order_no: 'LC900',
+            line_key: 'order-due-1:line-1',
+            sku: 'SKU-900-M',
+            skc: 'SKC-900',
+            spu: 'SPU-900',
+            product_id: 'prod-900',
+            variant_id: 'var-900',
+            quantity: 1,
+            discounted_total_usd: 100,
+            is_insurance_item: false,
+            is_price_adjustment: false,
+            is_shipping_cost: false,
+          }]]
+        }
+        if (query.includes('FROM `julang-dev-database.shopify_dwd.dwd_orders_fact_usd`')) {
+          return [[{
+            order_id: 'order-due-1',
+            order_no: 'LC900',
+            shop_domain: '2vnpww-33.myshopify.com',
+            processed_date: '2026-04-10',
+            primary_product_type: 'Dress',
+            first_published_at_in_order: '2026-03-20',
+            is_regular_order: true,
+            is_gift_card_order: false,
+            gmv_usd: 120,
+            revenue_usd: 100,
+            net_revenue_usd: 75,
+          }]]
+        }
+        if (query.includes('dwd_refund_events')) {
+          return [[{
+            refund_id: 'refund-due-1',
+            order_id: 'order-due-1',
+            order_no: 'LC900',
+            sku: 'SKU-900-M',
+            refund_date: '2026-04-12',
+            refund_quantity: 1,
+            refund_subtotal_usd: 25,
+          }]]
+        }
+        return [[]]
+      },
+    }),
+  })
+
+  const result = await service.syncShopifyBiCacheIfDue({ config: configPath })
+
+  assert.equal(bigQueryCalls, 3)
+  assert.equal(result.enabled, true)
+  assert.equal(result.ok, true)
+  assert.equal(result.skipped, false)
+  assert.equal(result.orders_upserted, 1)
+  assert.equal(result.order_lines_upserted, 1)
+  assert.equal(result.refund_events_upserted, 1)
+}
+
 async function testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders() {
   const tmpDir = createTempDir()
   const configPath = createConfig(tmpDir)
@@ -1637,6 +1810,9 @@ async function run() {
   await testSyncRefreshesBigQueryCache()
   await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
   await testSyncRefreshesShopifyBiV2Cache()
+  await testSyncTargetToSqliteCanSkipBigQueryCacheRefreshes()
+  await testSyncShopifyBiCacheIfDueSkipsWhenWindowCovered()
+  await testSyncShopifyBiCacheIfDueRefreshesWhenWindowMissing()
   await testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders()
   await testSyncShopifyBiCacheQueriesUseStableSourceIds()
   await testSyncLegacyRefundCacheJoinsOrdersForOrderName()
