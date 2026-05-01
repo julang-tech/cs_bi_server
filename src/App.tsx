@@ -2,7 +2,7 @@ import { useState } from 'react'
 import './App.css'
 import P1Dashboard from './P1Dashboard'
 import P2Dashboard from './P2Dashboard'
-import P3Dashboard from './features/p3/legacy/P3Dashboard'
+import P3Dashboard from './features/p3/P3Dashboard'
 
 interface PageOption {
   value: 'p1' | 'p2' | 'p3'
