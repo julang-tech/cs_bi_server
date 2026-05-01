@@ -34,19 +34,30 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   const [spuSkcPairs, setSpuSkcPairs] = useState<Array<{ spu: string; skc: string }>>([])
   const [expandedSpu, setExpandedSpu] = useState<Record<string, boolean>>({})
   const [sortState, setSortState] = useState<SortState>({ key: 'refund_amount', direction: 'desc' })
-  const [spuPickerOpen, setSpuPickerOpen] = useState(false)
-  const [skcPickerOpen, setSkcPickerOpen] = useState(false)
+  const [productPickerOpen, setProductPickerOpen] = useState(false)
+  const [activeSpu, setActiveSpu] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   const picker = useSpuSkcPicker({ spuOptions, skcOptions, pairs: spuSkcPairs })
   const {
     pendingSpus, pendingSkcs, selectedSpus, selectedSkcs,
-    spuKeyword, skcKeyword, filteredSpuOptions, filteredSkcOptions,
+    spuKeyword, skcKeyword, filteredSpuOptions,
     setSpuKeyword, setSkcKeyword,
     toggleSpuPending, toggleSkcPending,
     applyPending, clearAll,
   } = picker
+
+  const skcsBySpu = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const pair of spuSkcPairs) {
+      if (!pair.spu || !pair.skc) continue
+      const list = map.get(pair.spu) ?? []
+      if (!list.includes(pair.skc)) list.push(pair.skc)
+      map.set(pair.spu, list)
+    }
+    return map
+  }, [spuSkcPairs])
 
   // Initial / base-filter-driven fetch: top-20 rows + SPU/SKC options
   useEffect(() => {
@@ -157,6 +168,22 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     return rows
   }, [top20Rows, filteredRows, selectedSpus, selectedSkcs, sortState])
 
+  const visibleActiveSpu = useMemo(() => {
+    if (activeSpu && filteredSpuOptions.includes(activeSpu)) return activeSpu
+    if (pendingSpus.length) {
+      const firstPending = filteredSpuOptions.find((spu) => pendingSpus.includes(spu))
+      if (firstPending) return firstPending
+    }
+    return filteredSpuOptions[0] ?? ''
+  }, [activeSpu, filteredSpuOptions, pendingSpus])
+
+  const activeSkcOptions = useMemo(() => {
+    const source = visibleActiveSpu ? (skcsBySpu.get(visibleActiveSpu) ?? []) : skcOptions
+    const keyword = skcKeyword.trim().toLowerCase()
+    if (!keyword) return source
+    return source.filter((skc) => skc.toLowerCase().includes(keyword))
+  }, [skcKeyword, skcOptions, skcsBySpu, visibleActiveSpu])
+
   const getMetricClass = (key: SortKey) =>
     `refund-metric-cell ${sortState.key === key ? 'sorted-metric-cell' : ''}`.trim()
 
@@ -174,15 +201,13 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     if (!pendingSpus.length && !pendingSkcs.length) {
       setFilteredRows([])
     }
-    setSpuPickerOpen(false)
-    setSkcPickerOpen(false)
+    setProductPickerOpen(false)
   }
 
   function handleClear() {
     clearAll()
     setFilteredRows([])
-    setSpuPickerOpen(false)
-    setSkcPickerOpen(false)
+    setProductPickerOpen(false)
   }
 
   const showActions =
@@ -190,6 +215,8 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     pendingSkcs.length > 0 ||
     selectedSpus.length > 0 ||
     selectedSkcs.length > 0
+
+  const productFilterCount = pendingSpus.length + pendingSkcs.length
 
   return (
     <section className="table-wrap">
@@ -201,69 +228,104 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
 
         <div className="table-sort-tools">
           <div className="table-sort-tools-row">
-            <div className="picker-wrap">
+            <div className="picker-wrap product-picker-wrap">
               <button
                 type="button"
                 className="picker-trigger"
-                onClick={() => {
-                  setSpuPickerOpen((v) => !v)
-                  setSkcPickerOpen(false)
-                }}
+                onClick={() => setProductPickerOpen((v) => !v)}
               >
-                SPU筛选 {pendingSpus.length ? `(${pendingSpus.length})` : ''}
+                商品筛选 {productFilterCount ? `(${productFilterCount})` : ''}
               </button>
-              {spuPickerOpen ? (
-                <div className="picker-panel">
-                  <input
-                    placeholder="请输入搜索内容"
-                    value={spuKeyword}
-                    onChange={(e) => setSpuKeyword(e.target.value)}
-                  />
-                  <div className="picker-list">
-                    {filteredSpuOptions.map((item) => (
-                      <label key={item} className="picker-item">
-                        <input
-                          type="checkbox"
-                          checked={pendingSpus.includes(item)}
-                          onChange={(e) => toggleSpuPending(item, e.target.checked)}
-                        />
-                        <span>{item}</span>
-                      </label>
-                    ))}
+              {productPickerOpen ? (
+                <div className="product-picker-panel">
+                  <div className="product-picker-header">
+                    <div>
+                      <strong>商品筛选</strong>
+                      <span>先选 SPU，再精确到 SKC</span>
+                    </div>
+                    <span>{pendingSpus.length} SPU / {pendingSkcs.length} SKC</span>
                   </div>
-                </div>
-              ) : null}
-            </div>
 
-            <div className="picker-wrap">
-              <button
-                type="button"
-                className="picker-trigger"
-                onClick={() => {
-                  setSkcPickerOpen((v) => !v)
-                  setSpuPickerOpen(false)
-                }}
-              >
-                SKC筛选 {pendingSkcs.length ? `(${pendingSkcs.length})` : ''}
-              </button>
-              {skcPickerOpen ? (
-                <div className="picker-panel">
-                  <input
-                    placeholder="请输入搜索内容"
-                    value={skcKeyword}
-                    onChange={(e) => setSkcKeyword(e.target.value)}
-                  />
-                  <div className="picker-list">
-                    {filteredSkcOptions.map((item) => (
-                      <label key={item} className="picker-item">
+                  <div className="product-picker-body">
+                    <div className="product-picker-column">
+                      <label className="product-picker-search">
+                        <span>SPU</span>
                         <input
-                          type="checkbox"
-                          checked={pendingSkcs.includes(item)}
-                          onChange={(e) => toggleSkcPending(item, e.target.checked)}
+                          placeholder="搜索 SPU"
+                          value={spuKeyword}
+                          onChange={(e) => setSpuKeyword(e.target.value)}
                         />
-                        <span>{item}</span>
                       </label>
-                    ))}
+                      <div className="product-picker-list">
+                        {filteredSpuOptions.map((item) => {
+                          const checked = pendingSpus.includes(item)
+                          const active = item === visibleActiveSpu
+                          return (
+                            <label
+                              key={item}
+                              className={[
+                                'product-picker-item',
+                                active ? 'product-picker-item--active' : '',
+                              ].filter(Boolean).join(' ')}
+                              onMouseEnter={() => setActiveSpu(item)}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) => {
+                                  toggleSpuPending(item, e.target.checked)
+                                  setActiveSpu(item)
+                                }}
+                              />
+                              <span>{item}</span>
+                              <small>{skcsBySpu.get(item)?.length ?? 0}</small>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="product-picker-column">
+                      <label className="product-picker-search">
+                        <span>SKC</span>
+                        <input
+                          placeholder={visibleActiveSpu ? `搜索 ${visibleActiveSpu} 的 SKC` : '搜索 SKC'}
+                          value={skcKeyword}
+                          onChange={(e) => setSkcKeyword(e.target.value)}
+                        />
+                      </label>
+                      <div className="product-picker-list">
+                        {activeSkcOptions.length ? activeSkcOptions.map((item) => (
+                          <label key={item} className="product-picker-item">
+                            <input
+                              type="checkbox"
+                              checked={pendingSkcs.includes(item)}
+                              onChange={(e) => toggleSkcPending(item, e.target.checked)}
+                            />
+                            <span>{item}</span>
+                          </label>
+                        )) : (
+                          <div className="product-picker-empty">暂无可选 SKC</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="product-picker-footer">
+                    <button
+                      type="button"
+                      className="picker-trigger picker-trigger--clear"
+                      onClick={handleClear}
+                    >
+                      清空
+                    </button>
+                    <button
+                      type="button"
+                      className="picker-trigger picker-trigger--confirm"
+                      onClick={handleConfirm}
+                    >
+                      确认查询
+                    </button>
                   </div>
                 </div>
               ) : null}
@@ -272,13 +334,6 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
 
           {showActions ? (
             <div className="table-sort-tools-row table-sort-tools-row--actions">
-              <button
-                type="button"
-                className="picker-trigger picker-trigger--confirm"
-                onClick={handleConfirm}
-              >
-                确认查询
-              </button>
               <button
                 type="button"
                 className="picker-trigger picker-trigger--clear"
