@@ -8,7 +8,7 @@ import { useDashboardData } from '../../shared/hooks/useDashboardData'
 import { fetchRefundOverview } from '../../api/p2'
 import { formatInteger, formatMoney, formatPercent } from '../../shared/utils/format'
 import {
-  getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
+  getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount, getPeriodLengthDays,
 } from '../../shared/utils/datePeriod'
 import { ProductRefundTable } from './ProductRefundTable'
 import type { Grain, P2Filters, P2Overview, P2OverviewCards, TrendPoint } from '../../api/types'
@@ -66,6 +66,7 @@ export default function P2Dashboard() {
   })
 
   const periodCount = getPeriodCount(historyRange, grain)
+  const currentPeriodDays = getPeriodLengthDays(currentPeriod)
   const periodLabelByGrain = { day: '天', week: '周', month: '月' } as const
 
   const formatPercent1 = (n: number) => formatPercent(n, 1)
@@ -127,17 +128,26 @@ export default function P2Dashboard() {
       }
       currentPeriodSection={
         <KpiSection title="当前周期" subtitle={`数据截至 ${currentPeriod.date_to}（T-1）`} variant="current">
-          {enrichedCards.map((c) => (
-            <KpiCard
-              key={c.key}
-              variant="current"
-              label={c.label}
-              value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
-              delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
-              periodAverage="-"
-              sparkline={c.sparkline ? c.historyTrend : undefined}
-            />
-          ))}
+          {enrichedCards.map((c) => {
+            const periodAverage = c.isRate
+              ? (loading || c.currentValue === undefined || c.currentValue === null
+                ? '--'
+                : c.formatter(c.currentValue))
+              : (loading || c.currentValue === undefined || c.currentValue === null
+                ? '--'
+                : c.formatter((c.currentValue ?? 0) / currentPeriodDays))
+            return (
+              <KpiCard
+                key={c.key}
+                variant="current"
+                label={c.label}
+                value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
+                delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
+                periodAverage={periodAverage}
+                sparkline={c.sparkline ? c.historyTrend : undefined}
+              />
+            )
+          })}
         </KpiSection>
       }
       focusChart={loading ? null : <FocusLineChart metrics={focusMetrics} defaultKey="gmv" />}
@@ -152,10 +162,12 @@ export default function P2Dashboard() {
             if (c.isRate) {
               const mean = c.historyTrend.length ? total / c.historyTrend.length : 0
               const peak = c.historyTrend.length ? Math.max(...c.historyTrend.map((p) => p.value)) : 0
+              const meanText = loading || !c.historyTrend.length ? '--' : c.formatter(mean)
+              const peakText = loading || !c.historyTrend.length ? '--' : c.formatter(peak)
               return (
                 <KpiCard key={c.key} variant="history" label={c.label}
-                  total={c.formatter(mean)} periodAverage={c.formatter(mean)}
-                  rateMode={{ mean: c.formatter(mean), peak: c.formatter(peak) }} />
+                  total={meanText} periodAverage={meanText}
+                  rateMode={{ mean: meanText, peak: peakText }} />
               )
             }
             return (

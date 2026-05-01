@@ -123,3 +123,66 @@ export function getPeriodCount(window: PeriodWindow, grain: Grain): number {
   // month: count by year/month diff
   return (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1
 }
+
+export function getPeriodLengthDays(window: PeriodWindow): number {
+  const start = parseDateInput(window.date_from)
+  const end = parseDateInput(window.date_to)
+  return Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1
+}
+
+// ---------- ISO week / month helpers for grain-aware HTML inputs ----------
+
+// ISO week number (1..53), Monday-start, weeks belong to year of their Thursday.
+function isoWeekParts(date: Date): { year: number; week: number } {
+  // Copy to avoid mutating caller; normalise to UTC midnight.
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()))
+  const dayNum = d.getUTCDay() || 7  // Sun=0 → 7
+  // Move to the Thursday of the same ISO week.
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum)
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1))
+  const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7)
+  return { year: d.getUTCFullYear(), week }
+}
+
+export function formatWeekInput(date: Date): string {
+  const { year, week } = isoWeekParts(date)
+  return `${year}-W${`${week}`.padStart(2, '0')}`
+}
+
+export function formatMonthInput(date: Date): string {
+  const y = date.getFullYear()
+  const m = `${date.getMonth() + 1}`.padStart(2, '0')
+  return `${y}-${m}`
+}
+
+// Monday of ISO week `week` in `year`.
+function isoWeekMonday(year: number, week: number): Date {
+  // Jan 4 is always in ISO week 1.
+  const jan4 = new Date(year, 0, 4)
+  const jan4Day = jan4.getDay() || 7
+  const week1Monday = shiftDate(jan4, -(jan4Day - 1))
+  return shiftDate(week1Monday, (week - 1) * 7)
+}
+
+export function weekInputToRange(raw: string, role: 'from' | 'to'): string | null {
+  const match = /^(\d{4})-W(\d{1,2})$/.exec(raw)
+  if (!match) return null
+  const year = Number(match[1])
+  const week = Number(match[2])
+  if (!year || !week || week < 1 || week > 53) return null
+  const monday = isoWeekMonday(year, week)
+  const target = role === 'from' ? monday : shiftDate(monday, 6)
+  return formatDateInput(target)
+}
+
+export function monthInputToRange(raw: string, role: 'from' | 'to'): string | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(raw)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  if (!year || !month || month < 1 || month > 12) return null
+  const date = role === 'from'
+    ? new Date(year, month - 1, 1)
+    : new Date(year, month, 0)  // day 0 of next month = last day of this month
+  return formatDateInput(date)
+}

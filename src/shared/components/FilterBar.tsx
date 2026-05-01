@@ -1,6 +1,8 @@
 import type { ReactNode } from 'react'
 import {
   alignHistoryRangeToGrain, isHistoryRangeValid,
+  parseDateInput, formatWeekInput, formatMonthInput,
+  weekInputToRange, monthInputToRange,
 } from '../utils/datePeriod'
 import type { Grain, PeriodWindow } from '../../api/types'
 
@@ -27,9 +29,27 @@ export function FilterBar({
   storeOptions, store, onStoreChange,
   extras,
 }: FilterBarProps) {
-  const handleDateChange = (field: 'date_from' | 'date_to', value: string) => {
-    if (!value) return
-    const next = alignHistoryRangeToGrain({ ...historyRange, [field]: value }, grain)
+  const inputType = grain === 'day' ? 'date' : grain === 'week' ? 'week' : 'month'
+
+  function toInputValue(dateValue: string): string {
+    if (grain === 'day') return dateValue
+    const d = parseDateInput(dateValue)
+    if (grain === 'week') return formatWeekInput(d)
+    return formatMonthInput(d)
+  }
+
+  function fromInputValue(raw: string, role: 'from' | 'to'): string | null {
+    if (grain === 'day') return raw
+    if (grain === 'week') return weekInputToRange(raw, role)
+    return monthInputToRange(raw, role)
+  }
+
+  const handleDateChange = (field: 'date_from' | 'date_to', rawValue: string) => {
+    if (!rawValue) return
+    const role: 'from' | 'to' = field === 'date_from' ? 'from' : 'to'
+    const dateValue = fromInputValue(rawValue, role)
+    if (!dateValue) return
+    const next = alignHistoryRangeToGrain({ ...historyRange, [field]: dateValue }, grain)
     if (next.date_from > next.date_to) return
     if (!isHistoryRangeValid(next, grain)) return
     onHistoryRangeChange(next)
@@ -73,14 +93,14 @@ export function FilterBar({
         <div className="date-range-control">
           <label className="date-field">
             <span>起</span>
-            <input type="date" value={historyRange.date_from}
-              max={historyRange.date_to}
+            <input type={inputType} value={toInputValue(historyRange.date_from)}
+              max={toInputValue(historyRange.date_to)}
               onChange={(e) => handleDateChange('date_from', e.target.value)} />
           </label>
           <label className="date-field">
             <span>终</span>
-            <input type="date" value={historyRange.date_to}
-              min={historyRange.date_from}
+            <input type={inputType} value={toInputValue(historyRange.date_to)}
+              min={toInputValue(historyRange.date_from)}
               onChange={(e) => handleDateChange('date_to', e.target.value)} />
           </label>
         </div>
