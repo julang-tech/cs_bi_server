@@ -31,16 +31,21 @@ describe('getCurrentPeriod (A semantics)', () => {
       date_from: '2026-04-30', date_to: '2026-04-30',
     })
   })
-  it('week = full Mon-Sun containing T-1', () => {
-    // T-1 = 2026-04-30 (Thu). Monday of that week = 2026-04-27. Sunday = 2026-05-03.
+  it('week = Monday through T-1, not future days in the same week', () => {
+    // T-1 = 2026-04-30 (Thu). Do not request Friday-Sunday because T-1 cache is not ready.
     expect(getCurrentPeriod('week', today)).toEqual({
-      date_from: '2026-04-27', date_to: '2026-05-03',
+      date_from: '2026-04-27', date_to: '2026-04-30',
     })
   })
-  it('month = full month containing T-1', () => {
+  it('month = month start through T-1', () => {
     // T-1 = 2026-04-30. Month = April 2026.
     expect(getCurrentPeriod('month', today)).toEqual({
       date_from: '2026-04-01', date_to: '2026-04-30',
+    })
+  })
+  it('month does not include later days when T-1 is mid-month', () => {
+    expect(getCurrentPeriod('month', new Date(2026, 4, 15))).toEqual({
+      date_from: '2026-05-01', date_to: '2026-05-14',
     })
   })
 })

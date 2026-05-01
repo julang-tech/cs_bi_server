@@ -44,12 +44,12 @@ export function getCurrentPeriod(grain: Grain, today: Date = new Date()): Period
   if (grain === 'week') {
     return {
       date_from: formatDateInput(startOfWeek(tMinus1)),
-      date_to: formatDateInput(endOfWeek(tMinus1)),
+      date_to: formatDateInput(tMinus1),
     }
   }
   return {
     date_from: formatDateInput(startOfMonth(tMinus1)),
-    date_to: formatDateInput(endOfMonth(tMinus1)),
+    date_to: formatDateInput(tMinus1),
   }
 }
 
