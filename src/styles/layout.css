@@ -119,6 +119,15 @@
   padding-top: var(--space-2);
 }
 
+.dashboard-shell__sticky-filter {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  padding-top: var(--space-2);
+  margin-top: calc(-1 * var(--space-2));
+  background: var(--page-bg);
+}
+
 .placeholder-shell__body {
   min-height: 320px;
 }

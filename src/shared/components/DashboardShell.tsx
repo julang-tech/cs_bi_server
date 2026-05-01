@@ -15,7 +15,9 @@ export function DashboardShell({
 }: DashboardShellProps) {
   return (
     <main className="dashboard-shell">
-      {filterBar}
+      <div className="dashboard-shell__sticky-filter">
+        {filterBar}
+      </div>
       {banner}
       {currentPeriodSection}
       {focusChart}

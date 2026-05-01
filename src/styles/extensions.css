@@ -182,7 +182,7 @@
 }
 
 /* ===========================================================================
-   P2: product refund table (SPU/SKC picker, sort, listing-date)
+   P2: product refund table (SPU/SKC picker, sort)
    =========================================================================== */
 
 .table-wrap {
@@ -372,51 +372,6 @@
 
 .picker-item:hover {
   background: var(--surface-subtle);
-}
-
-.listing-date-group {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  overflow: hidden;
-  border: 1px solid var(--input-border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-}
-
-.listing-date-field {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  height: 100%;
-  padding: 0 10px;
-  color: var(--muted);
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.listing-date-field + .listing-date-field {
-  border-left: 1px solid var(--border);
-}
-
-.listing-date-field input {
-  min-width: 0;
-  height: 24px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  font-size: var(--fs-sm);
-  font-variant-numeric: tabular-nums;
-  outline: 0;
-}
-
-.listing-date-group:focus-within {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(11, 110, 79, 0.12);
 }
 
 .spu-row {

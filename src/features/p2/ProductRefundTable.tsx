@@ -36,9 +36,6 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   const [sortState, setSortState] = useState<SortState>({ key: 'refund_amount', direction: 'desc' })
   const [spuPickerOpen, setSpuPickerOpen] = useState(false)
   const [skcPickerOpen, setSkcPickerOpen] = useState(false)
-  const [listingDateFrom, setListingDateFrom] = useState('')
-  const [listingDateTo, setListingDateTo] = useState('')
-  const [confirmKey, setConfirmKey] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -86,14 +83,12 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseFilters.grain, baseFilters.channel, baseFilters.date_from, baseFilters.date_to])
 
-  // Filter-driven fetch: top-500 rows scoped by picker / listing dates
+  // Filter-driven fetch: top-500 rows scoped by picker selections
   useEffect(() => {
     const controller = new AbortController()
     const hasFilters =
       selectedSpus.length > 0 ||
-      selectedSkcs.length > 0 ||
-      Boolean(listingDateFrom) ||
-      Boolean(listingDateTo)
+      selectedSkcs.length > 0
 
     if (!hasFilters) {
       return () => controller.abort()
@@ -107,8 +102,6 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
         skc: '',
         spu_list: selectedSpus,
         skc_list: selectedSkcs,
-        listing_date_from: listingDateFrom || '',
-        listing_date_to: listingDateTo || '',
         top_n: 500,
       },
       controller.signal,
@@ -120,7 +113,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
 
     return () => controller.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSpus, selectedSkcs, confirmKey, baseFilters.grain, baseFilters.channel, baseFilters.date_from, baseFilters.date_to])
+  }, [selectedSpus, selectedSkcs, baseFilters.grain, baseFilters.channel, baseFilters.date_from, baseFilters.date_to])
 
   // Reset expanded state when active row set changes
   useEffect(() => {
@@ -178,8 +171,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
 
   function handleConfirm() {
     applyPending()
-    setConfirmKey((k) => k + 1)
-    if (!pendingSpus.length && !pendingSkcs.length && !listingDateFrom && !listingDateTo) {
+    if (!pendingSpus.length && !pendingSkcs.length) {
       setFilteredRows([])
     }
     setSpuPickerOpen(false)
@@ -189,8 +181,6 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   function handleClear() {
     clearAll()
     setFilteredRows([])
-    setListingDateFrom('')
-    setListingDateTo('')
     setSpuPickerOpen(false)
     setSkcPickerOpen(false)
   }
@@ -198,8 +188,6 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   const showActions =
     pendingSpus.length > 0 ||
     pendingSkcs.length > 0 ||
-    Boolean(listingDateFrom) ||
-    Boolean(listingDateTo) ||
     selectedSpus.length > 0 ||
     selectedSkcs.length > 0
 
@@ -213,24 +201,6 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
 
         <div className="table-sort-tools">
           <div className="table-sort-tools-row">
-            <div className="listing-date-group">
-              <label className="listing-date-field">
-                <span>上架时段</span>
-                <input
-                  type="date"
-                  value={listingDateFrom}
-                  onChange={(e) => setListingDateFrom(e.target.value)}
-                />
-              </label>
-              <label className="listing-date-field">
-                <input
-                  type="date"
-                  value={listingDateTo}
-                  onChange={(e) => setListingDateTo(e.target.value)}
-                />
-              </label>
-            </div>
-
             <div className="picker-wrap">
               <button
                 type="button"

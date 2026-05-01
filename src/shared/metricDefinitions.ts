@@ -147,7 +147,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
             short: '统计周期内符合条件的常规订单数。',
             formula: 'COUNT(DISTINCT regular order_id)',
             detail:
-              '排除礼品卡订单，并仅统计常规订单。店铺、商品、上架时间等筛选会影响订单集合。',
+              '排除礼品卡订单，并仅统计常规订单。店铺和商品筛选会影响订单集合。',
           },
           {
             id: 'p2.sales_qty',
@@ -215,7 +215,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
             name: '商品退款表现表',
             short: '默认取退款金额 Top20 SPU，再展示排序后的前 5 行。',
             detail:
-              '筛选 SPU/SKC 或上架时间后，会按筛选条件查询最多 500 行。SPU/SKC 来自 SKU 解析结果。',
+              '筛选 SPU/SKC 后，会按筛选条件查询最多 500 行。SPU/SKC 来自 SKU 解析结果。',
           },
           {
             id: 'p2.refund_qty_ratio',

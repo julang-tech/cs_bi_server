@@ -37,4 +37,10 @@ describe('dashboard visual density contract', () => {
     expect(styles).not.toContain('font-size: 20px')
     expect(styles).not.toContain('padding: 14px 14px 10px')
   })
+
+  it('keeps dashboard filters sticky for long BI pages', () => {
+    expect(styles).toContain('.dashboard-shell__sticky-filter')
+    expect(styles).toContain('position: sticky')
+    expect(styles).toContain('top: 0')
+  })
 })
