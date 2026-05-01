@@ -112,22 +112,32 @@ async function testWorkerIntervalSplitsFeishuMirrorFromShopifyBiDueCheck() {
 }
 
 async function testWorkerUsesIntervalAndSkipsOverlap() {
-  const calls: number[] = []
-  let resolves = 0
+  let calls = 0
+  let markStarted!: () => void
+  let releaseSync!: () => void
+  const started = new Promise<void>((resolve) => {
+    markStarted = resolve
+  })
+  const release = new Promise<void>((resolve) => {
+    releaseSync = resolve
+  })
+  const warnings: string[] = []
 
   const worker = createSyncWorker({
     configPath: 'config/sync/config.example.json',
-    intervalMs: 30,
+    intervalMs: 10_000,
     logger: {
       info() {},
-      warn() {},
+      warn(message) {
+        warnings.push(message)
+      },
       error() {},
     },
     service: {
       async syncTargetToSqlite() {
-        calls.push(Date.now())
-        resolves += 1
-        await sleep(resolves === 1 ? 80 : 5)
+        calls += 1
+        markStarted()
+        await release
         return {
           created: 0,
           updated: 0,
@@ -144,10 +154,19 @@ async function testWorkerUsesIntervalAndSkipsOverlap() {
     },
   })
 
-  worker.start()
-  await sleep(140)
-  worker.stop()
-  assert.equal(calls.length, 3)
+  const first = worker.runOnce('interval')
+  await started
+  await worker.runOnce('interval')
+  assert.equal(calls, 1)
+  assert.equal(
+    warnings.some((message) =>
+      message.includes('Skipping interval sync tick because the previous run is still in progress.'),
+    ),
+    true,
+  )
+  releaseSync()
+  await first
+  assert.equal(calls, 1)
 }
 
 async function run() {

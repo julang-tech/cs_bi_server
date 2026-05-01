@@ -1106,6 +1106,47 @@ async function testSyncShopifyBiCacheIfDueSkipsWhenWindowCovered() {
   assert.equal(result.failed, 0)
 }
 
+async function testSyncShopifyBiCacheIfDueReturnsFailureWhenCoverageCheckFails() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+    runtime: { sqlite_path: string }
+  }
+  config.runtime.sqlite_path = './data'
+  writeJson(configPath, config)
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query() {
+        return [[]]
+      },
+    }),
+  })
+
+  const result = await service.syncShopifyBiCacheIfDue({ config: configPath })
+
+  assert.equal(result.enabled, true)
+  assert.equal(result.ok, false)
+  assert.equal(result.skipped, false)
+  assert.equal(result.failed, 1)
+  assert.match(String(result.error ?? ''), /directory|database|open/i)
+}
+
 async function testSyncShopifyBiCacheIfDueRefreshesWhenWindowMissing() {
   const tmpDir = createTempDir()
   const configPath = createConfig(tmpDir)
@@ -1812,6 +1853,7 @@ async function run() {
   await testSyncRefreshesShopifyBiV2Cache()
   await testSyncTargetToSqliteCanSkipBigQueryCacheRefreshes()
   await testSyncShopifyBiCacheIfDueSkipsWhenWindowCovered()
+  await testSyncShopifyBiCacheIfDueReturnsFailureWhenCoverageCheckFails()
   await testSyncShopifyBiCacheIfDueRefreshesWhenWindowMissing()
   await testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders()
   await testSyncShopifyBiCacheQueriesUseStableSourceIds()
