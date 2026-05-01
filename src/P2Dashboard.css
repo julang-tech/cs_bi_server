@@ -2,7 +2,7 @@
   width: 100%;
   min-width: 0;
   min-height: 100%;
-  margin: 0;
+  margin-top: 24px;
   padding: 0px 0px 64px;
   box-sizing: border-box;
 }
@@ -78,8 +78,10 @@
 }
 
 .filter-panel {
+  position: relative;
+  z-index: 30;
   width: 100%;
-  padding: 28px 30px;
+  padding: 22px;
   border: 1px solid rgba(221, 211, 197, 0.78);
   border-radius: var(--panel-radius);
   background: rgba(255, 255, 255, 0.48);
@@ -95,6 +97,121 @@
   align-items: end;
 }
 
+.filter-grid--toolbar-like {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.time-onebox-wrap {
+  position: relative;
+  grid-column: 3 / span 2;
+  justify-self: end;
+  width: 100%;
+  max-width: 560px;
+}
+
+.filter-title {
+  grid-column: 1 / span 2;
+  align-self: center;
+  margin: 0;
+  color: #132131;
+  font-size: clamp(28px, 2.6vw, 36px);
+  line-height: 1.15;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.time-onebox-trigger {
+  width: 100%;
+  height: 52px;
+  border: 1px solid rgba(216, 204, 188, 0.95);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px;
+  justify-content: space-between;
+}
+
+.time-onebox-title {
+  color: #647189;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.time-onebox-value {
+  color: #1f332e;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.time-onebox-panel {
+  position: absolute;
+  left: 0;
+  top: 58px;
+  width: 100%;
+  border: 1px solid var(--border-soft);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 14px 30px rgba(30, 41, 59, 0.15);
+  padding: 14px;
+  z-index: 120;
+  display: grid;
+  gap: 12px;
+}
+
+.time-onebox-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.time-onebox-panel-range {
+  color: #2f3f56;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.time-onebox-grain {
+  display: inline-flex;
+}
+
+.time-onebox-grain select {
+  height: 34px;
+  min-width: 112px;
+  border: 1px solid rgba(120, 120, 120, 0.4);
+  border-radius: 8px;
+  background: #ececec;
+  color: #4a4a4a;
+  font-size: 14px;
+  padding: 0 30px 0 12px;
+}
+
+.time-range-dual {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.time-onebox-close {
+  height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: #d17449;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .filter-grid label {
   display: flex;
   flex-direction: column;
@@ -107,7 +224,8 @@
 
 .filter-grid input,
 .filter-grid select,
-.table-sort-tools select {
+.table-sort-tools select,
+.table-sort-tools input {
   width: 100%;
   min-width: 0;
   border: 1px solid rgba(216, 204, 188, 0.95);
@@ -134,11 +252,68 @@
 
 .filter-grid input:focus,
 .filter-grid select:focus,
-.table-sort-tools select:focus {
+.table-sort-tools select:focus,
+.table-sort-tools input:focus {
   border-color: #d1774a;
   background: #ffffff;
   box-shadow: 0 0 0 4px rgba(209, 119, 74, 0.16);
 }
+
+/* Keep date-range inputs inline (same look as P1), no nested input box */
+.filter-grid .date-field input {
+  min-height: 28px;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: #304154;
+  font-size: 15px;
+}
+
+.filter-grid .date-field input:focus {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: 0;
+}
+
+/* P2 only: force date-field compact spacing (override shared toolbar styles) */
+.refund-dashboard .filter-panel .date-range-control .date-field {
+  padding: 6px 12px 8px;
+  gap: 4px;
+}
+
+.refund-dashboard .store-select {
+  min-width: 180px;
+  cursor: pointer;
+}
+
+.listing-date-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.listing-date-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.listing-date-field span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.listing-date-field input {
+  width: 130px !important;
+  height: 32px !important;
+  font-size: 13px;
+}
+
 
 .apply-btn {
   height: 52px;
@@ -189,23 +364,26 @@
 
 /* KPI 卡片区：标题和标签左右固定，避免被挤成省略号 */
 .metric-grid {
+  position: relative;
+  z-index: 40;
   width: 100%;
   margin-top: 28px;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: stretch;
-  gap: clamp(18px, 1.8vw, 26px);
+  column-gap: clamp(18px, 1.8vw, 26px);
+  row-gap: clamp(10px, 1vw, 14px);
 }
 
 .metric-card {
   position: relative;
   container-type: inline-size;
   min-width: 0;
-  min-height: 172px;
+  min-height: 0;
   padding: clamp(20px, 1.8vw, 28px);
   border: 1px solid rgba(226, 218, 206, 0.72);
   border-radius: 18px;
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
@@ -238,9 +416,9 @@
 .metric-head {
   position: relative;
   min-width: 0;
-  min-height: 32px;
-  margin-bottom: clamp(14px, 1.2cqw, 18px);
-  padding-right: 112px;
+  min-height: 24px;
+  margin-bottom: clamp(10px, 0.9cqw, 14px);
+  padding-right: 42px;
 }
 
 .metric-head h3 {
@@ -251,15 +429,25 @@
   line-height: 1.2;
   letter-spacing: -0.025em;
   font-weight: 900;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
-.metric-tag {
+.metric-head-actions {
   position: absolute;
   top: 0;
   right: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metric-tag {
+  position: static;
   width: max-content;
   max-width: none;
   border-radius: 999px;
@@ -283,9 +471,57 @@
   color: #a63e55;
 }
 
+.metric-help {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid #d7cbb9;
+  background: #fff8ef;
+  color: #7f6547;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: center;
+  font-weight: 800;
+  cursor: help;
+  user-select: none;
+}
+
+.metric-help__tooltip {
+  position: absolute;
+  top: auto !important;
+  left: auto;
+  right: 0;
+  bottom: calc(100% + 10px) !important;
+  width: 240px;
+  padding: 8px 10px;
+  border: 1px solid #eadfce;
+  border-radius: 10px;
+  background: #fffdf8;
+  color: #56657a;
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 10px 20px rgba(31, 41, 55, 0.14);
+  opacity: 0;
+  visibility: hidden;
+  transform: none;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease,
+    visibility 0.15s ease;
+  z-index: 80;
+}
+
+.metric-help:hover .metric-help__tooltip,
+.metric-help:focus-within .metric-help__tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(-2px);
+}
+
 .metric-value {
   margin: 0;
-  color: #1f2937;
+  color: #b64d56;
   font-size: clamp(46px, 13.6cqw, 64px);
   line-height: 1;
   font-weight: 700;
@@ -297,7 +533,7 @@
 }
 
 .metric-card--highlight .metric-value {
-  color: #1f2937;
+  color: #b64d56;
 }
 
 .metric-desc {
@@ -309,14 +545,14 @@
 
 @container (max-width: 260px) {
   .metric-card {
-    min-height: 150px;
+    min-height: 0;
     padding: 18px;
   }
 
   .metric-head {
-    min-height: 28px;
-    padding-right: 98px;
-    margin-bottom: 12px;
+    min-height: 24px;
+    padding-right: 38px;
+    margin-bottom: 10px;
   }
 
   .metric-head h3 {
@@ -326,6 +562,17 @@
   .metric-tag {
     padding: 5px 9px;
     font-size: 12px;
+  }
+
+  .metric-help {
+    width: 20px;
+    height: 20px;
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  .metric-help__tooltip {
+    width: 210px;
   }
 
   .metric-value {
@@ -341,14 +588,14 @@
 
 @container (max-width: 220px) {
   .metric-card {
-    min-height: 140px;
+    min-height: 0;
     padding: 14px;
   }
 
   .metric-head {
-    min-height: 24px;
-    padding-right: 90px;
-    margin-bottom: 9px;
+    min-height: 22px;
+    padding-right: 34px;
+    margin-bottom: 8px;
   }
 
   .metric-head h3 {
@@ -357,6 +604,18 @@
 
   .metric-tag {
     padding: 5px 8px;
+    font-size: 11.5px;
+  }
+
+  .metric-help {
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+    line-height: 16px;
+  }
+
+  .metric-help__tooltip {
+    width: 190px;
     font-size: 11.5px;
   }
 
@@ -373,11 +632,13 @@
 }
 
 .table-wrap {
+  position: relative;
+  z-index: 1;
   width: 100%;
   min-width: 0;
   margin-top: 28px;
   border-radius: var(--panel-radius);
-  overflow: hidden;
+  overflow: visible;
   background: var(--panel-bg);
 }
 
@@ -389,6 +650,7 @@
   padding: 24px 28px 18px;
   border-bottom: 1px solid var(--border-soft);
   background: rgba(255, 253, 249, 0.78);
+  border-radius: var(--panel-radius) var(--panel-radius) 0 0;
 }
 
 .table-head h2 {
@@ -399,14 +661,31 @@
   font-weight: 900;
 }
 
+.table-note {
+  margin: 6px 0 0;
+  color: #6a778d;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .table-sort-tools {
+  position: relative;
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 8px;
   color: var(--muted);
   font-size: 14px;
+}
+
+.table-sort-tools-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.table-sort-tools-row--actions {
+  justify-content: flex-end;
 }
 
 .table-sort-tools label {
@@ -418,8 +697,105 @@
   font-weight: 700;
 }
 
+.picker-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.picker-trigger {
+  height: 36px;
+  min-width: 78px;
+  border: 1px solid rgba(216, 204, 188, 0.95);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0 16px;
+  color: #1f332e;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.picker-trigger--confirm {
+  background: #d17449;
+  border-color: #d17449;
+  color: #fffaf6;
+}
+
+.picker-trigger--clear {
+  background: #b84a4a;
+  border-color: #b84a4a;
+  color: #fff7f7;
+}
+
+.picker-panel {
+  position: absolute;
+  right: 0;
+  top: 42px;
+  width: 220px;
+  max-height: 300px;
+  overflow: hidden;
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 14px 32px rgba(30, 41, 59, 0.16);
+  z-index: 20;
+}
+
+.picker-panel > input {
+  width: 100%;
+  height: 40px;
+  border: 0;
+  border-bottom: 1px solid var(--border-soft);
+  padding: 0 12px;
+  outline: none;
+}
+
+.picker-list {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  color: #2f3440;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.table-sort-tools .picker-item {
+  display: flex;
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.picker-item input {
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  margin: 0;
+}
+
+.picker-item span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .table-sort-tools select {
   width: 132px;
+  height: 36px;
+  border-radius: 12px;
+  padding: 0 10px;
+}
+
+.table-sort-tools input:not([type='checkbox']) {
+  width: 156px;
   height: 36px;
   border-radius: 12px;
   padding: 0 10px;
@@ -429,10 +805,26 @@
   color: var(--muted);
 }
 
+.sort-header-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.sort-header-btn--active {
+  color: #a85a2d;
+}
+
 .table-scroll {
   width: 100%;
   max-width: 100%;
   min-width: 0;
+  border-radius: 0 0 var(--panel-radius) var(--panel-radius);
+  overflow: hidden;
   overflow-x: auto;
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
@@ -443,6 +835,14 @@ table {
   min-width: 820px;
   border-collapse: collapse;
   background: var(--table-bg);
+}
+
+thead th:first-child {
+  border-top-left-radius: 12px;
+}
+
+thead th:last-child {
+  border-top-right-radius: 12px;
 }
 
 th,
@@ -464,6 +864,14 @@ th {
   font-size: 13px;
   font-weight: 850;
   letter-spacing: 0.02em;
+}
+
+th .sort-header-btn {
+  font-size: inherit;
+}
+
+th.th-center {
+  text-align: center;
 }
 
 tbody tr {
@@ -488,29 +896,19 @@ tbody tr:hover {
   color: #5a6678;
 }
 
+table thead th:nth-child(1),
+table thead th:nth-child(2),
+table tbody td:nth-child(1),
+table tbody td:nth-child(2) {
+  text-align: center;
+}
+
 .spu-click-cell {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   cursor: pointer;
-}
-
-.expand-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 8px;
-  background: var(--primary-soft);
-  color: var(--primary);
-  font-weight: 900;
-  line-height: 1;
-}
-
-/* 用于占位，让展开行和父行对齐 */
-.expand-icon--placeholder {
-  visibility: hidden;
 }
 
 /* 子行 SPU 单元格样式：去掉 pointer + 调整颜色 */
@@ -532,6 +930,7 @@ tbody tr:hover {
 
 .skc-cell {
   color: #526174;
+  text-align: center;
 }
 
 .amount-danger {
@@ -575,13 +974,10 @@ tbody tr:hover {
     column-gap: 14px;
   }
 
-  .apply-btn {
-    width: 100%;
-  }
-
   .metric-grid {
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px;
+    column-gap: 14px;
+    row-gap: 10px;
   }
 
   .metric-card {
@@ -604,8 +1000,17 @@ tbody tr:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .apply-btn {
+  .time-combo {
     grid-column: span 2;
+    grid-template-columns: 1fr;
+  }
+  .time-onebox-wrap {
+    grid-column: span 2;
+    max-width: none;
+  }
+  .filter-title {
+    grid-column: span 2;
+    font-size: 24px;
   }
 }
 
@@ -634,8 +1039,19 @@ tbody tr:hover {
     grid-template-columns: 1fr;
   }
 
-  .apply-btn {
+  .time-combo {
     grid-column: span 1;
+  }
+  .time-onebox-wrap {
+    grid-column: span 1;
+    max-width: none;
+  }
+  .filter-title {
+    grid-column: span 1;
+    font-size: 22px;
+  }
+  .time-range-dual {
+    grid-template-columns: 1fr;
   }
 
   .metric-card {
@@ -652,6 +1068,12 @@ tbody tr:hover {
     flex-direction: column;
   }
 
+  .picker-panel {
+    left: 0;
+    right: auto;
+    width: 100%;
+  }
+
   .table-sort-tools label {
     width: 100%;
     justify-content: space-between;
@@ -659,5 +1081,9 @@ tbody tr:hover {
 
   .table-sort-tools select {
     flex: 1;
+  }
+
+  .table-sort-tools input:not([type='checkbox']) {
+    width: 100%;
   }
 }

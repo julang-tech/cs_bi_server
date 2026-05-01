@@ -11,6 +11,8 @@ export type P2Filters = {
   channel?: string
   listing_date_from?: string
   listing_date_to?: string
+  spu_list?: string[]
+  skc_list?: string[]
 }
 
 type BigQueryLike = {
@@ -54,15 +56,7 @@ export class P2Service {
           net_received_amount: 0,
           net_revenue_amount: 0,
           refund_amount_ratio: 0,
-          regular_order_count: 0,
-          non_regular_order_count: 0,
-          regular_received_amount: 0,
-          non_regular_received_amount: 0,
           avg_order_amount: 0,
-          regular_avg_order_amount: 0,
-          non_regular_avg_order_amount: 0,
-          refund_order_ratio_total: 0,
-          refund_order_ratio_regular: 0,
         },
         meta: {
           partial_data: true,
@@ -76,17 +70,18 @@ export class P2Service {
         query: `
 WITH order_metrics AS (
   SELECT
-    COUNT(DISTINCT o.order_id) AS order_count,
+    COUNT(DISTINCT IF(COALESCE(o.is_regular_order, FALSE), o.order_id, NULL)) AS order_count,
     COUNT(DISTINCT IF(COALESCE(o.is_regular_order, FALSE), o.order_id, NULL)) AS regular_order_count,
     COUNT(DISTINCT IF(NOT COALESCE(o.is_regular_order, FALSE), o.order_id, NULL)) AS non_regular_order_count,
-    SUM(COALESCE(o.cs_bi_gmv, 0)) AS gmv,
-    SUM(COALESCE(o.cs_bi_revenue, 0)) AS net_received_amount,
-    SUM(COALESCE(o.cs_bi_net_revenue, 0)) AS net_revenue_amount,
-    SUM(IF(COALESCE(o.is_regular_order, FALSE), COALESCE(o.cs_bi_revenue, 0), 0)) AS regular_received_amount,
-    SUM(IF(NOT COALESCE(o.is_regular_order, FALSE), COALESCE(o.cs_bi_revenue, 0), 0)) AS non_regular_received_amount
-  FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
+    SUM(COALESCE(o.cs_bi_gmv_usd, 0)) AS gmv,
+    SUM(COALESCE(o.cs_bi_revenue_usd, 0)) AS net_received_amount,
+    SUM(COALESCE(o.cs_bi_net_revenue_usd, 0)) AS net_revenue_amount,
+    SUM(IF(COALESCE(o.is_regular_order, FALSE), COALESCE(o.cs_bi_revenue_usd, 0), 0)) AS regular_received_amount,
+    SUM(IF(NOT COALESCE(o.is_regular_order, FALSE), COALESCE(o.cs_bi_revenue_usd, 0), 0)) AS non_regular_received_amount
+  FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
   WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
     AND NOT COALESCE(o.is_gift_card_order, FALSE)
+    AND COALESCE(o.is_regular_order, FALSE) = TRUE
     AND (@category = '' OR o.primary_product_type = @category)
     AND (@channel = '' OR o.shop_domain = @channel)
     AND (@listing_date_from = '' OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from))
@@ -97,11 +92,12 @@ WITH order_metrics AS (
 refund_metrics AS (
   SELECT
     COUNT(DISTINCT re.order_id) AS refund_order_count,
-    SUM(CAST(re.refund_subtotal AS NUMERIC)) AS refund_amount
+    SUM(CAST(re.refund_subtotal AS NUMERIC) * COALESCE(CAST(o.usd_fx_rate AS NUMERIC), 1)) AS refund_amount
   FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
-  JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o ON re.order_id = o.order_id
+  JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o ON re.order_id = o.order_id
   WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
     AND NOT COALESCE(o.is_gift_card_order, FALSE)
+    AND COALESCE(o.is_regular_order, FALSE) = TRUE
     AND (@category = '' OR o.primary_product_type = @category)
     AND (@channel = '' OR o.shop_domain = @channel)
     AND (@listing_date_from = '' OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from))
@@ -136,10 +132,11 @@ CROSS JOIN refund_metrics rm
 SELECT
   COALESCE(SUM(COALESCE(li.quantity, 0)), 0) AS sales_qty
 FROM \`julang-dev-database.shopify_intermediate.int_line_items_classified\` li
-JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
+JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
   ON o.order_id = li.order_id
 WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
   AND NOT COALESCE(o.is_gift_card_order, FALSE)
+  AND COALESCE(o.is_regular_order, FALSE) = TRUE
   AND (@category = '' OR o.primary_product_type = @category)
   AND (@channel = '' OR o.shop_domain = @channel)
   AND (
@@ -163,8 +160,6 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
     )
 
     const orderCount = toNumber(row.order_count)
-    const regularOrderCount = toNumber(row.regular_order_count)
-    const nonRegularOrderCount = toNumber(row.non_regular_order_count)
     const netReceived = toNumber(row.net_received_amount)
     const refundOrderCount = toNumber(row.refund_order_count)
     const refundAmount = toNumber(row.refund_amount)
@@ -180,19 +175,7 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
         net_received_amount: netReceived,
         net_revenue_amount: toNumber(row.net_revenue_amount),
         refund_amount_ratio: netReceived ? refundAmount / netReceived : 0,
-        regular_order_count: regularOrderCount,
-        non_regular_order_count: nonRegularOrderCount,
-        regular_received_amount: toNumber(row.regular_received_amount),
-        non_regular_received_amount: toNumber(row.non_regular_received_amount),
         avg_order_amount: orderCount ? netReceived / orderCount : 0,
-        regular_avg_order_amount: regularOrderCount
-          ? toNumber(row.regular_received_amount) / regularOrderCount
-          : 0,
-        non_regular_avg_order_amount: nonRegularOrderCount
-          ? toNumber(row.non_regular_received_amount) / nonRegularOrderCount
-          : 0,
-        refund_order_ratio_total: orderCount ? refundOrderCount / orderCount : 0,
-        refund_order_ratio_regular: regularOrderCount ? refundOrderCount / regularOrderCount : 0,
       },
       meta: {
         partial_data: false,
@@ -229,6 +212,7 @@ WITH line_base AS (
       re.quantity AS refund_quantity,
       o.processed_date,
       o.is_gift_card_order,
+      o.usd_fx_rate,
       o.primary_product_type,
       o.shop_domain,
       o.first_published_at_in_order,
@@ -238,13 +222,14 @@ WITH line_base AS (
         ELSE TRIM(li.sku)
       END AS parsed_skc
     FROM \`julang-dev-database.shopify_intermediate.int_line_items_classified\` li
-    JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
+    JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
       ON o.order_id = li.order_id
     LEFT JOIN \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
       ON re.order_id = li.order_id
      AND re.sku = li.sku
     WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
       AND NOT COALESCE(o.is_gift_card_order, FALSE)
+      AND COALESCE(o.is_regular_order, FALSE) = TRUE
       AND NOT COALESCE(li.is_insurance_item, FALSE)
       AND NOT COALESCE(li.is_price_adjustment, FALSE)
       AND NOT COALESCE(li.is_shipping_cost, FALSE)
@@ -267,77 +252,66 @@ WITH line_base AS (
       CASE
         WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
         ELSE ''
-      END AS skc_prefix
+      END AS skc_prefix,
+      CASE
+        WHEN parsed_skc = 'N/A' THEN 'N/A'
+        WHEN REGEXP_CONTAINS(REGEXP_EXTRACT(parsed_skc, r'([^-]+)$'), r'\\d') THEN
+          CASE
+            WHEN (
+              CASE
+                WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+                ELSE ''
+              END
+            ) != '' THEN CONCAT(
+              CASE
+                WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+                ELSE ''
+              END,
+              '-',
+              COALESCE(
+                REGEXP_EXTRACT(REGEXP_EXTRACT(parsed_skc, r'([^-]+)$'), r'^([a-zA-Z]*\\d+)'),
+                REGEXP_EXTRACT(parsed_skc, r'([^-]+)$')
+              )
+            )
+            ELSE COALESCE(
+              REGEXP_EXTRACT(REGEXP_EXTRACT(parsed_skc, r'([^-]+)$'), r'^([a-zA-Z]*\\d+)'),
+              REGEXP_EXTRACT(parsed_skc, r'([^-]+)$')
+            )
+          END
+        ELSE
+          CASE
+            WHEN (
+              CASE
+                WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+                ELSE ''
+              END
+            ) != '' THEN
+              CASE
+                WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+                ELSE ''
+              END
+            ELSE REGEXP_EXTRACT(parsed_skc, r'([^-]+)$')
+          END
+      END AS parsed_spu
     FROM parsed
   )
   SELECT
     order_id,
-    CASE
-      WHEN parsed_skc = 'N/A' THEN 'N/A'
-      WHEN REGEXP_CONTAINS(skc_last_segment, r'\\d') THEN
-        CASE
-          WHEN skc_prefix != '' THEN CONCAT(
-            skc_prefix,
-            '-',
-            COALESCE(
-              REGEXP_EXTRACT(skc_last_segment, r'^([a-zA-Z]*\\d+)'),
-              skc_last_segment
-            )
-          )
-          ELSE COALESCE(
-            REGEXP_EXTRACT(skc_last_segment, r'^([a-zA-Z]*\\d+)'),
-            skc_last_segment
-          )
-        END
-      ELSE
-        CASE
-          WHEN skc_prefix != '' THEN skc_prefix
-          ELSE skc_last_segment
-        END
-    END AS spu,
+    parsed_skc,
+    parsed_spu,
     parsed_skc AS skc,
     COALESCE(quantity, 0) AS quantity,
-    COALESCE(discounted_total, 0) AS sales_amount,
-    COALESCE(refund_subtotal, 0) AS refund_amount_line,
+    COALESCE(CAST(discounted_total AS NUMERIC) * COALESCE(CAST(usd_fx_rate AS NUMERIC), 1), 0) AS sales_amount,
+    COALESCE(CAST(refund_subtotal AS NUMERIC) * COALESCE(CAST(usd_fx_rate AS NUMERIC), 1), 0) AS refund_amount_line,
     COALESCE(refund_quantity, 0) AS refund_qty_line
   FROM parsed2
   WHERE
-    (
-      @skc = ''
-      OR parsed_skc = @skc
-    )
-    AND (
-      @spu = ''
-      OR (
-        CASE
-          WHEN parsed_skc = 'N/A' THEN 'N/A'
-          WHEN REGEXP_CONTAINS(skc_last_segment, r'\\d') THEN
-            CASE
-              WHEN skc_prefix != '' THEN CONCAT(
-                skc_prefix,
-                '-',
-                COALESCE(
-                  REGEXP_EXTRACT(skc_last_segment, r'^([a-zA-Z]*\\d+)'),
-                  skc_last_segment
-                )
-              )
-              ELSE COALESCE(
-                REGEXP_EXTRACT(skc_last_segment, r'^([a-zA-Z]*\\d+)'),
-                skc_last_segment
-              )
-            END
-          ELSE
-            CASE
-              WHEN skc_prefix != '' THEN skc_prefix
-              ELSE skc_last_segment
-            END
-        END
-      ) = @spu
-    )
+    (@skc_filter_on = 0 OR parsed_skc IN UNNEST(@skc_list))
+    AND (@spu_filter_on = 0 OR parsed_spu IN UNNEST(@spu_list))
 ),
 spu_rank AS (
   SELECT
-    spu,
+    parsed_spu AS spu,
     SUM(refund_amount_line) AS refund_amount
   FROM line_base
   GROUP BY 1
@@ -345,25 +319,25 @@ spu_rank AS (
 ),
 spu_agg AS (
   SELECT
-    lb.spu,
+    lb.parsed_spu AS spu,
     SUM(lb.quantity) AS sales_qty,
     SUM(lb.sales_amount) AS sales_amount,
     SUM(lb.refund_qty_line) AS refund_qty,
     SUM(lb.refund_amount_line) AS refund_amount
   FROM line_base lb
-  JOIN spu_rank sr ON sr.spu = lb.spu
+  JOIN spu_rank sr ON sr.spu = lb.parsed_spu
   GROUP BY 1
 ),
 skc_agg AS (
   SELECT
-    lb.spu,
+    lb.parsed_spu AS spu,
     lb.skc,
     SUM(lb.quantity) AS sales_qty,
     SUM(lb.sales_amount) AS sales_amount,
     SUM(lb.refund_qty_line) AS refund_qty,
     SUM(lb.refund_amount_line) AS refund_amount
   FROM line_base lb
-  JOIN spu_rank sr ON sr.spu = lb.spu
+  JOIN spu_rank sr ON sr.spu = lb.parsed_spu
   GROUP BY 1, 2
 )
 SELECT
@@ -393,6 +367,10 @@ ORDER BY spu, row_type DESC, refund_amount DESC
         `,
         params: {
           ...this.buildParams(filters),
+          spu_filter_on: filters.spu_list?.length ? 1 : 0,
+          skc_filter_on: filters.skc_list?.length ? 1 : 0,
+          spu_list: filters.spu_list?.length ? filters.spu_list : ['__ALL__'],
+          skc_list: filters.skc_list?.length ? filters.skc_list : ['__ALL__'],
           top_n: topN,
         },
       }),
@@ -466,6 +444,99 @@ ORDER BY spu, row_type DESC, refund_amount DESC
         partial_data: false,
         notes: [],
       },
+    }
+  }
+
+  async getSpuSkcOptions(filters: P2Filters) {
+    if (!this.client) {
+      return {
+        filters,
+        options: { spus: [], skcs: [] },
+        meta: { partial_data: true, notes: ['BigQuery credentials not found; returning empty options.'] },
+      }
+    }
+
+    const rows = extractRows(
+      await this.client.query({
+        query: `
+WITH parsed AS (
+  SELECT
+    CASE
+      WHEN li.sku IS NULL OR TRIM(li.sku) = '' THEN 'N/A'
+      WHEN STRPOS(TRIM(li.sku), '-') > 0 THEN REGEXP_REPLACE(TRIM(li.sku), r'-[^-]+$', '')
+      ELSE TRIM(li.sku)
+    END AS parsed_skc
+  FROM \`julang-dev-database.shopify_intermediate.int_line_items_classified\` li
+  JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
+    ON o.order_id = li.order_id
+  WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+    AND NOT COALESCE(o.is_gift_card_order, FALSE)
+    AND COALESCE(o.is_regular_order, FALSE) = TRUE
+    AND NOT COALESCE(li.is_insurance_item, FALSE)
+    AND NOT COALESCE(li.is_price_adjustment, FALSE)
+    AND (@category = '' OR o.primary_product_type = @category)
+    AND (@channel = '' OR o.shop_domain = @channel)
+    AND (
+      @listing_date_from = ''
+      OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from)
+    )
+    AND (
+      @listing_date_to = ''
+      OR DATE(o.first_published_at_in_order) <= DATE(@listing_date_to)
+    )
+),
+parsed2 AS (
+  SELECT
+    parsed_skc,
+    REGEXP_EXTRACT(parsed_skc, r'([^-]+)$') AS skc_last_segment,
+    CASE
+      WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+      ELSE ''
+    END AS skc_prefix
+  FROM parsed
+)
+SELECT DISTINCT
+  CASE
+    WHEN parsed_skc = 'N/A' THEN 'N/A'
+    WHEN REGEXP_CONTAINS(skc_last_segment, r'\\d') THEN
+      CASE
+        WHEN skc_prefix != '' THEN CONCAT(
+          skc_prefix,
+          '-',
+          COALESCE(
+            REGEXP_EXTRACT(skc_last_segment, r'^([a-zA-Z]*\\d+)'),
+            skc_last_segment
+          )
+        )
+        ELSE COALESCE(
+          REGEXP_EXTRACT(skc_last_segment, r'^([a-zA-Z]*\\d+)'),
+          skc_last_segment
+        )
+      END
+    ELSE
+      CASE
+        WHEN skc_prefix != '' THEN skc_prefix
+        ELSE skc_last_segment
+      END
+  END AS spu,
+  parsed_skc AS skc
+FROM parsed2
+WHERE parsed_skc IS NOT NULL
+        `,
+        params: { ...this.buildParams(filters) },
+      }),
+    )
+
+    const pairs = rows
+      .map((row) => ({ spu: toText(row.spu), skc: toText(row.skc) }))
+      .filter((item) => item.spu && item.skc && item.skc !== 'UNKNOWN_SKC')
+    const spus = [...new Set(pairs.map((item) => item.spu))].sort()
+    const skcs = [...new Set(pairs.map((item) => item.skc))].sort()
+
+    return {
+      filters,
+      options: { spus, skcs, pairs },
+      meta: { partial_data: false, notes: [] },
     }
   }
 
