@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import './App.css'
 import P1Dashboard from './features/p1/P1Dashboard'
 import P2Dashboard from './features/p2/P2Dashboard'
 import P3Dashboard from './features/p3/P3Dashboard'
