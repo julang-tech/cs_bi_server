@@ -119,6 +119,18 @@ export class SqliteShopifyBiCacheRepository {
         :first_published_at_in_order, :is_regular_order, :is_gift_card_order,
         :gmv_usd, :revenue_usd, :net_revenue_usd, :synced_at
       )
+      ON CONFLICT(order_id) DO UPDATE SET
+        order_no = excluded.order_no,
+        shop_domain = excluded.shop_domain,
+        processed_date = excluded.processed_date,
+        primary_product_type = excluded.primary_product_type,
+        first_published_at_in_order = excluded.first_published_at_in_order,
+        is_regular_order = excluded.is_regular_order,
+        is_gift_card_order = excluded.is_gift_card_order,
+        gmv_usd = excluded.gmv_usd,
+        revenue_usd = excluded.revenue_usd,
+        net_revenue_usd = excluded.net_revenue_usd,
+        synced_at = excluded.synced_at
     `)
     const insertOrderLine = this.db.prepare(`
       INSERT INTO shopify_bi_order_lines (
@@ -130,6 +142,19 @@ export class SqliteShopifyBiCacheRepository {
         :quantity, :discounted_total_usd, :is_insurance_item,
         :is_price_adjustment, :is_shipping_cost, :synced_at
       )
+      ON CONFLICT(order_id, line_key) DO UPDATE SET
+        order_no = excluded.order_no,
+        sku = excluded.sku,
+        skc = excluded.skc,
+        spu = excluded.spu,
+        product_id = excluded.product_id,
+        variant_id = excluded.variant_id,
+        quantity = excluded.quantity,
+        discounted_total_usd = excluded.discounted_total_usd,
+        is_insurance_item = excluded.is_insurance_item,
+        is_price_adjustment = excluded.is_price_adjustment,
+        is_shipping_cost = excluded.is_shipping_cost,
+        synced_at = excluded.synced_at
     `)
     const insertRefundEvent = this.db.prepare(`
       INSERT INTO shopify_bi_refund_events (

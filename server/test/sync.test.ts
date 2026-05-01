@@ -859,7 +859,7 @@ async function testSyncRefreshesBigQueryCache() {
   assert.equal(result.bigquery_cache.ok, true)
   assert.equal(result.bigquery_cache.order_lines_upserted, 1)
   assert.equal(result.bigquery_cache.refund_events_upserted, 1)
-  assert.equal(queryCount, 2)
+  assert.equal(queryCount, 5)
 
   const cache = new SqliteP3BigQueryCacheRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
   const summary = await cache.fetchSummary({
@@ -918,13 +918,199 @@ async function testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror() {
   assert.equal(result.sqlite.inserted, 1)
   assert.equal(result.bigquery_cache.ok, false)
   assert.equal(result.bigquery_cache.failed, 1)
-  assert.equal(result.failed, 1)
+  assert.equal(result.shopify_bi_cache.ok, false)
+  assert.equal(result.shopify_bi_cache.failed, 1)
+  assert.equal(result.failed, 2)
 
   const sqliteRepo = new SqliteMirrorRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
   const sqliteRows = sqliteRepo.listActiveRows()
   assert.equal(sqliteRows.length, 1)
   assert.equal(sqliteRows[0]?.source_record_id, 'rec-bq-fail')
   sqliteRepo.close()
+}
+
+async function testSyncRefreshesShopifyBiV2Cache() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query(options: unknown) {
+        const query = String((options as { query?: string }).query ?? '')
+        if (query.includes('int_line_items_classified')) {
+          return [[{
+            order_id: 'order-v2-1',
+            order_no: 'LC800',
+            line_key: 'order-v2-1:SKU-800:0',
+            sku: 'SKU-800-M',
+            skc: 'SKC-800',
+            spu: 'SPU-800',
+            product_id: 'prod-800',
+            variant_id: 'var-800',
+            quantity: 1,
+            discounted_total_usd: 100,
+            is_insurance_item: false,
+            is_price_adjustment: false,
+            is_shipping_cost: false,
+          }]]
+        }
+        if (query.includes('FROM `julang-dev-database.shopify_dwd.dwd_orders_fact_usd`')) {
+          return [[{
+            order_id: 'order-v2-1',
+            order_no: 'LC800',
+            shop_domain: '2vnpww-33.myshopify.com',
+            processed_date: '2026-04-10',
+            primary_product_type: 'Dress',
+            first_published_at_in_order: '2026-03-20',
+            is_regular_order: true,
+            is_gift_card_order: false,
+            gmv_usd: 120,
+            revenue_usd: 100,
+            net_revenue_usd: 75,
+          }]]
+        }
+        if (query.includes('dwd_refund_events')) {
+          return [[{
+            refund_id: 'refund-v2-1',
+            order_id: 'order-v2-1',
+            order_no: 'LC800',
+            sku: 'SKU-800-M',
+            refund_date: '2026-04-12',
+            refund_quantity: 1,
+            refund_subtotal_usd: 25,
+          }]]
+        }
+        return [[]]
+      },
+    }),
+  })
+
+  const result = await service.syncTargetToSqlite({ config: configPath })
+  const shopifyBiCache = (result as {
+    shopify_bi_cache?: {
+      enabled: boolean
+      ok: boolean
+      orders_upserted: number
+      order_lines_upserted: number
+      refund_events_upserted: number
+    }
+  }).shopify_bi_cache
+  assert.equal(shopifyBiCache?.enabled, true)
+  assert.equal(shopifyBiCache?.ok, true)
+  assert.equal(shopifyBiCache?.orders_upserted, 1)
+  assert.equal(shopifyBiCache?.order_lines_upserted, 1)
+  assert.equal(shopifyBiCache?.refund_events_upserted, 1)
+}
+
+async function testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  let sawRefundDrivenOrderQuery = false
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query(options: unknown) {
+        const query = String((options as { query?: string }).query ?? '')
+        if (query.includes('int_line_items_classified')) {
+          return [[{
+            order_id: 'order-refund-sync',
+            order_no: 'LC801',
+            line_key: 'order-refund-sync:SKU-801:0',
+            sku: 'SKU-801-M',
+            skc: 'SKC-801',
+            spu: 'SPU-801',
+            product_id: 'prod-801',
+            variant_id: 'var-801',
+            quantity: 1,
+            discounted_total_usd: 100,
+            is_insurance_item: false,
+            is_price_adjustment: false,
+            is_shipping_cost: false,
+          }]]
+        }
+        if (query.includes('FROM `julang-dev-database.shopify_dwd.dwd_orders_fact_usd`')) {
+          sawRefundDrivenOrderQuery =
+            query.includes('processed_date') &&
+            query.includes('OR') &&
+            query.includes('dwd_refund_events') &&
+            query.includes('refund_date')
+          return sawRefundDrivenOrderQuery
+            ? [[{
+                order_id: 'order-refund-sync',
+                order_no: 'LC801',
+                shop_domain: '2vnpww-33.myshopify.com',
+                processed_date: '2026-03-20',
+                primary_product_type: 'Dress',
+                first_published_at_in_order: '2026-03-01',
+                is_regular_order: true,
+                is_gift_card_order: false,
+                gmv_usd: 120,
+                revenue_usd: 100,
+                net_revenue_usd: 60,
+              }]]
+            : [[]]
+        }
+        if (query.includes('dwd_refund_events')) {
+          return [[{
+            refund_id: 'refund-sync-1',
+            order_id: 'order-refund-sync',
+            order_no: 'LC801',
+            sku: 'SKU-801-M',
+            refund_date: '2026-04-12',
+            refund_quantity: 1,
+            refund_subtotal_usd: 40,
+          }]]
+        }
+        return [[]]
+      },
+    }),
+  })
+
+  await service.syncTargetToSqlite({ config: configPath })
+  assert.equal(sawRefundDrivenOrderQuery, true)
+
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+  const cards = cache.queryP2Overview({
+    date_from: '2026-04-01',
+    date_to: '2026-04-30',
+    grain: 'month',
+  }).cards
+  assert.equal(cards.order_count, 0)
+  assert.equal(cards.net_received_amount, 0)
+  assert.equal(cards.refund_order_count, 1)
+  assert.equal(cards.refund_amount, 40)
+  cache.close()
 }
 
 async function testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache() {
@@ -1179,8 +1365,8 @@ async function testShopifyBiCacheReplaceWindowRollsBackOnInsertFailure() {
       dateTo: '2026-04-30',
       orders: [
         {
-          order_id: 'order-rollback',
-          order_no: 'LC300',
+          order_id: 'order-rollback-new',
+          order_no: null as unknown as string,
           shop_domain: '2vnpww-33.myshopify.com',
           processed_date: '2026-04-10',
           primary_product_type: 'Dress',
@@ -1190,19 +1376,6 @@ async function testShopifyBiCacheReplaceWindowRollsBackOnInsertFailure() {
           gmv_usd: 10,
           revenue_usd: 10,
           net_revenue_usd: 10,
-        },
-        {
-          order_id: 'order-rollback',
-          order_no: 'LC300-DUP',
-          shop_domain: '2vnpww-33.myshopify.com',
-          processed_date: '2026-04-10',
-          primary_product_type: 'Dress',
-          first_published_at_in_order: '2026-03-01',
-          is_regular_order: true,
-          is_gift_card_order: false,
-          gmv_usd: 20,
-          revenue_usd: 20,
-          net_revenue_usd: 20,
         },
       ],
       orderLines: [],
@@ -1245,6 +1418,8 @@ async function run() {
   await testSyncTargetToSqlitePrunesMissingTargetRecords()
   await testSyncRefreshesBigQueryCache()
   await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
+  await testSyncRefreshesShopifyBiV2Cache()
+  await testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders()
   await testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache()
   await testShopifyBiCacheReplacesDateWindowTransactionally()
   await testShopifyBiCacheRefundFlowUsesRefundDateWindow()
