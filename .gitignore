@@ -33,3 +33,11 @@ server-data
 *.njsproj
 *.sln
 *.sw?
+
+# Python residue
+__pycache__/
+*.pyc
+
+# Claude Code session noise
+.claude/
+AGENTS.md

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm:dev:app\" \"npm:dev:client\"",
-    "dev:app": "npm run build:server --silent && node server-dist/server/entrypoints/app.js",
+    "dev:app": "tsx watch --clear-screen=false server/entrypoints/app.ts",
     "dev:client": "vite",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
