@@ -31,4 +31,10 @@ describe('dashboard visual density contract', () => {
     expect(styles).not.toContain('padding: 24px 28px')
     expect(styles).not.toContain('padding: 28px 28px')
   })
+
+  it('keeps filter date picker aligned with compact toolbar controls', () => {
+    expect(styles).not.toContain('min-height: 40px')
+    expect(styles).not.toContain('font-size: 20px')
+    expect(styles).not.toContain('padding: 14px 14px 10px')
+  })
 })

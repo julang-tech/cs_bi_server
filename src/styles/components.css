@@ -143,10 +143,10 @@
 .date-range-trigger {
   display: inline-flex;
   align-items: stretch;
-  min-height: 40px;
+  min-height: 32px;
   overflow: hidden;
   border: 1px solid var(--input-border);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text);
   font: inherit;
@@ -160,21 +160,21 @@
 .date-range-trigger__date {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 14px;
-  min-width: 190px;
+  gap: 6px;
+  min-width: 138px;
+  padding: 0 10px;
 }
 
 .date-range-trigger__date small {
   color: var(--muted);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   font-weight: 700;
 }
 
 .date-range-trigger__date strong {
   color: var(--heading);
-  font-size: 20px;
-  font-weight: 650;
+  font-size: var(--fs-sm);
+  font-weight: 600;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -187,7 +187,7 @@
 .date-range-trigger__icon {
   display: inline-flex;
   align-items: center;
-  padding: 0 12px;
+  padding: 0 10px;
   color: var(--muted);
 }
 
@@ -699,7 +699,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--space-3);
-  padding: 14px 14px 10px;
+  padding: 12px 14px 8px;
 }
 
 .data-table-card__header > div:first-child {
@@ -745,7 +745,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--space-3);
-  padding: 14px 14px 10px;
+  padding: 12px 14px 8px;
 }
 
 .table-card__header > div:first-child {
