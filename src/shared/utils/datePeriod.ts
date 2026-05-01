@@ -1,7 +1,4 @@
-// TODO(Task 2.4): Replace local Grain/PeriodWindow types with imports from '../../api/types'
-//   once src/api/types.ts is created. Then delete the local copies below.
-type Grain = 'day' | 'week' | 'month'
-interface PeriodWindow { date_from: string; date_to: string }
+import type { Grain, PeriodWindow } from '../../api/types'
 
 export function formatDateInput(date: Date): string {
   const y = date.getFullYear()
