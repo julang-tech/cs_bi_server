@@ -25,7 +25,8 @@ import {
   SampleSalesRepository,
 } from '../../integrations/bigquery.js'
 import { FeishuIssueProvider, FixtureIssueProvider } from '../../integrations/feishu.js'
-import { SqliteIssueProvider, SqliteP3BigQueryCacheRepository } from '../../integrations/sqlite.js'
+import { SqliteShopifyBiCacheRepository } from '../../integrations/shopify-bi-cache.js'
+import { SqliteIssueProvider } from '../../integrations/sqlite.js'
 import { loadP3RuntimeConfig } from '../../integrations/sync-config.js'
 
 function applyBigQueryProxyConfig(config?: {
@@ -175,10 +176,10 @@ export function createP3Service(repoRoot: string, syncConfigPath: string) {
   }
 
   if (runtimeConfig) {
-    const sqliteCache = new SqliteP3BigQueryCacheRepository(runtimeConfig.runtime.sqlitePath)
+    const sqliteCache = new SqliteShopifyBiCacheRepository(runtimeConfig.runtime.sqlitePath)
     salesRepository = sqliteCache
     enrichmentRepository = sqliteCache
-    sourceModes.push('sqlite shopify bigquery cache')
+    sourceModes.push('sqlite shopify bi cache')
 
     try {
       if (fs.existsSync(runtimeConfig.runtime.sqlitePath)) {

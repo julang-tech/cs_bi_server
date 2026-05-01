@@ -18,7 +18,7 @@ import type {
   SummaryMetrics,
   TrendPoint,
 } from '../domain/p3/models.js'
-import { SqliteMirrorRepository, SqliteP3BigQueryCacheRepository } from '../integrations/sqlite.js'
+import { SqliteShopifyBiCacheRepository } from '../integrations/shopify-bi-cache.js'
 
 const baseFilters: P3Filters = {
   date_from: '2026-03-01',
@@ -98,56 +98,147 @@ function createTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'bikanban-p3-'))
 }
 
-async function testSqliteBigQueryCacheRepository() {
+async function testSqliteShopifyBiCacheRepository() {
   const tmpDir = createTempDir()
   const sqlitePath = path.join(tmpDir, 'issues.sqlite')
-  const repository = new SqliteMirrorRepository(sqlitePath)
-  repository.replaceBigQueryCacheWindow({
+  const repository = new SqliteShopifyBiCacheRepository(sqlitePath)
+  repository.replaceWindow({
     dateFrom: '2026-03-01',
     dateTo: '2026-03-31',
+    orders: [
+      {
+        order_id: 'gid://shopify/Order/1',
+        order_no: 'LC1',
+        shop_domain: 'shop.example',
+        processed_date: '2026-03-02',
+        primary_product_type: 'Apparel',
+        first_published_at_in_order: '2026-02-01',
+        is_regular_order: true,
+        is_gift_card_order: false,
+        gmv_usd: 10,
+        revenue_usd: 10,
+        net_revenue_usd: 10,
+      },
+      {
+        order_id: 'gid://shopify/Order/2',
+        order_no: 'LC2',
+        shop_domain: 'shop.example',
+        processed_date: '2026-03-03',
+        primary_product_type: 'Apparel',
+        first_published_at_in_order: '2026-02-01',
+        is_regular_order: true,
+        is_gift_card_order: false,
+        gmv_usd: 20,
+        revenue_usd: 20,
+        net_revenue_usd: 20,
+      },
+      {
+        order_id: 'gid://shopify/Order/3',
+        order_no: 'LC3',
+        shop_domain: 'shop.example',
+        processed_date: '2026-03-09',
+        primary_product_type: 'Apparel',
+        first_published_at_in_order: '2026-02-01',
+        is_regular_order: true,
+        is_gift_card_order: false,
+        gmv_usd: 30,
+        revenue_usd: 30,
+        net_revenue_usd: 30,
+      },
+    ],
     orderLines: [
       {
+        order_id: 'gid://shopify/Order/1',
         order_no: 'LC1',
-        processed_date: '2026-03-02',
+        line_key: 'LC1-1',
         sku: 'SKU-1',
         skc: 'SKC-1',
         spu: 'SPU-1',
+        product_id: null,
+        variant_id: null,
         quantity: 1,
+        discounted_total_usd: 10,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
       },
       {
+        order_id: 'gid://shopify/Order/2',
         order_no: 'LC2',
-        processed_date: '2026-03-03',
+        line_key: 'LC2-1',
         sku: 'SKU-2',
         skc: 'SKC-2',
         spu: 'SPU-2',
-        quantity: 1,
+        product_id: null,
+        variant_id: null,
+        quantity: 2,
+        discounted_total_usd: 20,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
       },
       {
+        order_id: 'gid://shopify/Order/3',
         order_no: 'LC3',
-        processed_date: '2026-03-09',
+        line_key: 'LC3-1',
         sku: 'SKU-3',
         skc: 'SKC-3',
         spu: 'SPU-3',
+        product_id: null,
+        variant_id: null,
         quantity: 1,
+        discounted_total_usd: 15,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
       },
       {
+        order_id: 'gid://shopify/Order/3',
         order_no: 'LC3',
-        processed_date: '2026-03-09',
+        line_key: 'LC3-2',
         sku: 'SKU-4',
         skc: 'SKC-4',
         spu: 'SPU-4',
+        product_id: null,
+        variant_id: null,
         quantity: 1,
+        discounted_total_usd: 15,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
       },
     ],
     refundEvents: [
-      { order_no: 'LC1', sku: 'SKU-1', refund_date: '2026-03-11' },
-      { order_no: 'LC3', sku: 'SKU-4', refund_date: '2026-03-12' },
-      { order_no: 'LC3', sku: 'SKU-3', refund_date: '2026-03-13' },
+      {
+        refund_id: 'refund-1',
+        order_id: 'gid://shopify/Order/1',
+        order_no: 'LC1',
+        sku: 'SKU-1',
+        refund_date: '2026-03-11',
+        refund_quantity: 1,
+        refund_subtotal_usd: 10,
+      },
+      {
+        refund_id: 'refund-2',
+        order_id: 'gid://shopify/Order/3',
+        order_no: 'LC3',
+        sku: 'SKU-4',
+        refund_date: '2026-03-12',
+        refund_quantity: 1,
+        refund_subtotal_usd: 15,
+      },
+      {
+        refund_id: 'refund-3',
+        order_id: 'gid://shopify/Order/3',
+        order_no: 'LC3',
+        sku: 'SKU-3',
+        refund_date: '2026-03-13',
+        refund_quantity: 1,
+        refund_subtotal_usd: 15,
+      },
     ],
   })
-  repository.close()
-
-  const cache = new SqliteP3BigQueryCacheRepository(sqlitePath)
+  const cache = repository
   const summary = await cache.fetchSummary(baseFilters)
   assert.equal(summary.sales_qty, 3)
 
@@ -188,10 +279,24 @@ async function testSqliteBigQueryCacheRepository() {
   assert.equal(enriched.issues[1]?.order_date, '2026-03-09')
   assert.equal(enriched.issues[1]?.refund_date, '2026-03-12')
   assert.equal(enriched.issues[1]?.order_line_contexts.length, 2)
+
+  const refundDateTrends = await cache.fetchTrends({
+    ...baseFilters,
+    date_basis: 'refund_date',
+    date_from: '2026-03-11',
+    date_to: '2026-03-12',
+    grain: 'day',
+  })
+  assert.deepEqual(refundDateTrends, [
+    { bucket: '2026-03-11', sales_qty: 1, complaint_count: 0 },
+    { bucket: '2026-03-12', sales_qty: 1, complaint_count: 0 },
+  ])
+
+  cache.close()
 }
 
 async function run() {
-  await testSqliteBigQueryCacheRepository()
+  await testSqliteShopifyBiCacheRepository()
   const filtered = filterIssues(issues, baseFilters)
   const result = computeDashboard(baseFilters, salesSummary, salesTrends, filtered, [], false)
   const payload = buildDashboardPayload(baseFilters, result)

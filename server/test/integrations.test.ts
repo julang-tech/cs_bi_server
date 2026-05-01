@@ -371,6 +371,7 @@ async function testSqliteIssueProviderAndP3Service() {
     })
 
     assert.ok(payload.meta.source_modes.includes('sqlite mirrored target records'))
+    assert.ok(payload.meta.source_modes.includes('sqlite shopify bi cache'))
     assert.equal(payload.summary.complaint_count, 1)
   } finally {
     process.env.GOOGLE_APPLICATION_CREDENTIALS = originalCredentials
