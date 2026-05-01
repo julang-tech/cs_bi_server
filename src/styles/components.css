@@ -8,11 +8,11 @@
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
-  align-items: stretch;
+  align-items: center;
   justify-content: flex-start;
   gap: var(--space-4);
-  padding: 22px;
-  border-radius: 28px;
+  padding: 10px 14px;
+  border-radius: 16px;
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: var(--shadow-soft);
@@ -20,8 +20,9 @@
 
 .filter-bar__group {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
 }
 
@@ -30,9 +31,10 @@
 }
 
 .filter-bar__label {
-  color: #6e7d90;
-  font-size: 13px;
-  font-weight: 700;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* ===========================================================================
@@ -41,24 +43,25 @@
 
 .segmented-control {
   display: inline-flex;
-  gap: var(--space-3);
-  padding: 2px;
+  gap: 4px;
+  padding: 0;
 }
 
 .segment-button {
-  min-width: 96px;
-  min-height: 54px;
-  padding: 0 22px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 14px;
   border: 1px solid #e6ddd0;
   border-radius: 999px;
   background: #fffdfa;
   color: #4e5d70;
   font: inherit;
+  font-size: var(--fs-sm);
   cursor: pointer;
   transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    border-color 0.2s ease;
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .segment-button--active {
@@ -70,21 +73,22 @@
 .select-control {
   display: inline-flex;
   align-items: center;
-  min-height: 54px;
-  min-width: 168px;
-  padding: 0 14px;
+  min-height: 32px;
+  min-width: 140px;
+  padding: 0 10px;
   border: 1px solid #e3d8c9;
-  border-radius: 18px;
+  border-radius: 10px;
   background: #fffdfa;
 }
 
 .select-control select {
   width: 100%;
-  min-height: 34px;
+  min-height: 28px;
   border: 0;
   background: transparent;
   color: #304154;
   font: inherit;
+  font-size: var(--fs-sm);
   outline: 0;
 }
 
@@ -94,19 +98,19 @@
   align-items: center;
   overflow: hidden;
   border: 1px solid #e3d8c9;
-  border-radius: 18px;
+  border-radius: 10px;
   background: #fffdfa;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .date-field {
-  display: grid;
-  gap: var(--space-1);
-  min-width: 164px;
-  padding: var(--space-2) var(--space-3);
-  color: #6e7d90;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 10px;
+  color: var(--muted);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .date-field + .date-field {
@@ -115,14 +119,15 @@
 
 .date-field input {
   min-width: 0;
-  min-height: 28px;
+  min-height: 24px;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: #304154;
   font: inherit;
-  font-size: 15px;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
   outline: 0;
 }
 
