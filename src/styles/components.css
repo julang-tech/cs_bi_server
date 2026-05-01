@@ -10,12 +10,12 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
-  gap: var(--space-4);
-  padding: 10px 14px;
-  border-radius: 16px;
+  gap: var(--space-3);
+  padding: 8px 10px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--surface);
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
 }
 
 .filter-bar__group {
@@ -49,12 +49,12 @@
 
 .segment-button {
   min-width: 0;
-  min-height: 32px;
-  padding: 0 14px;
-  border: 1px solid #e6ddd0;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--input-border);
   border-radius: 999px;
-  background: #fffdfa;
-  color: #4e5d70;
+  background: var(--surface);
+  color: var(--muted-strong);
   font: inherit;
   font-size: var(--fs-sm);
   cursor: pointer;
@@ -65,9 +65,9 @@
 }
 
 .segment-button--active {
-  background: #ca7148;
-  color: #fff9f4;
-  border-color: #ca7148;
+  background: var(--accent);
+  color: #ffffff;
+  border-color: var(--accent);
 }
 
 .select-control {
@@ -76,9 +76,9 @@
   min-height: 32px;
   min-width: 140px;
   padding: 0 10px;
-  border: 1px solid #e3d8c9;
-  border-radius: 10px;
-  background: #fffdfa;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
 
 .select-control select {
@@ -86,7 +86,7 @@
   min-height: 28px;
   border: 0;
   background: transparent;
-  color: #304154;
+  color: var(--text);
   font: inherit;
   font-size: var(--fs-sm);
   outline: 0;
@@ -97,9 +97,9 @@
   gap: 0;
   align-items: center;
   overflow: hidden;
-  border: 1px solid #e3d8c9;
-  border-radius: 10px;
-  background: #fffdfa;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
 }
 
 .date-field {
@@ -114,7 +114,7 @@
 }
 
 .date-field + .date-field {
-  border-left: 1px solid #eee4d7;
+  border-left: 1px solid var(--border);
 }
 
 .date-field input {
@@ -124,7 +124,7 @@
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #304154;
+  color: var(--text);
   font: inherit;
   font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
@@ -132,8 +132,8 @@
 }
 
 .date-range-control:focus-within {
-  border-color: #ca7148;
-  box-shadow: 0 0 0 3px rgba(202, 113, 72, 0.12);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(11, 110, 79, 0.12);
 }
 
 /* ===========================================================================
@@ -141,12 +141,12 @@
    =========================================================================== */
 
 .status-banner {
-  padding: var(--space-4) 18px;
-  border-radius: 22px;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
   line-height: 1.65;
   border: 1px solid var(--border);
   background: var(--surface);
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
 }
 
 .status-banner--error {
@@ -168,15 +168,15 @@
 .kpi-section {
   display: grid;
   gap: var(--space-3);
-  padding: 18px var(--space-4);
-  border-radius: 20px;
+  padding: 14px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--surface);
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
 }
 
 .kpi-section--history {
-  background: linear-gradient(180deg, var(--surface) 0%, #faf6ed 100%);
+  background: var(--surface);
 }
 
 .kpi-section__header {
@@ -204,21 +204,22 @@
 .kpi-section__grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
 .kpi-card {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 14px 16px;
+  min-height: 118px;
+  padding: 12px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
 }
 
 .kpi-card--history {
-  background: var(--chip-bg);
+  background: var(--surface-subtle);
 }
 
 .kpi-card__header {
@@ -247,12 +248,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  border: 1px solid #d8cbbb;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--surface);
-  color: #7a8798;
+  color: var(--muted);
   font-size: 11px;
   font-weight: 800;
   line-height: 1;
@@ -266,11 +267,11 @@
   z-index: 20;
   width: min(280px, 70vw);
   padding: 10px var(--space-3);
-  border: 1px solid rgba(227, 216, 201, 0.95);
-  border-radius: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   background: var(--surface);
-  box-shadow: 0 16px 38px rgba(46, 40, 32, 0.16);
-  color: #556887;
+  box-shadow: var(--shadow-soft);
+  color: var(--muted-strong);
   font-size: 13px;
   font-weight: 600;
   line-height: 1.5;
@@ -324,10 +325,10 @@
   margin: 2px 0 0;
   color: var(--heading);
   font-family: var(--sans);
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 600;
   line-height: 1.1;
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
   overflow-wrap: anywhere;
@@ -401,7 +402,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #b7a997;
+  color: #9aa5a0;
   font-size: 12px;
 }
 
@@ -412,11 +413,11 @@
 .focus-chart {
   display: grid;
   gap: var(--space-3);
-  padding: var(--space-5);
-  border-radius: 28px;
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border);
   background: var(--surface);
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
 }
 
 .focus-chart__tabs {
@@ -426,11 +427,11 @@
 }
 
 .focus-chart__tab {
-  min-height: 36px;
-  padding: 0 14px;
-  border: 1px solid #e6ddd0;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--input-border);
   border-radius: 999px;
-  background: #fffdfa;
+  background: var(--surface);
   color: var(--muted-strong);
   font: inherit;
   font-size: 13px;
@@ -448,18 +449,18 @@
 }
 
 .focus-chart__tab--active {
-  background: #ca7148;
-  border-color: #ca7148;
-  color: #fff9f4;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
 }
 
 .focus-chart__plot {
   position: relative;
-  height: 280px;
-  padding: 18px var(--space-3) 28px;
-  border: 1px solid rgba(227, 216, 201, 0.72);
+  height: 260px;
+  padding: 14px var(--space-3) 24px;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: linear-gradient(180deg, rgba(255, 253, 249, 0.96), rgba(250, 246, 239, 0.78));
+  background: var(--surface-subtle);
 }
 
 .focus-chart__plot svg {
@@ -473,15 +474,15 @@
 }
 
 .focus-chart__band--history {
-  fill: rgba(245, 239, 227, 0.4);
+  fill: rgba(31, 41, 37, 0.035);
 }
 
 .focus-chart__band--current {
-  fill: rgba(202, 113, 72, 0.06);
+  fill: rgba(11, 110, 79, 0.05);
 }
 
 .focus-chart__divider {
-  stroke: rgba(202, 113, 72, 0.4);
+  stroke: rgba(11, 110, 79, 0.36);
   stroke-width: 0.5;
   stroke-dasharray: 1.5 1.5;
 }
@@ -511,7 +512,7 @@
 }
 
 .focus-chart__hit:focus circle {
-  fill: rgba(202, 113, 72, 0.08);
+  fill: rgba(11, 110, 79, 0.08);
 }
 
 .focus-chart__tooltip {
@@ -520,10 +521,10 @@
   min-width: 138px;
   padding: 10px var(--space-3);
   border: 1px solid rgba(48, 65, 84, 0.12);
-  border-radius: 14px;
-  background: rgba(255, 253, 249, 0.96);
-  color: #304154;
-  box-shadow: 0 14px 32px rgba(45, 35, 22, 0.14);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.98);
+  color: var(--text);
+  box-shadow: var(--shadow-soft);
   pointer-events: none;
   transform: translate(-50%, calc(-100% - var(--space-3)));
 }
@@ -553,23 +554,23 @@
    =========================================================================== */
 
 .data-table-card {
-  border-radius: 28px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--surface);
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
 }
 
 .data-table-card__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 18px;
-  padding: var(--space-5) 28px 18px;
+  gap: var(--space-4);
+  padding: 16px 18px 12px;
 }
 
 .data-table-card__header h3 {
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .data-table-card__hint {
@@ -580,30 +581,30 @@
 }
 
 .data-table-card__content {
-  padding: 0 28px 22px;
+  padding: 0 18px 16px;
 }
 
 /* Table-card alias kept for legacy usage in P3 ranking section */
 
 .table-card {
-  margin-top: 26px;
-  border-radius: 28px;
+  margin-top: var(--space-4);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--surface);
-  box-shadow: var(--shadow-soft);
+  box-shadow: none;
 }
 
 .table-card__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 18px;
-  padding: var(--space-5) 28px 18px;
+  gap: var(--space-4);
+  padding: 16px 18px 12px;
 }
 
 .table-card__header h3 {
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .table-card__hint {
@@ -613,7 +614,7 @@
 }
 
 .table-card__content {
-  padding: 0 28px 22px;
+  padding: 0 18px 16px;
 }
 
 /* ===========================================================================
@@ -630,23 +631,23 @@
 }
 
 .data-table thead th {
-  padding: 28px 28px 24px;
-  background: #f4ede1;
-  color: #183555;
-  font-size: 18px;
+  padding: 12px 14px;
+  background: var(--surface-subtle);
+  color: var(--heading);
+  font-size: 13px;
   font-weight: 700;
   text-align: center;
-  border-top: 1px solid #e3d8c9;
-  border-bottom: 1px solid #e3d8c9;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .data-table tbody td {
-  padding: 24px 28px;
-  border-bottom: 1px solid #ede5da;
-  color: #405264;
-  font-size: 18px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 14px;
   text-align: center;
-  background: #fffdf9;
+  background: var(--surface);
 }
 
 .data-table tbody tr:last-child td {
@@ -659,7 +660,7 @@
 }
 
 .data-table tbody tr.is-clickable:hover td {
-  background: #fff8f0;
+  background: var(--surface-subtle);
 }
 
 /* ===========================================================================
@@ -670,14 +671,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 140px;
+  min-height: 112px;
   padding: var(--space-5);
   color: #8a98aa;
   text-align: center;
 }
 
 .empty-state--table {
-  border-top: 1px solid #ede5da;
+  border-top: 1px solid var(--border);
 }
 
 .empty-state--error {
@@ -693,7 +694,7 @@
   align-items: center;
   justify-content: center;
   padding: 0 var(--space-4);
-  min-height: 42px;
+  min-height: 34px;
   border-radius: 999px;
   font-size: var(--fs-sm);
   font-weight: 700;
@@ -701,8 +702,8 @@
 }
 
 .summary-badge--warm {
-  color: #a35b32;
-  background: #f5eadf;
+  color: #9a5b1a;
+  background: #f7eddc;
 }
 
 .summary-badge--rose {
@@ -732,7 +733,7 @@
 
 .summary-badge--neutral {
   color: #746a5d;
-  background: #f2ece2;
+  background: var(--chip-bg);
 }
 
 .summary-badge--muted {
@@ -776,7 +777,7 @@
   .table-card,
   .kpi-section,
   .focus-chart {
-    border-radius: 20px;
+    border-radius: var(--radius-lg);
   }
 
   .kpi-section__grid {
@@ -808,7 +809,7 @@
   }
 
   .date-field + .date-field {
-    border-top: 1px solid #eee4d7;
+    border-top: 1px solid var(--border);
     border-left: 0;
   }
 
@@ -837,7 +838,7 @@
 
   .data-table tbody tr {
     padding: 10px 0;
-    border-top: 1px solid #ede5da;
+    border-top: 1px solid var(--border);
   }
 
   .data-table tbody td {
