@@ -29,10 +29,6 @@ function buildDelta(current: number | null | undefined, previous: number | null 
   return { tone: ratio > 0 ? 'up' as const : 'down' as const, text: `${ratio > 0 ? '↑' : '↓'} ${Math.abs(ratio * 100).toFixed(1)}%` }
 }
 
-function issueCount(d: P3DashboardData | null, type: P3IssueShareItem['major_issue_type']): number {
-  return d?.issue_share?.find((i) => i.major_issue_type === type)?.count ?? 0
-}
-
 export default function P3Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
   const [dateBasis, setDateBasis] = useState<'order_date' | 'refund_date'>('order_date')
@@ -114,33 +110,6 @@ export default function P3Dashboard() {
       historyTrend: history?.trends.complaint_rate ?? [],
       currentTrend: current ? [{ bucket: currentPeriod.date_to, value: current.summary.complaint_rate }] : [],
       formatter: (n: number) => formatPercent(n, 2), deltaMode: 'pp' as const, isRate: true,
-    },
-    {
-      key: 'product_count', label: '产品问题客诉量', sparkline: true,
-      description: getMetricDescription('p3.issue_product_count'),
-      currentValue: issueCount(current, 'product'),
-      previousValue: issueCount(previous, 'product'),
-      historyTrend: history?.trends.issue_product_count ?? [],
-      currentTrend: current ? [{ bucket: currentPeriod.date_to, value: issueCount(current, 'product') }] : [],
-      formatter: formatInteger, deltaMode: 'percent' as const, isRate: false,
-    },
-    {
-      key: 'logistics_count', label: '物流问题客诉量', sparkline: false,
-      description: getMetricDescription('p3.issue_logistics_count'),
-      currentValue: issueCount(current, 'logistics'),
-      previousValue: issueCount(previous, 'logistics'),
-      historyTrend: history?.trends.issue_logistics_count ?? [],
-      currentTrend: current ? [{ bucket: currentPeriod.date_to, value: issueCount(current, 'logistics') }] : [],
-      formatter: formatInteger, deltaMode: 'percent' as const, isRate: false,
-    },
-    {
-      key: 'warehouse_count', label: '仓库问题客诉量', sparkline: false,
-      description: getMetricDescription('p3.issue_warehouse_count'),
-      currentValue: issueCount(current, 'warehouse'),
-      previousValue: issueCount(previous, 'warehouse'),
-      historyTrend: history?.trends.issue_warehouse_count ?? [],
-      currentTrend: current ? [{ bucket: currentPeriod.date_to, value: issueCount(current, 'warehouse') }] : [],
-      formatter: formatInteger, deltaMode: 'percent' as const, isRate: false,
     },
   ]
 

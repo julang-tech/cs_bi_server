@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   alignHistoryRangeToGrain, isHistoryRangeValid,
   formatDateInput, getDataReadyDate, getPresetHistoryRange,
@@ -59,11 +59,29 @@ export function FilterBar({
   const [pickerOpen, setPickerOpen] = useState(false)
   const [draftRange, setDraftRange] = useState<PeriodWindow>(historyRange)
   const [selecting, setSelecting] = useState<'from' | 'to'>('from')
+  const pickerRef = useRef<HTMLDivElement | null>(null)
   const [visibleMonth, setVisibleMonth] = useState(() =>
     shiftMonth(monthStart(parseDateInput(historyRange.date_to)), -1),
   )
   const maxDate = useMemo(() => getDataReadyDate(), [])
   const maxDateText = formatDateInput(maxDate)
+
+  useEffect(() => {
+    if (!pickerOpen) return
+
+    function closeOnOutsidePointer(event: MouseEvent | TouchEvent) {
+      if (!(event.target instanceof Node)) return
+      if (pickerRef.current?.contains(event.target)) return
+      setPickerOpen(false)
+    }
+
+    document.addEventListener('mousedown', closeOnOutsidePointer)
+    document.addEventListener('touchstart', closeOnOutsidePointer)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsidePointer)
+      document.removeEventListener('touchstart', closeOnOutsidePointer)
+    }
+  }, [pickerOpen])
 
   function openPicker() {
     setDraftRange(historyRange)
@@ -177,7 +195,7 @@ export function FilterBar({
 
       <div className="filter-bar__group filter-bar__group--dates">
         <span className="filter-bar__label">历史区间</span>
-        <div className="date-range-picker">
+        <div className="date-range-picker" ref={pickerRef}>
           <button
             type="button"
             className="date-range-trigger"
