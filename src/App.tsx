@@ -4,7 +4,14 @@ import P1Dashboard from './P1Dashboard'
 import P2Dashboard from './P2Dashboard'
 import P3Dashboard from './P3Dashboard'
 
-const PAGE_OPTIONS = [
+interface PageOption {
+  value: 'p1' | 'p2' | 'p3'
+  shortTitle: string
+  title: string
+  description: string
+}
+
+const PAGE_OPTIONS: PageOption[] = [
   {
     value: 'p1',
     shortTitle: 'P1',
@@ -25,7 +32,7 @@ const PAGE_OPTIONS = [
   },
 ]
 
-function PlaceholderPage({ title }) {
+function PlaceholderPage({ title }: { title: string }) {
   return (
     <main className="placeholder-shell">
       <section className="placeholder-shell__body" aria-label={`${title} 页面占位`} />
@@ -34,9 +41,9 @@ function PlaceholderPage({ title }) {
 }
 
 function App() {
-  const [activePage, setActivePage] = useState('p1')
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true)
-  const activePageMeta = PAGE_OPTIONS.find((item) => item.value === activePage) ?? PAGE_OPTIONS[2]
+  const [activePage, setActivePage] = useState<'p1' | 'p2' | 'p3'>('p1')
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(true)
+  const activePageMeta = PAGE_OPTIONS.find((item) => item.value === activePage) ?? PAGE_OPTIONS[0]
 
   return (
     <div className={`app-shell ${isSidebarCollapsed ? 'app-shell--sidebar-collapsed' : ''}`}>
