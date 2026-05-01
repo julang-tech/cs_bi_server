@@ -1,4 +1,5 @@
 import fs from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
 import { TtlCache } from './cache.js'
 import {
   buildProductRankingPayload,
@@ -49,6 +50,40 @@ function applyBigQueryProxyConfig(config?: {
   }
   if (config.proxy.no_proxy) {
     process.env.NO_PROXY = config.proxy.no_proxy
+  }
+}
+
+function hasActiveSqliteMirrorRows(sqlitePath: string) {
+  if (!fs.existsSync(sqlitePath)) {
+    return false
+  }
+
+  const db = new DatabaseSync(sqlitePath)
+  try {
+    const table = db
+      .prepare(`
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name = 'feishu_target_records'
+      `)
+      .get() as { name: string } | undefined
+    if (!table) {
+      return false
+    }
+
+    const row = db
+      .prepare(`
+        SELECT COUNT(*) AS count
+        FROM feishu_target_records
+        WHERE deleted_at IS NULL
+      `)
+      .get() as { count: number } | undefined
+    return Number(row?.count ?? 0) > 0
+  } catch {
+    return false
+  } finally {
+    db.close()
   }
 }
 
@@ -176,14 +211,14 @@ export function createP3Service(repoRoot: string, syncConfigPath: string) {
   }
 
   if (runtimeConfig) {
-    const sqliteExists = fs.existsSync(runtimeConfig.runtime.sqlitePath)
+    const hasSqliteMirrorRows = hasActiveSqliteMirrorRows(runtimeConfig.runtime.sqlitePath)
     const sqliteCache = new SqliteShopifyBiCacheRepository(runtimeConfig.runtime.sqlitePath)
     salesRepository = sqliteCache
     enrichmentRepository = sqliteCache
     sourceModes.push('sqlite shopify bi cache')
 
     try {
-      if (sqliteExists) {
+      if (hasSqliteMirrorRows) {
         issueProvider = new SqliteIssueProvider(repoRoot, runtimeConfig.runtime.sqlitePath)
         sourceModes.unshift('sqlite mirrored target records')
       } else {
@@ -199,7 +234,7 @@ export function createP3Service(repoRoot: string, syncConfigPath: string) {
           },
         })
         setupNotes.push(
-          `SQLite mirror not found at ${runtimeConfig.runtime.sqlitePath}; falling back to Feishu runtime fetch.`,
+          `SQLite mirror has no active target records at ${runtimeConfig.runtime.sqlitePath}; falling back to Feishu runtime fetch.`,
         )
         sourceModes.unshift('feishu/openclaw runtime fetch')
       }

@@ -828,26 +828,6 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
   private listP3SalesRows(filters: P3Filters): P3SalesRow[] {
     const params = this.buildP3Params(filters)
     const productFilter = this.buildP3ProductFilter()
-    if (filters.date_basis === 'refund_date') {
-      return this.db
-        .prepare(`
-          SELECT DISTINCT
-            re.order_no,
-            re.refund_date AS event_date,
-            li.sku,
-            li.skc,
-            li.spu
-          FROM shopify_bi_refund_events re
-          JOIN shopify_bi_order_lines li
-            ON li.order_id = re.order_id
-           AND (re.sku IS NULL OR re.sku = li.sku)
-          WHERE re.refund_date BETWEEN @date_from AND @date_to
-            AND ${productFilter}
-          ORDER BY re.refund_date ASC, re.order_no ASC
-        `)
-        .all(params) as P3SalesRow[]
-    }
-
     return this.db
       .prepare(`
         SELECT DISTINCT

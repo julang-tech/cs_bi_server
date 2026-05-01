@@ -439,6 +439,20 @@ async function testP3ServiceFallsBackToFeishuWhenSqliteMirrorMissing() {
     assert.ok(payload.meta.source_modes.includes('feishu/openclaw runtime fetch'))
     assert.equal(payload.meta.source_modes.includes('sqlite mirrored target records'), false)
     assert.ok(payload.meta.source_modes.includes('sqlite shopify bi cache'))
+
+    const secondService = createP3Service(process.cwd(), configPath)
+    const secondPayload = await secondService.getDashboard({
+      date_from: '2026-04-01',
+      date_to: '2026-04-30',
+      grain: 'week',
+      date_basis: 'order_date',
+    })
+
+    assert.equal(authCalls, 2)
+    assert.equal(recordsCalls, 2)
+    assert.ok(secondPayload.meta.source_modes.includes('feishu/openclaw runtime fetch'))
+    assert.equal(secondPayload.meta.source_modes.includes('sqlite mirrored target records'), false)
+    assert.ok(secondPayload.meta.source_modes.includes('sqlite shopify bi cache'))
   } finally {
     globalThis.fetch = originalFetch
   }

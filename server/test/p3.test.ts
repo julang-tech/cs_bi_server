@@ -280,17 +280,39 @@ async function testSqliteShopifyBiCacheRepository() {
   assert.equal(enriched.issues[1]?.refund_date, '2026-03-12')
   assert.equal(enriched.issues[1]?.order_line_contexts.length, 2)
 
-  const refundDateTrends = await cache.fetchTrends({
+  const refundDateFilters: P3Filters = {
     ...baseFilters,
     date_basis: 'refund_date',
-    date_from: '2026-03-11',
-    date_to: '2026-03-12',
-    grain: 'day',
-  })
+  }
+  const refundDateSummary = await cache.fetchSummary(refundDateFilters)
+  assert.equal(refundDateSummary.sales_qty, 3)
+
+  const refundDateTrends = await cache.fetchTrends(refundDateFilters)
   assert.deepEqual(refundDateTrends, [
-    { bucket: '2026-03-11', sales_qty: 1, complaint_count: 0 },
-    { bucket: '2026-03-12', sales_qty: 1, complaint_count: 0 },
+    { bucket: '2026-03-02', sales_qty: 2, complaint_count: 0 },
+    { bucket: '2026-03-09', sales_qty: 1, complaint_count: 0 },
   ])
+
+  const refundDateProductSales = await cache.fetchProductSales(refundDateFilters)
+  assert.deepEqual(
+    refundDateProductSales.sort((left, right) => left.skc.localeCompare(right.skc)),
+    [
+      { spu: 'SPU-1', skc: 'SKC-1', sales_qty: 1 },
+      { spu: 'SPU-2', skc: 'SKC-2', sales_qty: 1 },
+      { spu: 'SPU-3', skc: 'SKC-3', sales_qty: 1 },
+      { spu: 'SPU-4', skc: 'SKC-4', sales_qty: 1 },
+    ],
+  )
+
+  const refundDateDashboard = computeDashboard(
+    refundDateFilters,
+    refundDateSummary,
+    refundDateTrends,
+    filterIssues(enriched.issues, refundDateFilters),
+    [],
+    false,
+  )
+  assert.equal(refundDateDashboard.summary.sales_qty, 3)
 
   cache.close()
 }
