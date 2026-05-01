@@ -16,4 +16,9 @@ export default defineConfig({
       },
     },
   },
+  test: {
+    environment: 'jsdom',
+    // globals intentionally off — all tests use explicit `import { describe, it, expect } from 'vitest'`
+    include: ['src/**/*.{test,spec}.{ts,tsx}'],
+  },
 })
