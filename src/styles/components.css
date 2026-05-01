@@ -136,6 +136,228 @@
   box-shadow: 0 0 0 3px rgba(11, 110, 79, 0.12);
 }
 
+.date-range-picker {
+  position: relative;
+}
+
+.date-range-trigger {
+  display: inline-flex;
+  align-items: stretch;
+  min-height: 40px;
+  overflow: hidden;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.date-range-trigger:hover {
+  border-color: rgba(11, 110, 79, 0.34);
+}
+
+.date-range-trigger__date {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  min-width: 190px;
+}
+
+.date-range-trigger__date small {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
+.date-range-trigger__date strong {
+  color: var(--heading);
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.date-range-trigger__divider {
+  width: 1px;
+  background: var(--border);
+}
+
+.date-range-trigger__icon {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  color: var(--muted);
+}
+
+.date-range-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  width: min(760px, calc(100vw - 48px));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.range-presets {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 10px;
+  border-right: 1px solid var(--border);
+  background: var(--surface-subtle);
+}
+
+.range-presets button,
+.range-calendar-toolbar button,
+.range-picker-button {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted-strong);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.range-presets button {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.range-presets button:hover,
+.range-calendar-toolbar button:hover,
+.range-picker-button:hover {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--accent);
+}
+
+.range-calendar {
+  display: grid;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.range-calendar-toolbar,
+.range-picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.range-calendar-toolbar span,
+.range-picker-footer span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.range-calendar-months {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.range-calendar-month {
+  display: grid;
+  gap: 8px;
+}
+
+.range-calendar-month__title {
+  color: var(--heading);
+  font-size: 14px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.range-calendar-weekdays,
+.range-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 32px);
+  justify-content: center;
+  gap: 4px;
+}
+
+.range-calendar-weekdays span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.range-calendar-day {
+  width: 32px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.range-calendar-day:hover:not(:disabled) {
+  border-color: rgba(11, 110, 79, 0.28);
+  background: #edf5f1;
+  color: var(--accent);
+}
+
+.range-calendar-day:disabled {
+  cursor: not-allowed;
+  color: rgba(102, 115, 109, 0.36);
+}
+
+.range-calendar-day--muted {
+  color: var(--muted);
+  opacity: 0.48;
+}
+
+.range-calendar-day--in-range {
+  background: #edf5f1;
+  color: var(--accent);
+}
+
+.range-calendar-day--selected,
+.range-calendar-day--selected:hover:not(:disabled) {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.range-picker-footer {
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.range-picker-footer > div {
+  display: flex;
+  gap: 8px;
+}
+
+.range-picker-button {
+  border-color: var(--input-border);
+  background: var(--surface);
+}
+
+.range-picker-button--primary,
+.range-picker-button--primary:hover {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+}
+
 /* ===========================================================================
    Status banner
    =========================================================================== */
@@ -762,6 +984,43 @@
     display: grid;
     grid-template-columns: 1fr;
     width: 100%;
+  }
+
+  .date-range-picker,
+  .date-range-trigger {
+    width: 100%;
+  }
+
+  .date-range-trigger {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto;
+  }
+
+  .date-range-trigger__date {
+    min-width: 0;
+    padding: 0 10px;
+  }
+
+  .date-range-trigger__date strong {
+    font-size: 16px;
+  }
+
+  .date-range-popover {
+    right: auto;
+    left: 0;
+    grid-template-columns: 1fr;
+    width: min(520px, calc(100vw - 32px));
+  }
+
+  .range-presets {
+    display: flex;
+    flex-wrap: wrap;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .range-calendar-months {
+    grid-template-columns: 1fr;
   }
 
   .select-control {

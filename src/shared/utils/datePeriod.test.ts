@@ -3,6 +3,7 @@ import {
   formatDateInput, parseDateInput, shiftDate,
   getDataReadyDate, getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange,
   getCurrentPeriodLabel,
+  getPresetHistoryRange,
   alignHistoryRangeToGrain, isHistoryRangeValid,
   getPeriodCount, getPeriodLengthDays,
   formatWeekInput, formatMonthInput,
@@ -110,6 +111,20 @@ describe('getDefaultHistoryRange', () => {
   it('month = previous month plus the ready-date month to date', () => {
     expect(getDefaultHistoryRange('month', today)).toEqual({
       date_from: '2026-03-01', date_to: '2026-04-30',
+    })
+  })
+})
+
+describe('getPresetHistoryRange', () => {
+  it('builds recent ranges ending at the ready date', () => {
+    expect(getPresetHistoryRange(7, today)).toEqual({
+      date_from: '2026-04-24', date_to: '2026-04-30',
+    })
+    expect(getPresetHistoryRange(30, today)).toEqual({
+      date_from: '2026-04-01', date_to: '2026-04-30',
+    })
+    expect(getPresetHistoryRange(90, today)).toEqual({
+      date_from: '2026-01-31', date_to: '2026-04-30',
     })
   })
 })

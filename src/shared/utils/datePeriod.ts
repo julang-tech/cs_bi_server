@@ -95,6 +95,14 @@ export function getDefaultHistoryRange(grain: Grain, today: Date = new Date()): 
   return { date_from: formatDateInput(startMonth), date_to: formatDateInput(readyDate) }
 }
 
+export function getPresetHistoryRange(days: number, today: Date = new Date()): PeriodWindow {
+  const end = getDataReadyDate(today)
+  return {
+    date_from: formatDateInput(shiftDate(end, -(days - 1))),
+    date_to: formatDateInput(end),
+  }
+}
+
 export function alignHistoryRangeToGrain(window: PeriodWindow, grain: Grain): PeriodWindow {
   if (grain === 'day') return window
   const start = parseDateInput(window.date_from)
