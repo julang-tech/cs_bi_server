@@ -11,6 +11,9 @@
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:p3": "npm run build:server --silent && node server-dist/server/test/p3.test.js",
     "test:p1-api": "npm run build:server --silent && node server-dist/server/test/p1-api.test.js",
     "test:p2": "npm run build:server --silent && node server-dist/server/test/p2.test.js",
@@ -38,7 +41,6 @@
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -50,6 +52,10 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
-    "vite": "^8.0.9"
+    "jsdom": "^24.1.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.1",
+    "vite": "^8.0.9",
+    "vitest": "^2.1.9"
   }
 }
