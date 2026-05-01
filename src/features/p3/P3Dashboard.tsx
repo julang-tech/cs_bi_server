@@ -9,6 +9,7 @@ import { fetchDashboard, fetchDrilldownOptions, fetchProductRanking } from '../.
 import { formatInteger, formatPercent } from '../../shared/utils/format'
 import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount, getPeriodLengthDays,
+  getCurrentPeriodLabel,
 } from '../../shared/utils/datePeriod'
 import { IssueStructure } from './IssueStructure'
 import { ProductComplaintRanking } from './ProductComplaintRanking'
@@ -178,7 +179,7 @@ export default function P3Dashboard() {
         ) : null
       }
       currentPeriodSection={
-        <KpiSection title="当前周期" subtitle={`数据截至 ${currentPeriod.date_to}`} variant="current">
+        <KpiSection title={getCurrentPeriodLabel(grain)} subtitle={`数据截至 ${currentPeriod.date_to}`} variant="current">
           {cards.map((c) => {
             const periodAverage = c.isRate
               ? (loading || c.currentValue === undefined || c.currentValue === null
