@@ -9,6 +9,21 @@ type QueryCall = {
   params?: Record<string, unknown>
 }
 
+function emptyTrendsMock() {
+  return {
+    trends: {
+      order_count: [],
+      sales_qty: [],
+      refund_order_count: [],
+      refund_amount: [],
+      gmv: [],
+      net_received_amount: [],
+      net_revenue_amount: [],
+      refund_amount_ratio: [],
+    },
+  }
+}
+
 function createFilters(): P2Filters {
   return {
     date_from: '2026-03-31',
@@ -117,6 +132,7 @@ async function testOverviewUsesSqliteCacheWhenCovered() {
       }
     },
     queryP2SpuTable: () => ({ rows: [] }),
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
@@ -166,13 +182,14 @@ async function testOverviewFallsBackToBigQueryWhenCacheCoverageMissing() {
       throw new Error('cache overview should not be queried')
     },
     queryP2SpuTable: () => ({ rows: [] }),
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
   const payload = await service.getOverview(createFilters())
 
   assert.deepEqual(coverageChecks, [{ dateFrom: '2026-03-31', dateTo: '2026-04-29' }])
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 5)
   assert.equal(payload.cards.order_count, 2)
   assert.equal(payload.cards.sales_qty, 4)
   assert.equal(payload.meta.source_mode, 'bigquery_fallback')
@@ -203,12 +220,13 @@ async function testOverviewFallsBackToBigQueryWhenCacheFails() {
       throw new Error('cache overview should not be queried')
     },
     queryP2SpuTable: () => ({ rows: [] }),
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
   const payload = await service.getOverview(createFilters())
 
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 5)
   assert.equal(payload.cards.order_count, 1)
   assert.equal(payload.meta.source_mode, 'bigquery_fallback')
   assert.ok(
@@ -228,6 +246,7 @@ async function testOverviewCacheErrorWithoutBigQueryDoesNotClaimFallback() {
       throw new Error('cache overview should not be queried')
     },
     queryP2SpuTable: () => ({ rows: [] }),
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
@@ -270,6 +289,7 @@ async function testCloseClosesCacheRepository() {
       throw new Error('cache overview should not be queried')
     },
     queryP2SpuTable: () => ({ rows: [] }),
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
     close: () => {
       closeCount += 1
@@ -363,6 +383,7 @@ async function testSpuTableUsesSqliteCacheWhenCovered() {
         skc_rows: [],
       }],
     }),
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
@@ -384,6 +405,7 @@ async function testSpuSkcOptionsUsesSqliteCacheWhenCovered() {
       throw new Error('overview not used')
     },
     queryP2SpuTable: () => ({ rows: [] }),
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({
       options: {
         spus: ['SPU-1'],
@@ -432,6 +454,7 @@ async function testOverviewCachesSqliteResponsesByGeneration() {
       }
     },
     queryP2SpuTable: () => ({ rows: [] }),
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
@@ -467,6 +490,7 @@ async function testSpuTableCachesSqliteResponsesByGenerationAndTopN() {
         }],
       }
     },
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
@@ -489,6 +513,7 @@ async function testSpuSkcOptionsCachesSqliteResponsesByGeneration() {
       throw new Error('overview not used')
     },
     queryP2SpuTable: () => ({ rows: [] }),
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => {
       sqliteCalls += 1
       return {
@@ -535,6 +560,7 @@ async function testOverviewCacheInvalidatesWhenGenerationChanges() {
       }
     },
     queryP2SpuTable: () => ({ rows: [] }),
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
@@ -570,6 +596,7 @@ async function testSpuTableFallsBackToBigQueryWhenCacheCoverageMissing() {
     queryP2SpuTable: () => {
       throw new Error('cache table should not be queried')
     },
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
@@ -591,6 +618,7 @@ async function testSpuSkcOptionsFallsBackToBigQueryWhenCacheFails() {
       throw new Error('overview not used')
     },
     queryP2SpuTable: () => ({ rows: [] }),
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => {
       throw new Error('options not used')
     },
@@ -624,6 +652,7 @@ async function testSpuTableCacheErrorWithoutBigQueryDoesNotClaimFallback() {
     queryP2SpuTable: () => {
       throw new Error('table not used')
     },
+    queryP2Trends: () => emptyTrendsMock(),
     queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 

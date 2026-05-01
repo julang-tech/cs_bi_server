@@ -25,6 +25,6 @@ assert.match(serviceSource, /cache_generation/)
 const shippingCostFilters = serviceSource.match(
   /NOT COALESCE\(li\.is_shipping_cost, FALSE\)/g,
 )
-assert.equal(shippingCostFilters?.length, 3)
+assert.equal(shippingCostFilters?.length, 4)
 
 console.log('P2 static SQL tests passed')

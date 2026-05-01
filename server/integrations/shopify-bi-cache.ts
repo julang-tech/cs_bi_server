@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { TtlCache } from '../domain/p3/cache.js'
+import { bucketLabelForDate, enumerateBuckets } from '../domain/p2/bucket.js'
 import type {
   OrderEnrichmentRepository,
   OrderLineContext,
@@ -85,6 +86,22 @@ export type ShopifyBiP2OverviewFilters = {
   listing_date_to?: string
   spu_list?: string[]
   skc_list?: string[]
+}
+
+type ShopifyBiP2TrendPoint = {
+  bucket: string
+  value: number
+}
+
+type ShopifyBiP2OverviewTrends = {
+  order_count: ShopifyBiP2TrendPoint[]
+  sales_qty: ShopifyBiP2TrendPoint[]
+  refund_order_count: ShopifyBiP2TrendPoint[]
+  refund_amount: ShopifyBiP2TrendPoint[]
+  gmv: ShopifyBiP2TrendPoint[]
+  net_received_amount: ShopifyBiP2TrendPoint[]
+  net_revenue_amount: ShopifyBiP2TrendPoint[]
+  refund_amount_ratio: ShopifyBiP2TrendPoint[]
 }
 
 type ShopifyBiP2SpuTableSkcRow = {
@@ -618,6 +635,168 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
         avg_order_amount: orderCount ? netReceived / orderCount : 0,
       },
     }
+  }
+
+  queryP2Trends(filters: ShopifyBiP2OverviewFilters) {
+    const params = {
+      date_from: filters.date_from,
+      date_to: filters.date_to,
+      category: filters.category ?? '',
+      spu: filters.spu ?? '',
+      skc: filters.skc ?? '',
+      channel: filters.channel ?? '',
+      listing_date_from: filters.listing_date_from ?? '',
+      listing_date_to: filters.listing_date_to ?? '',
+    }
+    const orderRows = this.db
+      .prepare(`
+        WITH filtered_orders AS (
+          SELECT DISTINCT o.*
+          FROM shopify_bi_orders o
+          LEFT JOIN shopify_bi_order_lines li ON li.order_id = o.order_id
+          WHERE o.processed_date BETWEEN @date_from AND @date_to
+            AND o.is_gift_card_order = 0
+            AND o.is_regular_order = 1
+            AND (@category = '' OR o.primary_product_type = @category)
+            AND (@channel = '' OR o.shop_domain = @channel)
+            AND (@listing_date_from = '' OR o.first_published_at_in_order >= @listing_date_from)
+            AND (@listing_date_to = '' OR o.first_published_at_in_order <= @listing_date_to)
+            AND (@skc = '' OR li.skc = @skc)
+            AND (@spu = '' OR li.spu = @spu)
+        ),
+        sales_qty_per_day AS (
+          SELECT
+            o.processed_date AS bucket_date,
+            COALESCE(SUM(li.quantity), 0) AS sales_qty
+          FROM filtered_orders o
+          JOIN shopify_bi_order_lines li ON li.order_id = o.order_id
+          WHERE li.is_insurance_item = 0
+            AND li.is_price_adjustment = 0
+            AND li.is_shipping_cost = 0
+          GROUP BY o.processed_date
+        )
+        SELECT
+          o.processed_date AS bucket_date,
+          COUNT(DISTINCT o.order_id) AS order_count,
+          COALESCE(SUM(o.gmv_usd), 0) AS gmv,
+          COALESCE(SUM(o.revenue_usd), 0) AS net_received_amount,
+          COALESCE(SUM(o.net_revenue_usd), 0) AS net_revenue_amount,
+          COALESCE((SELECT sales_qty FROM sales_qty_per_day s WHERE s.bucket_date = o.processed_date), 0) AS sales_qty
+        FROM filtered_orders o
+        GROUP BY o.processed_date
+      `)
+      .all(params) as Array<Record<string, unknown>>
+
+    const refundRows = this.db
+      .prepare(`
+        SELECT
+          re.refund_date AS bucket_date,
+          COUNT(DISTINCT re.order_id) AS refund_order_count,
+          COALESCE(SUM(re.refund_subtotal_usd), 0) AS refund_amount
+        FROM shopify_bi_refund_events re
+        JOIN shopify_bi_orders o ON o.order_id = re.order_id
+        WHERE re.refund_date BETWEEN @date_from AND @date_to
+          AND o.is_gift_card_order = 0
+          AND o.is_regular_order = 1
+          AND (@category = '' OR o.primary_product_type = @category)
+          AND (@channel = '' OR o.shop_domain = @channel)
+          AND (@listing_date_from = '' OR o.first_published_at_in_order >= @listing_date_from)
+          AND (@listing_date_to = '' OR o.first_published_at_in_order <= @listing_date_to)
+          AND (
+            (@skc = '' AND @spu = '')
+            OR EXISTS (
+              SELECT 1
+              FROM shopify_bi_order_lines li
+              WHERE li.order_id = re.order_id
+                AND (@skc = '' OR li.skc = @skc)
+                AND (@spu = '' OR li.spu = @spu)
+            )
+          )
+        GROUP BY re.refund_date
+      `)
+      .all(params) as Array<Record<string, unknown>>
+
+    type DailySum = {
+      order_count: number
+      sales_qty: number
+      refund_order_count: number
+      refund_amount: number
+      gmv: number
+      net_received_amount: number
+      net_revenue_amount: number
+    }
+    const bucketSums = new Map<string, DailySum>()
+    const bucketFor = (dateText: string) => {
+      const label = bucketLabelForDate(dateText, filters.grain)
+      let entry = bucketSums.get(label)
+      if (!entry) {
+        entry = {
+          order_count: 0,
+          sales_qty: 0,
+          refund_order_count: 0,
+          refund_amount: 0,
+          gmv: 0,
+          net_received_amount: 0,
+          net_revenue_amount: 0,
+        }
+        bucketSums.set(label, entry)
+      }
+      return entry
+    }
+
+    for (const row of orderRows) {
+      const dateText = toText(row.bucket_date)
+      if (!dateText) continue
+      const entry = bucketFor(dateText)
+      entry.order_count += toNumber(row.order_count)
+      entry.sales_qty += toNumber(row.sales_qty)
+      entry.gmv += toNumber(row.gmv)
+      entry.net_received_amount += toNumber(row.net_received_amount)
+      entry.net_revenue_amount += toNumber(row.net_revenue_amount)
+    }
+    for (const row of refundRows) {
+      const dateText = toText(row.bucket_date)
+      if (!dateText) continue
+      const entry = bucketFor(dateText)
+      entry.refund_order_count += toNumber(row.refund_order_count)
+      entry.refund_amount += toNumber(row.refund_amount)
+    }
+
+    const buckets = enumerateBuckets(filters.date_from, filters.date_to, filters.grain)
+    const trends: ShopifyBiP2OverviewTrends = {
+      order_count: [],
+      sales_qty: [],
+      refund_order_count: [],
+      refund_amount: [],
+      gmv: [],
+      net_received_amount: [],
+      net_revenue_amount: [],
+      refund_amount_ratio: [],
+    }
+    for (const bucket of buckets) {
+      const sum = bucketSums.get(bucket) ?? {
+        order_count: 0,
+        sales_qty: 0,
+        refund_order_count: 0,
+        refund_amount: 0,
+        gmv: 0,
+        net_received_amount: 0,
+        net_revenue_amount: 0,
+      }
+      trends.order_count.push({ bucket, value: sum.order_count })
+      trends.sales_qty.push({ bucket, value: sum.sales_qty })
+      trends.refund_order_count.push({ bucket, value: sum.refund_order_count })
+      trends.refund_amount.push({ bucket, value: sum.refund_amount })
+      trends.gmv.push({ bucket, value: sum.gmv })
+      trends.net_received_amount.push({ bucket, value: sum.net_received_amount })
+      trends.net_revenue_amount.push({ bucket, value: sum.net_revenue_amount })
+      trends.refund_amount_ratio.push({
+        bucket,
+        value: sum.net_received_amount ? sum.refund_amount / sum.net_received_amount : 0,
+      })
+    }
+
+    return { trends }
   }
 
   queryP2SpuTable(filters: ShopifyBiP2OverviewFilters, topN: number) {

@@ -3,6 +3,7 @@ import { BigQuery } from '@google-cloud/bigquery'
 import { SqliteShopifyBiCacheRepository } from '../../integrations/shopify-bi-cache.js'
 import { loadP3RuntimeConfig } from '../../integrations/sync-config.js'
 import { TtlCache } from '../p3/cache.js'
+import { bucketLabelForDate, enumerateBuckets } from './bucket.js'
 
 export type P2Filters = {
   date_from: string
@@ -34,6 +35,22 @@ type P2OverviewCards = {
   net_revenue_amount: number
   refund_amount_ratio: number
   avg_order_amount: number
+}
+
+export type P2TrendPoint = {
+  bucket: string
+  value: number
+}
+
+export type P2OverviewTrends = {
+  order_count: P2TrendPoint[]
+  sales_qty: P2TrendPoint[]
+  refund_order_count: P2TrendPoint[]
+  refund_amount: P2TrendPoint[]
+  gmv: P2TrendPoint[]
+  net_received_amount: P2TrendPoint[]
+  net_revenue_amount: P2TrendPoint[]
+  refund_amount_ratio: P2TrendPoint[]
 }
 
 export type P2SpuTableSkcRow = {
@@ -73,6 +90,7 @@ type P2Meta = {
 type P2OverviewPayload = {
   filters: P2Filters
   cards: P2OverviewCards
+  trends: P2OverviewTrends
   meta: P2Meta
 }
 
@@ -93,6 +111,9 @@ export type P2CacheRepository = {
   getGeneration(dateFrom: string, dateTo: string): string
   queryP2Overview(filters: P2Filters): {
     cards: P2OverviewCards
+  }
+  queryP2Trends(filters: P2Filters): {
+    trends: P2OverviewTrends
   }
   queryP2SpuTable(filters: P2Filters, topN: number): { rows: P2SpuTableRow[] }
   queryP2SpuSkcOptions(filters: P2Filters): { options: P2SpuSkcOptions }
@@ -117,6 +138,64 @@ function toText(value: unknown) {
 
 const ADR_0007_METRIC_NOTE =
   'Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping; refund_amount is now refund-flow (events in window) not cohort (orders in window). See lintico-data-warehouse/shopify_data_sync/docs/decisions/0007-dwd-align-with-cs-bi-finance.md'
+
+function emptyTrends(): P2OverviewTrends {
+  return {
+    order_count: [],
+    sales_qty: [],
+    refund_order_count: [],
+    refund_amount: [],
+    gmv: [],
+    net_received_amount: [],
+    net_revenue_amount: [],
+    refund_amount_ratio: [],
+  }
+}
+
+type P2DailyAccumulator = {
+  order_count: number
+  sales_qty: number
+  refund_order_count: number
+  refund_amount: number
+  gmv: number
+  net_received_amount: number
+  net_revenue_amount: number
+}
+
+function emptyDailyAccumulator(): P2DailyAccumulator {
+  return {
+    order_count: 0,
+    sales_qty: 0,
+    refund_order_count: 0,
+    refund_amount: 0,
+    gmv: 0,
+    net_received_amount: 0,
+    net_revenue_amount: 0,
+  }
+}
+
+export function buildP2TrendsFromBuckets(
+  filters: P2Filters,
+  bucketSums: Map<string, P2DailyAccumulator>,
+): P2OverviewTrends {
+  const buckets = enumerateBuckets(filters.date_from, filters.date_to, filters.grain)
+  const trends = emptyTrends()
+  for (const bucket of buckets) {
+    const sum = bucketSums.get(bucket) ?? emptyDailyAccumulator()
+    trends.order_count.push({ bucket, value: sum.order_count })
+    trends.sales_qty.push({ bucket, value: sum.sales_qty })
+    trends.refund_order_count.push({ bucket, value: sum.refund_order_count })
+    trends.refund_amount.push({ bucket, value: sum.refund_amount })
+    trends.gmv.push({ bucket, value: sum.gmv })
+    trends.net_received_amount.push({ bucket, value: sum.net_received_amount })
+    trends.net_revenue_amount.push({ bucket, value: sum.net_revenue_amount })
+    trends.refund_amount_ratio.push({
+      bucket,
+      value: sum.net_received_amount ? sum.refund_amount / sum.net_received_amount : 0,
+    })
+  }
+  return trends
+}
 
 function buildSqliteResponseCacheKey(
   endpoint: 'overview' | 'spu-table' | 'spu-skc-options',
@@ -164,9 +243,11 @@ export class P2Service {
           return cached
         }
         const payload = this.cacheRepository.queryP2Overview(filters)
+        const trendsPayload = this.cacheRepository.queryP2Trends(filters)
         return this.overviewCache.set(cacheKey, {
           filters,
           cards: payload.cards,
+          trends: trendsPayload.trends,
           meta: {
             partial_data: false,
             source_mode: 'sqlite_shopify_bi_cache',
@@ -194,6 +275,7 @@ export class P2Service {
           refund_amount_ratio: 0,
           avg_order_amount: 0,
         },
+        trends: emptyTrends(),
         meta: {
           partial_data: true,
           notes: [
@@ -212,7 +294,7 @@ export class P2Service {
       return cachedFallback
     }
 
-    const [orderMetricsResult, salesQtyResult] = await Promise.all([
+    const [orderMetricsResult, salesQtyResult, dailyOrderResult, dailySalesQtyResult, dailyRefundResult] = await Promise.all([
       this.client.query({
         query: `
 WITH order_metrics AS (
@@ -297,11 +379,114 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
           ...this.buildParams(filters),
         },
       }),
+      this.client.query({
+        query: `
+SELECT
+  FORMAT_DATE('%Y-%m-%d', o.processed_date) AS bucket_date,
+  COUNT(DISTINCT o.order_id) AS order_count,
+  SUM(COALESCE(o.cs_bi_gmv_usd, 0)) AS gmv,
+  SUM(COALESCE(o.cs_bi_revenue_usd, 0)) AS net_received_amount,
+  SUM(COALESCE(o.cs_bi_net_revenue_usd, 0)) AS net_revenue_amount
+FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
+WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+  AND NOT COALESCE(o.is_gift_card_order, FALSE)
+  AND COALESCE(o.is_regular_order, FALSE) = TRUE
+  AND (@category = '' OR o.primary_product_type = @category)
+  AND (@channel = '' OR o.shop_domain = @channel)
+  AND (@listing_date_from = '' OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from))
+  AND (@listing_date_to = '' OR DATE(o.first_published_at_in_order) <= DATE(@listing_date_to))
+  ${this.buildSkuDerivedProductFilterSql('o')}
+GROUP BY bucket_date
+        `,
+        params: {
+          ...this.buildParams(filters),
+        },
+      }),
+      this.client.query({
+        query: `
+SELECT
+  FORMAT_DATE('%Y-%m-%d', o.processed_date) AS bucket_date,
+  COALESCE(SUM(COALESCE(li.quantity, 0)), 0) AS sales_qty
+FROM \`julang-dev-database.shopify_intermediate.int_line_items_classified\` li
+JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
+  ON o.order_id = li.order_id
+WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+  AND NOT COALESCE(o.is_gift_card_order, FALSE)
+  AND COALESCE(o.is_regular_order, FALSE) = TRUE
+  AND (@category = '' OR o.primary_product_type = @category)
+  AND (@channel = '' OR o.shop_domain = @channel)
+  AND (@listing_date_from = '' OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from))
+  AND (@listing_date_to = '' OR DATE(o.first_published_at_in_order) <= DATE(@listing_date_to))
+  ${this.buildSkuDerivedProductFilterSql('o')}
+  AND NOT COALESCE(li.is_insurance_item, FALSE)
+  AND NOT COALESCE(li.is_price_adjustment, FALSE)
+  AND NOT COALESCE(li.is_shipping_cost, FALSE)
+GROUP BY bucket_date
+        `,
+        params: {
+          ...this.buildParams(filters),
+        },
+      }),
+      this.client.query({
+        query: `
+SELECT
+  FORMAT_DATE('%Y-%m-%d', re.refund_date) AS bucket_date,
+  COUNT(DISTINCT re.order_id) AS refund_order_count,
+  SUM(CAST(re.refund_subtotal AS NUMERIC) * COALESCE(CAST(o.usd_fx_rate AS NUMERIC), 1)) AS refund_amount
+FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
+JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o ON re.order_id = o.order_id
+WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+  AND NOT COALESCE(o.is_gift_card_order, FALSE)
+  AND COALESCE(o.is_regular_order, FALSE) = TRUE
+  AND (@category = '' OR o.primary_product_type = @category)
+  AND (@channel = '' OR o.shop_domain = @channel)
+  AND (@listing_date_from = '' OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from))
+  AND (@listing_date_to = '' OR DATE(o.first_published_at_in_order) <= DATE(@listing_date_to))
+  ${this.buildSkuDerivedProductFilterSql('o')}
+GROUP BY bucket_date
+        `,
+        params: {
+          ...this.buildParams(filters),
+        },
+      }),
     ])
 
     const rows = extractRows(orderMetricsResult)
     const row = rows[0] ?? {}
     const salesQtyRows = extractRows(salesQtyResult)
+    const bucketSums = new Map<string, P2DailyAccumulator>()
+    function bucketFor(dateText: string) {
+      const label = bucketLabelForDate(dateText, filters.grain)
+      let entry = bucketSums.get(label)
+      if (!entry) {
+        entry = emptyDailyAccumulator()
+        bucketSums.set(label, entry)
+      }
+      return entry
+    }
+    for (const dailyRow of extractRows(dailyOrderResult)) {
+      const dateText = toText(dailyRow.bucket_date)
+      if (!dateText) continue
+      const entry = bucketFor(dateText)
+      entry.order_count += toNumber(dailyRow.order_count)
+      entry.gmv += toNumber(dailyRow.gmv)
+      entry.net_received_amount += toNumber(dailyRow.net_received_amount)
+      entry.net_revenue_amount += toNumber(dailyRow.net_revenue_amount)
+    }
+    for (const dailyRow of extractRows(dailySalesQtyResult)) {
+      const dateText = toText(dailyRow.bucket_date)
+      if (!dateText) continue
+      const entry = bucketFor(dateText)
+      entry.sales_qty += toNumber(dailyRow.sales_qty)
+    }
+    for (const dailyRow of extractRows(dailyRefundResult)) {
+      const dateText = toText(dailyRow.bucket_date)
+      if (!dateText) continue
+      const entry = bucketFor(dateText)
+      entry.refund_order_count += toNumber(dailyRow.refund_order_count)
+      entry.refund_amount += toNumber(dailyRow.refund_amount)
+    }
+    const trends = buildP2TrendsFromBuckets(filters, bucketSums)
 
     const orderCount = toNumber(row.order_count)
     const netReceived = toNumber(row.net_received_amount)
@@ -321,6 +506,7 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
         refund_amount_ratio: netReceived ? refundAmount / netReceived : 0,
         avg_order_amount: orderCount ? netReceived / orderCount : 0,
       },
+      trends,
       meta: {
         partial_data: false,
         source_mode: 'bigquery_fallback',
