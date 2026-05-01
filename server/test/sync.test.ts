@@ -996,6 +996,82 @@ async function testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache() {
   reopened.close()
 }
 
+async function testShopifyBiCacheReplacesDateWindowTransactionally() {
+  const tmpDir = createTempDir()
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+
+  cache.replaceWindow({
+    dateFrom: '2026-04-01',
+    dateTo: '2026-04-02',
+    orders: [{
+      order_id: 'order-1',
+      order_no: 'LC100',
+      shop_domain: '2vnpww-33.myshopify.com',
+      processed_date: '2026-04-01',
+      primary_product_type: 'Dress',
+      first_published_at_in_order: '2026-03-20',
+      is_regular_order: true,
+      is_gift_card_order: false,
+      gmv_usd: 120,
+      revenue_usd: 100,
+      net_revenue_usd: 90,
+    }],
+    orderLines: [{
+      order_id: 'order-1',
+      order_no: 'LC100',
+      line_key: 'order-1:SKU-1:0',
+      sku: 'SKU-1-M',
+      skc: 'SKU-1',
+      spu: 'SKU',
+      product_id: 'prod-1',
+      variant_id: 'var-1',
+      quantity: 2,
+      discounted_total_usd: 100,
+      is_insurance_item: false,
+      is_price_adjustment: false,
+      is_shipping_cost: false,
+    }],
+    refundEvents: [{
+      refund_id: 'refund-1',
+      order_id: 'order-1',
+      order_no: 'LC100',
+      sku: 'SKU-1-M',
+      refund_date: '2026-04-02',
+      refund_quantity: 1,
+      refund_subtotal_usd: 50,
+    }],
+  })
+
+  cache.replaceWindow({
+    dateFrom: '2026-04-01',
+    dateTo: '2026-04-02',
+    orders: [],
+    orderLines: [],
+    refundEvents: [],
+  })
+
+  assert.equal(cache.hasCoverage('2026-04-01', '2026-04-02'), true)
+  assert.equal(cache.getGeneration('2026-04-01', '2026-04-02').length > 0, true)
+  assert.deepEqual(cache.queryP2Overview({
+    date_from: '2026-04-01',
+    date_to: '2026-04-02',
+    grain: 'month',
+  }).cards, {
+    order_count: 0,
+    sales_qty: 0,
+    refund_order_count: 0,
+    refund_amount: 0,
+    gmv: 0,
+    net_received_amount: 0,
+    net_revenue_amount: 0,
+    refund_amount_ratio: 0,
+    avg_order_amount: 0,
+  })
+  cache.close()
+}
+
 async function run() {
   testTransformBasicFields()
   testTransformSplitsMultiSkuRows()
@@ -1019,6 +1095,7 @@ async function run() {
   await testSyncRefreshesBigQueryCache()
   await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
   await testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache()
+  await testShopifyBiCacheReplacesDateWindowTransactionally()
   console.log('Sync tests passed')
 }
 
