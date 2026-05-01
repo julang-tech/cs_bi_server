@@ -136,36 +136,6 @@ export default function P1Dashboard() {
       deltaMode: 'percent' as const,
       isRate: false,
     },
-    {
-      key: 'first_email_count',
-      label: '首封邮件数',
-      description: getMetricDescription('p1.first_email_count'),
-      sparkline: false,
-      currentValue: current?.summary.first_email_count,
-      previousValue: previous?.summary.first_email_count,
-      historyTrend: (history?.trends.first_email_count ?? []) as TrendPoint[],
-      currentTrend: current
-        ? [{ bucket: currentPeriod.date_to, value: current.summary.first_email_count }]
-        : [],
-      formatter: formatInteger,
-      deltaMode: 'percent' as const,
-      isRate: false,
-    },
-    {
-      key: 'unreplied_email_count',
-      label: '还没回复数',
-      description: getMetricDescription('p1.unreplied_email_count'),
-      sparkline: false,
-      currentValue: current?.summary.unreplied_email_count,
-      previousValue: previous?.summary.unreplied_email_count,
-      historyTrend: (history?.trends.unreplied_email_count ?? []) as TrendPoint[],
-      currentTrend: current
-        ? [{ bucket: currentPeriod.date_to, value: current.summary.unreplied_email_count }]
-        : [],
-      formatter: formatInteger,
-      deltaMode: 'percent' as const,
-      isRate: false,
-    },
   ]
 
   const focusMetrics: FocusMetricSpec[] = cards.map((c) => ({

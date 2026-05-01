@@ -77,7 +77,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
   {
     id: 'p1',
     title: 'P1 聊天数据看板',
-    description: '客服接待规模、响应效率、未回复存量和坐席工作量相关指标。',
+    description: '客服接待规模、响应效率和坐席工作量相关指标。',
     sections: [
       {
         title: '核心 KPI',
@@ -105,18 +105,6 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
             name: '首次响应超时次数',
             short: '首次响应超过服务目标的会话次数。',
             detail: '用于识别响应 SLA 风险。该指标下降通常代表响应及时性改善。',
-          },
-          {
-            id: 'p1.first_email_count',
-            name: '首封邮件数',
-            short: '统计周期内首次进入客服链路的邮件数量。',
-            detail: '用于观察新增咨询入口量，和来邮总量一起判断重复沟通压力。',
-          },
-          {
-            id: 'p1.unreplied_email_count',
-            name: '还没回复数',
-            short: '截至统计时点仍未回复的邮件数量。',
-            detail: '用于衡量当前待处理积压，应重点关注异常上升。',
           },
         ],
       },
