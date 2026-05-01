@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { P2Service, type P2Filters } from '../domain/p2/service.js'
 
 type QueryCall = {
@@ -93,6 +96,8 @@ async function testOverviewUsesSqliteCacheWhenCovered() {
         },
       }
     },
+    queryP2SpuTable: () => ({ rows: [] }),
+    queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
   const payload = await service.getOverview(createFilters())
@@ -140,6 +145,8 @@ async function testOverviewFallsBackToBigQueryWhenCacheCoverageMissing() {
     queryP2Overview: () => {
       throw new Error('cache overview should not be queried')
     },
+    queryP2SpuTable: () => ({ rows: [] }),
+    queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
   const payload = await service.getOverview(createFilters())
@@ -175,6 +182,8 @@ async function testOverviewFallsBackToBigQueryWhenCacheFails() {
     queryP2Overview: () => {
       throw new Error('cache overview should not be queried')
     },
+    queryP2SpuTable: () => ({ rows: [] }),
+    queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
   const payload = await service.getOverview(createFilters())
@@ -198,6 +207,8 @@ async function testOverviewCacheErrorWithoutBigQueryDoesNotClaimFallback() {
     queryP2Overview: () => {
       throw new Error('cache overview should not be queried')
     },
+    queryP2SpuTable: () => ({ rows: [] }),
+    queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
   })
 
   const payload = await service.getOverview(createFilters())
@@ -238,6 +249,8 @@ async function testCloseClosesCacheRepository() {
     queryP2Overview: () => {
       throw new Error('cache overview should not be queried')
     },
+    queryP2SpuTable: () => ({ rows: [] }),
+    queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
     close: () => {
       closeCount += 1
     },
@@ -282,6 +295,350 @@ async function testSpuTableExcludesShippingCostLines() {
   assert.match(spuTableSql, /NOT COALESCE\(li\.is_shipping_cost, FALSE\)/)
 }
 
+async function testSpuTableUsesSqliteCacheWhenCovered() {
+  const bigQuery = createClient([[{ row_type: 'SPU', spu: 'BQ', refund_amount: 999 }]])
+  const service = new P2Service(bigQuery.client, {
+    hasCoverage: () => true,
+    getGeneration: () => 'generation-1',
+    queryP2Overview: () => {
+      throw new Error('overview not used')
+    },
+    queryP2SpuTable: () => ({
+      rows: [{
+        spu: 'SPU-1',
+        sales_qty: 2,
+        sales_amount: 100,
+        refund_qty: 1,
+        refund_amount: 50,
+        refund_qty_ratio: 0.5,
+        refund_amount_ratio: 0.5,
+        skc_rows: [],
+      }],
+    }),
+    queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
+  })
+
+  const payload = await service.getSpuTable(createFilters(), 20)
+
+  assert.equal(bigQuery.calls.length, 0)
+  assert.equal(payload.rows[0]?.spu, 'SPU-1')
+  assert.equal(payload.meta.source_mode, 'sqlite_shopify_bi_cache')
+  assert.equal(payload.meta.cache_generation, 'generation-1')
+  assert.deepEqual(payload.meta.notes, [])
+}
+
+async function testSpuSkcOptionsUsesSqliteCacheWhenCovered() {
+  const bigQuery = createClient([[{ spu: 'BQ', skc: 'BQ-SKC' }]])
+  const service = new P2Service(bigQuery.client, {
+    hasCoverage: () => true,
+    getGeneration: () => 'generation-1',
+    queryP2Overview: () => {
+      throw new Error('overview not used')
+    },
+    queryP2SpuTable: () => ({ rows: [] }),
+    queryP2SpuSkcOptions: () => ({
+      options: {
+        spus: ['SPU-1'],
+        skcs: ['SKC-1'],
+        pairs: [{ spu: 'SPU-1', skc: 'SKC-1' }],
+      },
+    }),
+  })
+
+  const payload = await service.getSpuSkcOptions(createFilters())
+
+  assert.equal(bigQuery.calls.length, 0)
+  assert.deepEqual(payload.options, {
+    spus: ['SPU-1'],
+    skcs: ['SKC-1'],
+    pairs: [{ spu: 'SPU-1', skc: 'SKC-1' }],
+  })
+  assert.equal(payload.meta.source_mode, 'sqlite_shopify_bi_cache')
+  assert.equal(payload.meta.cache_generation, 'generation-1')
+  assert.deepEqual(payload.meta.notes, [])
+}
+
+async function testSpuTableFallsBackToBigQueryWhenCacheCoverageMissing() {
+  const { client, calls } = createClient([[
+    {
+      row_type: 'SPU',
+      spu: 'BQ-SPU',
+      sales_qty: 2,
+      sales_amount: 100,
+      refund_qty: 1,
+      refund_amount: 40,
+      refund_qty_ratio: 0.5,
+      refund_amount_ratio: 0.4,
+    },
+  ]])
+  const service = new P2Service(client, {
+    hasCoverage: () => false,
+    getGeneration: () => 'unused',
+    queryP2Overview: () => {
+      throw new Error('overview not used')
+    },
+    queryP2SpuTable: () => {
+      throw new Error('cache table should not be queried')
+    },
+    queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
+  })
+
+  const payload = await service.getSpuTable(createFilters(), 20)
+
+  assert.equal(calls.length, 1)
+  assert.equal(payload.rows[0]?.spu, 'BQ-SPU')
+  assert.equal(payload.meta.source_mode, 'bigquery_fallback')
+}
+
+async function testSpuSkcOptionsFallsBackToBigQueryWhenCacheFails() {
+  const { client, calls } = createClient([[{ spu: 'BQ-SPU', skc: 'BQ-SKC' }]])
+  const service = new P2Service(client, {
+    hasCoverage: () => {
+      throw new Error('cache database locked')
+    },
+    getGeneration: () => 'unused',
+    queryP2Overview: () => {
+      throw new Error('overview not used')
+    },
+    queryP2SpuTable: () => ({ rows: [] }),
+    queryP2SpuSkcOptions: () => {
+      throw new Error('options not used')
+    },
+  })
+
+  const payload = await service.getSpuSkcOptions(createFilters())
+
+  assert.equal(calls.length, 1)
+  assert.deepEqual(payload.options, {
+    spus: ['BQ-SPU'],
+    skcs: ['BQ-SKC'],
+    pairs: [{ spu: 'BQ-SPU', skc: 'BQ-SKC' }],
+  })
+  assert.equal(payload.meta.source_mode, 'bigquery_fallback')
+  assert.ok(
+    payload.meta.notes.some((note) =>
+      note.includes('SQLite Shopify BI cache unavailable; fell back to BigQuery: cache database locked'),
+    ),
+  )
+}
+
+async function testSpuTableCacheErrorWithoutBigQueryDoesNotClaimFallback() {
+  const service = new P2Service(null, {
+    hasCoverage: () => {
+      throw new Error('cache database locked')
+    },
+    getGeneration: () => 'unused',
+    queryP2Overview: () => {
+      throw new Error('overview not used')
+    },
+    queryP2SpuTable: () => {
+      throw new Error('table not used')
+    },
+    queryP2SpuSkcOptions: () => ({ options: { spus: [], skcs: [], pairs: [] } }),
+  })
+
+  const payload = await service.getSpuTable(createFilters(), 20)
+
+  assert.equal(payload.meta.partial_data, true)
+  assert.deepEqual(payload.rows, [])
+  assert.ok(
+    payload.meta.notes.some((note) =>
+      note.includes('SQLite Shopify BI cache unavailable: cache database locked'),
+    ),
+  )
+  assert.ok(
+    payload.meta.notes.some((note) =>
+      note.includes('BigQuery credentials not found; returning empty table.'),
+    ),
+  )
+  assert.equal(
+    payload.meta.notes.some((note) => /fell back to BigQuery/.test(note)),
+    false,
+  )
+}
+
+async function testSqliteCacheReturnsP2SpuTableAndOptions() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'p2-cache-'))
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+
+  try {
+    cache.replaceWindow({
+      dateFrom: '2026-04-01',
+      dateTo: '2026-04-30',
+      orders: [
+        {
+          order_id: 'order-a',
+          order_no: 'LC100',
+          shop_domain: '2vnpww-33.myshopify.com',
+          processed_date: '2026-04-02',
+          primary_product_type: 'Dress',
+          first_published_at_in_order: '2026-03-20',
+          is_regular_order: true,
+          is_gift_card_order: false,
+          gmv_usd: 120,
+          revenue_usd: 100,
+          net_revenue_usd: 90,
+        },
+        {
+          order_id: 'order-b',
+          order_no: 'LC101',
+          shop_domain: '2vnpww-33.myshopify.com',
+          processed_date: '2026-04-03',
+          primary_product_type: 'Dress',
+          first_published_at_in_order: '2026-03-21',
+          is_regular_order: true,
+          is_gift_card_order: false,
+          gmv_usd: 80,
+          revenue_usd: 80,
+          net_revenue_usd: 70,
+        },
+        {
+          order_id: 'order-c',
+          order_no: 'LC102',
+          shop_domain: '2vnpww-33.myshopify.com',
+          processed_date: '2026-03-25',
+          primary_product_type: 'Dress',
+          first_published_at_in_order: '2026-03-18',
+          is_regular_order: true,
+          is_gift_card_order: false,
+          gmv_usd: 90,
+          revenue_usd: 90,
+          net_revenue_usd: 80,
+        },
+      ],
+      orderLines: [
+        {
+          order_id: 'order-a',
+          order_no: 'LC100',
+          line_key: 'order-a:line-1',
+          sku: 'DRESS-RED-M',
+          skc: 'DRESS-RED',
+          spu: 'DRESS',
+          product_id: 'prod-a',
+          variant_id: 'var-a',
+          quantity: 2,
+          discounted_total_usd: 100,
+          is_insurance_item: false,
+          is_price_adjustment: false,
+          is_shipping_cost: false,
+        },
+        {
+          order_id: 'order-b',
+          order_no: 'LC101',
+          line_key: 'order-b:line-1',
+          sku: 'TOP-BLUE-M',
+          skc: 'TOP-BLUE',
+          spu: 'TOP',
+          product_id: 'prod-b',
+          variant_id: 'var-b',
+          quantity: 1,
+          discounted_total_usd: 80,
+          is_insurance_item: false,
+          is_price_adjustment: false,
+          is_shipping_cost: false,
+        },
+        {
+          order_id: 'order-c',
+          order_no: 'LC102',
+          line_key: 'order-c:line-1',
+          sku: 'JACKET-GREEN-M',
+          skc: 'JACKET-GREEN',
+          spu: 'JACKET',
+          product_id: 'prod-c',
+          variant_id: 'var-c',
+          quantity: 1,
+          discounted_total_usd: 90,
+          is_insurance_item: false,
+          is_price_adjustment: false,
+          is_shipping_cost: false,
+        },
+        {
+          order_id: 'order-a',
+          order_no: 'LC100',
+          line_key: 'order-a:shipping',
+          sku: 'SHIP',
+          skc: 'SHIP',
+          spu: 'SHIP',
+          product_id: null,
+          variant_id: null,
+          quantity: 1,
+          discounted_total_usd: 10,
+          is_insurance_item: false,
+          is_price_adjustment: false,
+          is_shipping_cost: true,
+        },
+      ],
+      refundEvents: [
+        {
+          refund_id: 'refund-a',
+          order_id: 'order-a',
+          order_no: 'LC100',
+          sku: 'DRESS-RED-M',
+          refund_date: '2026-04-05',
+          refund_quantity: 1,
+          refund_subtotal_usd: 50,
+        },
+        {
+          refund_id: 'refund-b',
+          order_id: 'order-b',
+          order_no: 'LC101',
+          sku: 'TOP-BLUE-M',
+          refund_date: '2026-04-06',
+          refund_quantity: 1,
+          refund_subtotal_usd: 30,
+        },
+        {
+          refund_id: 'refund-c',
+          order_id: 'order-c',
+          order_no: 'LC102',
+          sku: 'JACKET-GREEN-M',
+          refund_date: '2026-04-07',
+          refund_quantity: 1,
+          refund_subtotal_usd: 60,
+        },
+      ],
+      finishedAt: '2026-05-01T00:00:00.000Z',
+    })
+
+    const table = cache.queryP2SpuTable({
+      ...createFilters(),
+      date_from: '2026-04-01',
+      date_to: '2026-04-30',
+      category: 'Dress',
+    }, 2)
+    assert.equal(table.rows.length, 2)
+    assert.equal(table.rows[0]?.spu, 'JACKET')
+    assert.equal(table.rows[0]?.sales_qty, 0)
+    assert.equal(table.rows[0]?.sales_amount, 0)
+    assert.equal(table.rows[0]?.refund_qty, 1)
+    assert.equal(table.rows[0]?.refund_amount, 60)
+    assert.equal(table.rows[1]?.spu, 'DRESS')
+    assert.equal(table.rows[1]?.sales_qty, 2)
+    assert.equal(table.rows[1]?.sales_amount, 100)
+    assert.equal(table.rows[1]?.refund_qty, 1)
+    assert.equal(table.rows[1]?.refund_amount, 50)
+    assert.deepEqual(table.rows[1]?.skc_rows.map((row) => row.skc), ['DRESS-RED'])
+
+    const options = cache.queryP2SpuSkcOptions({
+      ...createFilters(),
+      date_from: '2026-04-01',
+      date_to: '2026-04-30',
+      category: 'Dress',
+    }).options
+    assert.deepEqual(options.spus, ['DRESS', 'TOP'])
+    assert.deepEqual(options.skcs, ['DRESS-RED', 'TOP-BLUE'])
+    assert.deepEqual(options.pairs, [
+      { spu: 'DRESS', skc: 'DRESS-RED' },
+      { spu: 'TOP', skc: 'TOP-BLUE' },
+    ])
+  } finally {
+    cache.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+}
+
 await testOverviewUsesAdr0007FinanceMetrics()
 await testOverviewUsesSqliteCacheWhenCovered()
 await testOverviewFallsBackToBigQueryWhenCacheCoverageMissing()
@@ -290,5 +647,11 @@ await testOverviewCacheErrorWithoutBigQueryDoesNotClaimFallback()
 await testCloseClosesCacheRepository()
 await testOverviewSalesQtyExcludesShippingCostLines()
 await testSpuTableExcludesShippingCostLines()
+await testSpuTableUsesSqliteCacheWhenCovered()
+await testSpuSkcOptionsUsesSqliteCacheWhenCovered()
+await testSpuTableFallsBackToBigQueryWhenCacheCoverageMissing()
+await testSpuSkcOptionsFallsBackToBigQueryWhenCacheFails()
+await testSpuTableCacheErrorWithoutBigQueryDoesNotClaimFallback()
+await testSqliteCacheReturnsP2SpuTableAndOptions()
 
 console.log('P2 tests passed')

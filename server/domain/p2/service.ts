@@ -35,12 +35,60 @@ type P2OverviewCards = {
   avg_order_amount: number
 }
 
+export type P2SpuTableSkcRow = {
+  skc: string
+  sales_qty: number
+  sales_amount: number
+  refund_qty: number
+  refund_amount: number
+  refund_qty_ratio: number
+  refund_amount_ratio: number
+}
+
+export type P2SpuTableRow = {
+  spu: string
+  sales_qty: number
+  sales_amount: number
+  refund_qty: number
+  refund_amount: number
+  refund_qty_ratio: number
+  refund_amount_ratio: number
+  skc_rows: P2SpuTableSkcRow[]
+}
+
+export type P2SpuSkcOptions = {
+  spus: string[]
+  skcs: string[]
+  pairs: Array<{ spu: string; skc: string }>
+}
+
+type P2Meta = {
+  partial_data: boolean
+  source_mode?: 'sqlite_shopify_bi_cache' | 'bigquery_fallback'
+  cache_generation?: string
+  notes: string[]
+}
+
+type P2SpuTablePayload = {
+  filters: P2Filters
+  rows: P2SpuTableRow[]
+  meta: P2Meta
+}
+
+type P2SpuSkcOptionsPayload = {
+  filters: P2Filters
+  options: P2SpuSkcOptions
+  meta: P2Meta
+}
+
 export type P2CacheRepository = {
   hasCoverage(dateFrom: string, dateTo: string): boolean
   getGeneration(dateFrom: string, dateTo: string): string
   queryP2Overview(filters: P2Filters): {
     cards: P2OverviewCards
   }
+  queryP2SpuTable(filters: P2Filters, topN: number): { rows: P2SpuTableRow[] }
+  queryP2SpuSkcOptions(filters: P2Filters): { options: P2SpuSkcOptions }
   close?: () => void
 }
 
@@ -247,14 +295,39 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
     }
   }
 
-  async getSpuTable(filters: P2Filters, topN: number) {
+  async getSpuTable(filters: P2Filters, topN: number): Promise<P2SpuTablePayload> {
+    let cacheUnavailableMessage: string | null = null
+    try {
+      if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
+        const payload = this.cacheRepository.queryP2SpuTable(filters, topN)
+        return {
+          filters,
+          rows: payload.rows,
+          meta: {
+            partial_data: false,
+            source_mode: 'sqlite_shopify_bi_cache',
+            cache_generation: this.cacheRepository.getGeneration(filters.date_from, filters.date_to),
+            notes: [],
+          },
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      cacheUnavailableMessage = message
+    }
+
     if (!this.client) {
       return {
         filters,
         rows: [],
         meta: {
           partial_data: true,
-          notes: ['BigQuery credentials not found; returning empty table.'],
+          notes: [
+            ...(cacheUnavailableMessage
+              ? [`SQLite Shopify BI cache unavailable: ${cacheUnavailableMessage}`]
+              : []),
+            'BigQuery credentials not found; returning empty table.',
+          ],
         },
       }
     }
@@ -505,17 +578,52 @@ ORDER BY spu, row_type DESC, refund_amount DESC
       rows: [...grouped.values()].sort((a, b) => b.refund_amount - a.refund_amount),
       meta: {
         partial_data: false,
-        notes: [],
+        source_mode: 'bigquery_fallback',
+        notes: [
+          ...(cacheUnavailableMessage
+            ? [
+                `SQLite Shopify BI cache unavailable; fell back to BigQuery: ${cacheUnavailableMessage}`,
+              ]
+            : []),
+        ],
       },
     }
   }
 
-  async getSpuSkcOptions(filters: P2Filters) {
+  async getSpuSkcOptions(filters: P2Filters): Promise<P2SpuSkcOptionsPayload> {
+    let cacheUnavailableMessage: string | null = null
+    try {
+      if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
+        const payload = this.cacheRepository.queryP2SpuSkcOptions(filters)
+        return {
+          filters,
+          options: payload.options,
+          meta: {
+            partial_data: false,
+            source_mode: 'sqlite_shopify_bi_cache',
+            cache_generation: this.cacheRepository.getGeneration(filters.date_from, filters.date_to),
+            notes: [],
+          },
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      cacheUnavailableMessage = message
+    }
+
     if (!this.client) {
       return {
         filters,
-        options: { spus: [], skcs: [] },
-        meta: { partial_data: true, notes: ['BigQuery credentials not found; returning empty options.'] },
+        options: { spus: [], skcs: [], pairs: [] },
+        meta: {
+          partial_data: true,
+          notes: [
+            ...(cacheUnavailableMessage
+              ? [`SQLite Shopify BI cache unavailable: ${cacheUnavailableMessage}`]
+              : []),
+            'BigQuery credentials not found; returning empty options.',
+          ],
+        },
       }
     }
 
@@ -599,7 +707,17 @@ WHERE parsed_skc IS NOT NULL
     return {
       filters,
       options: { spus, skcs, pairs },
-      meta: { partial_data: false, notes: [] },
+      meta: {
+        partial_data: false,
+        source_mode: 'bigquery_fallback',
+        notes: [
+          ...(cacheUnavailableMessage
+            ? [
+                `SQLite Shopify BI cache unavailable; fell back to BigQuery: ${cacheUnavailableMessage}`,
+              ]
+            : []),
+        ],
+      },
     }
   }
 

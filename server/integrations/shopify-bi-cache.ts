@@ -72,6 +72,41 @@ export type ShopifyBiP2OverviewFilters = {
   channel?: string
   listing_date_from?: string
   listing_date_to?: string
+  spu_list?: string[]
+  skc_list?: string[]
+}
+
+type ShopifyBiP2SpuTableSkcRow = {
+  skc: string
+  sales_qty: number
+  sales_amount: number
+  refund_qty: number
+  refund_amount: number
+  refund_qty_ratio: number
+  refund_amount_ratio: number
+}
+
+type ShopifyBiP2SpuTableRow = {
+  spu: string
+  sales_qty: number
+  sales_amount: number
+  refund_qty: number
+  refund_amount: number
+  refund_qty_ratio: number
+  refund_amount_ratio: number
+  skc_rows: ShopifyBiP2SpuTableSkcRow[]
+}
+
+function toNumber(value: unknown) {
+  return Number(value ?? 0)
+}
+
+function toText(value: unknown) {
+  return String(value ?? '')
+}
+
+function ratio(numerator: number, denominator: number) {
+  return denominator ? numerator / denominator : 0
 }
 
 export class SqliteShopifyBiCacheRepository {
@@ -371,6 +406,285 @@ export class SqliteShopifyBiCacheRepository {
         avg_order_amount: orderCount ? netReceived / orderCount : 0,
       },
     }
+  }
+
+  queryP2SpuTable(filters: ShopifyBiP2OverviewFilters, topN: number) {
+    const params: Record<string, string | number> = {
+      date_from: filters.date_from,
+      date_to: filters.date_to,
+      category: filters.category ?? '',
+      channel: filters.channel ?? '',
+      listing_date_from: filters.listing_date_from ?? '',
+      listing_date_to: filters.listing_date_to ?? '',
+      top_n: Math.max(0, Math.trunc(topN)),
+    }
+    const spuFilter = this.buildProductInFilter(
+      params,
+      'spu_filter',
+      'li.spu',
+      filters.spu,
+      filters.spu_list,
+    )
+    const skcFilter = this.buildProductInFilter(
+      params,
+      'skc_filter',
+      'li.skc',
+      filters.skc,
+      filters.skc_list,
+    )
+
+    const rows = this.db
+      .prepare(`
+        WITH sales_lines AS (
+          SELECT
+            li.order_id,
+            li.skc,
+            li.spu,
+            COALESCE(li.quantity, 0) AS quantity,
+            COALESCE(li.discounted_total_usd, 0) AS sales_amount
+          FROM shopify_bi_order_lines li
+          JOIN shopify_bi_orders o ON o.order_id = li.order_id
+          WHERE o.processed_date BETWEEN @date_from AND @date_to
+            AND o.is_gift_card_order = 0
+            AND o.is_regular_order = 1
+            AND li.is_insurance_item = 0
+            AND li.is_price_adjustment = 0
+            AND li.is_shipping_cost = 0
+            AND (@category = '' OR o.primary_product_type = @category)
+            AND (@channel = '' OR o.shop_domain = @channel)
+            AND (@listing_date_from = '' OR o.first_published_at_in_order >= @listing_date_from)
+            AND (@listing_date_to = '' OR o.first_published_at_in_order <= @listing_date_to)
+            AND ${spuFilter}
+            AND ${skcFilter}
+        ),
+        sales_agg AS (
+          SELECT
+            spu,
+            skc,
+            SUM(quantity) AS sales_qty,
+            SUM(sales_amount) AS sales_amount
+          FROM sales_lines
+          GROUP BY spu, skc
+        ),
+        refund_event_agg AS (
+          SELECT
+            order_id,
+            sku,
+            SUM(COALESCE(refund_quantity, 0)) AS refund_qty,
+            SUM(COALESCE(refund_subtotal_usd, 0)) AS refund_amount
+          FROM shopify_bi_refund_events
+          WHERE refund_date BETWEEN @date_from AND @date_to
+          GROUP BY order_id, sku
+        ),
+        refund_line_dim AS (
+          SELECT
+            li.order_id,
+            li.sku,
+            MIN(li.skc) AS skc,
+            MIN(li.spu) AS spu
+          FROM shopify_bi_order_lines li
+          JOIN shopify_bi_orders o ON o.order_id = li.order_id
+          WHERE o.is_gift_card_order = 0
+            AND o.is_regular_order = 1
+            AND li.is_insurance_item = 0
+            AND li.is_price_adjustment = 0
+            AND li.is_shipping_cost = 0
+            AND (@category = '' OR o.primary_product_type = @category)
+            AND (@channel = '' OR o.shop_domain = @channel)
+            AND (@listing_date_from = '' OR o.first_published_at_in_order >= @listing_date_from)
+            AND (@listing_date_to = '' OR o.first_published_at_in_order <= @listing_date_to)
+            AND ${spuFilter}
+            AND ${skcFilter}
+          GROUP BY li.order_id, li.sku
+        ),
+        refund_agg AS (
+          SELECT
+            d.spu,
+            d.skc,
+            SUM(r.refund_qty) AS refund_qty,
+            SUM(r.refund_amount) AS refund_amount
+          FROM refund_event_agg r
+          JOIN refund_line_dim d
+            ON d.order_id = r.order_id
+           AND d.sku = r.sku
+          GROUP BY d.spu, d.skc
+        ),
+        product_keys AS (
+          SELECT spu, skc FROM sales_agg
+          UNION
+          SELECT spu, skc FROM refund_agg
+        ),
+        product_metrics AS (
+          SELECT
+            k.spu,
+            k.skc,
+            COALESCE(sa.sales_qty, 0) AS sales_qty,
+            COALESCE(sa.sales_amount, 0) AS sales_amount,
+            COALESCE(ra.refund_qty, 0) AS refund_qty,
+            COALESCE(ra.refund_amount, 0) AS refund_amount
+          FROM product_keys k
+          LEFT JOIN sales_agg sa
+            ON sa.spu IS k.spu
+           AND sa.skc IS k.skc
+          LEFT JOIN refund_agg ra
+            ON ra.spu IS k.spu
+           AND ra.skc IS k.skc
+        ),
+        spu_rank AS (
+          SELECT
+            spu,
+            SUM(refund_amount) AS refund_amount
+          FROM product_metrics
+          GROUP BY spu
+          ORDER BY refund_amount DESC, spu
+          LIMIT @top_n
+        )
+        SELECT
+          'SPU' AS row_type,
+          pm.spu,
+          NULL AS skc,
+          SUM(pm.sales_qty) AS sales_qty,
+          SUM(pm.sales_amount) AS sales_amount,
+          SUM(pm.refund_qty) AS refund_qty,
+          SUM(pm.refund_amount) AS refund_amount
+        FROM product_metrics pm
+        JOIN spu_rank sr ON sr.spu IS pm.spu
+        GROUP BY pm.spu
+        UNION ALL
+        SELECT
+          'SKC' AS row_type,
+          pm.spu,
+          pm.skc,
+          SUM(pm.sales_qty) AS sales_qty,
+          SUM(pm.sales_amount) AS sales_amount,
+          SUM(pm.refund_qty) AS refund_qty,
+          SUM(pm.refund_amount) AS refund_amount
+        FROM product_metrics pm
+        JOIN spu_rank sr ON sr.spu IS pm.spu
+        GROUP BY pm.spu, pm.skc
+      `)
+      .all(params) as Array<Record<string, unknown>>
+
+    return { rows: this.groupP2SpuTableRows(rows) }
+  }
+
+  queryP2SpuSkcOptions(filters: ShopifyBiP2OverviewFilters) {
+    const rows = this.db
+      .prepare(`
+        SELECT DISTINCT
+          li.spu,
+          li.skc
+        FROM shopify_bi_order_lines li
+        JOIN shopify_bi_orders o ON o.order_id = li.order_id
+        WHERE o.processed_date BETWEEN @date_from AND @date_to
+          AND o.is_gift_card_order = 0
+          AND o.is_regular_order = 1
+          AND li.is_insurance_item = 0
+          AND li.is_price_adjustment = 0
+          AND li.is_shipping_cost = 0
+          AND (@category = '' OR o.primary_product_type = @category)
+          AND (@channel = '' OR o.shop_domain = @channel)
+          AND (@listing_date_from = '' OR o.first_published_at_in_order >= @listing_date_from)
+          AND (@listing_date_to = '' OR o.first_published_at_in_order <= @listing_date_to)
+          AND li.spu IS NOT NULL
+          AND TRIM(li.spu) != ''
+          AND li.skc IS NOT NULL
+          AND TRIM(li.skc) != ''
+          AND li.skc != 'UNKNOWN_SKC'
+        ORDER BY li.spu, li.skc
+      `)
+      .all(this.buildP2Params(filters)) as Array<Record<string, unknown>>
+
+    const pairs = rows.map((row) => ({ spu: toText(row.spu), skc: toText(row.skc) }))
+    const spus = [...new Set(pairs.map((item) => item.spu))].sort()
+    const skcs = [...new Set(pairs.map((item) => item.skc))].sort()
+
+    return { options: { spus, skcs, pairs } }
+  }
+
+  private buildP2Params(filters: ShopifyBiP2OverviewFilters) {
+    return {
+      date_from: filters.date_from,
+      date_to: filters.date_to,
+      category: filters.category ?? '',
+      channel: filters.channel ?? '',
+      listing_date_from: filters.listing_date_from ?? '',
+      listing_date_to: filters.listing_date_to ?? '',
+    }
+  }
+
+  private buildProductInFilter(
+    params: Record<string, string | number>,
+    prefix: string,
+    column: string,
+    value: string | undefined,
+    values: string[] | undefined,
+  ) {
+    const filterValues = [...(values ?? []), value ?? '']
+      .map((item) => item.trim())
+      .filter((item, index, items) => item && items.indexOf(item) === index)
+    if (!filterValues.length) {
+      return '1 = 1'
+    }
+
+    const placeholders = filterValues.map((item, index) => {
+      const key = `${prefix}_${index}`
+      params[key] = item
+      return `@${key}`
+    })
+    return `${column} IN (${placeholders.join(', ')})`
+  }
+
+  private groupP2SpuTableRows(rows: Array<Record<string, unknown>>) {
+    const grouped = new Map<string, ShopifyBiP2SpuTableRow>()
+
+    for (const row of rows) {
+      const spu = toText(row.spu)
+      if (!grouped.has(spu)) {
+        grouped.set(spu, {
+          spu,
+          sales_qty: 0,
+          sales_amount: 0,
+          refund_qty: 0,
+          refund_amount: 0,
+          refund_qty_ratio: 0,
+          refund_amount_ratio: 0,
+          skc_rows: [],
+        })
+      }
+
+      const current = grouped.get(spu)!
+      const salesQty = toNumber(row.sales_qty)
+      const salesAmount = toNumber(row.sales_amount)
+      const refundQty = toNumber(row.refund_qty)
+      const refundAmount = toNumber(row.refund_amount)
+      if (toText(row.row_type) === 'SPU') {
+        current.sales_qty = salesQty
+        current.sales_amount = salesAmount
+        current.refund_qty = refundQty
+        current.refund_amount = refundAmount
+        current.refund_qty_ratio = ratio(refundQty, salesQty)
+        current.refund_amount_ratio = ratio(refundAmount, salesAmount)
+      } else {
+        current.skc_rows.push({
+          skc: toText(row.skc),
+          sales_qty: salesQty,
+          sales_amount: salesAmount,
+          refund_qty: refundQty,
+          refund_amount: refundAmount,
+          refund_qty_ratio: ratio(refundQty, salesQty),
+          refund_amount_ratio: ratio(refundAmount, salesAmount),
+        })
+      }
+    }
+
+    for (const item of grouped.values()) {
+      item.skc_rows.sort((a, b) => b.refund_amount - a.refund_amount || a.skc.localeCompare(b.skc))
+    }
+
+    return [...grouped.values()].sort(
+      (a, b) => b.refund_amount - a.refund_amount || a.spu.localeCompare(b.spu),
+    )
   }
 
   private ensureSchema() {
