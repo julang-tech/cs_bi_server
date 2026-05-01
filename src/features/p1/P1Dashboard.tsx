@@ -52,6 +52,7 @@ export default function P1Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
   const [agentName, setAgentName] = useState<string>('')
   const [historyRange, setHistoryRange] = useState(() => getDefaultHistoryRange('day'))
+  const [activeMetricKey, setActiveMetricKey] = useState('inbound_email_count')
 
   const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
   const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
@@ -197,13 +198,22 @@ export default function P1Dashboard() {
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
                 delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
                 periodAverage={periodAverage}
-                sparkline={c.sparkline ? c.historyTrend : undefined}
+                metricKey={c.key}
+                active={activeMetricKey === c.key}
+                onSelect={setActiveMetricKey}
+                sparkline={c.historyTrend}
               />
             )
           })}
         </KpiSection>
       }
-      focusChart={loading ? null : <FocusLineChart metrics={focusMetrics} defaultKey="inbound_email_count" />}
+      focusChart={loading ? null : (
+        <FocusLineChart
+          metrics={focusMetrics}
+          activeKey={activeMetricKey}
+          onActiveKeyChange={setActiveMetricKey}
+        />
+      )}
       historySection={
         <KpiSection
           title="历史区间"
@@ -220,6 +230,10 @@ export default function P1Dashboard() {
                 description={c.description}
                 total={loading ? '--' : c.formatter(total)}
                 periodAverage={loading ? '--' : c.formatter(c.historyTrend.length ? total / c.historyTrend.length : 0)}
+                metricKey={c.key}
+                active={activeMetricKey === c.key}
+                onSelect={setActiveMetricKey}
+                sparkline={c.historyTrend}
               />
             )
           })}

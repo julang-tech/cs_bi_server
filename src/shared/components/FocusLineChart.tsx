@@ -24,6 +24,8 @@ export interface FocusMetricSpec {
 interface FocusLineChartProps {
   metrics: FocusMetricSpec[]
   defaultKey?: string
+  activeKey?: string
+  onActiveKeyChange?: (next: string) => void
   ariaLabel?: string
 }
 
@@ -96,12 +98,19 @@ function CustomTooltip({
   )
 }
 
-export function FocusLineChart({ metrics, defaultKey, ariaLabel }: FocusLineChartProps) {
-  const [activeKey, setActiveKey] = useState<string>(defaultKey ?? metrics[0]?.key ?? '')
+export function FocusLineChart({
+  metrics,
+  defaultKey,
+  activeKey,
+  onActiveKeyChange,
+  ariaLabel,
+}: FocusLineChartProps) {
+  const [internalActiveKey, setInternalActiveKey] = useState<string>(defaultKey ?? metrics[0]?.key ?? '')
+  const selectedKey = activeKey ?? internalActiveKey
 
   const active = useMemo(
-    () => metrics.find((m) => m.key === activeKey) ?? metrics[0],
-    [metrics, activeKey],
+    () => metrics.find((m) => m.key === selectedKey) ?? metrics[0],
+    [metrics, selectedKey],
   )
 
   const data = useMemo(() => (active ? buildSeries(active.history, active.current) : []), [active])
@@ -121,12 +130,20 @@ export function FocusLineChart({ metrics, defaultKey, ariaLabel }: FocusLineChar
 
   // Highlight the latest (rightmost) point with a larger filled dot. Recharts'
   // `dot` prop accepts a function so we can render conditionally per-point.
-  const renderLatestDot = (props: { cx?: number; cy?: number; payload?: ChartRow }) => {
-    const { cx, cy, payload } = props
-    if (cx == null || cy == null || !payload) return <g />
-    if (payload.bucket !== lastBucket) return <g />
+  // Recharts iterates the function over each datum and expects a key on every
+  // returned element (the function receives a `key` prop for that purpose).
+  const renderLatestDot = (props: {
+    cx?: number; cy?: number; payload?: ChartRow; index?: number; key?: string
+  }) => {
+    const { cx, cy, payload, index, key } = props
+    const k = key ?? `dot-${index ?? `${cx}-${cy}`}`
+    if (cx == null || cy == null || !payload || payload.bucket !== lastBucket) {
+      // Render a zero-radius placeholder so Recharts still gets a keyed element.
+      return <circle key={k} cx={cx ?? 0} cy={cy ?? 0} r={0} fill="none" />
+    }
     return (
       <circle
+        key={k}
         cx={cx}
         cy={cy}
         r={4}
@@ -139,6 +156,13 @@ export function FocusLineChart({ metrics, defaultKey, ariaLabel }: FocusLineChar
 
   const gradientId = `focus-gradient-${active.key}`
 
+  function selectMetric(next: string) {
+    if (activeKey === undefined) {
+      setInternalActiveKey(next)
+    }
+    onActiveKeyChange?.(next)
+  }
+
   return (
     <section className="focus-chart" aria-label={ariaLabel ?? active.label}>
       <div className="focus-chart__tabs" role="tablist">
@@ -147,9 +171,9 @@ export function FocusLineChart({ metrics, defaultKey, ariaLabel }: FocusLineChar
             key={m.key}
             type="button"
             role="tab"
-            aria-selected={m.key === activeKey}
-            className={`focus-chart__tab ${m.key === activeKey ? 'focus-chart__tab--active' : ''}`}
-            onClick={() => setActiveKey(m.key)}
+            aria-selected={m.key === active.key}
+            className={`focus-chart__tab ${m.key === active.key ? 'focus-chart__tab--active' : ''}`}
+            onClick={() => selectMetric(m.key)}
           >
             {m.label}
           </button>

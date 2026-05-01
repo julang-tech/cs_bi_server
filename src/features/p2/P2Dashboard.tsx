@@ -50,6 +50,7 @@ export default function P2Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
   const [store, setStore] = useState<string>('')
   const [historyRange, setHistoryRange] = useState(() => getDefaultHistoryRange('day'))
+  const [activeMetricKey, setActiveMetricKey] = useState<CardKey>('gmv')
 
   const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
   const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
@@ -148,13 +149,22 @@ export default function P2Dashboard() {
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
                 delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
                 periodAverage={periodAverage}
-                sparkline={c.sparkline ? c.historyTrend : undefined}
+                metricKey={c.key}
+                active={activeMetricKey === c.key}
+                onSelect={(next) => setActiveMetricKey(next as CardKey)}
+                sparkline={c.historyTrend}
               />
             )
           })}
         </KpiSection>
       }
-      focusChart={loading ? null : <FocusLineChart metrics={focusMetrics} defaultKey="gmv" />}
+      focusChart={loading ? null : (
+        <FocusLineChart
+          metrics={focusMetrics}
+          activeKey={activeMetricKey}
+          onActiveKeyChange={(next) => setActiveMetricKey(next as CardKey)}
+        />
+      )}
       historySection={
         <KpiSection
           title="历史区间"
@@ -172,14 +182,22 @@ export default function P2Dashboard() {
                 <KpiCard key={c.key} variant="history" label={c.label}
                   description={c.description}
                   total={meanText} periodAverage={meanText}
-                  rateMode={{ mean: meanText, peak: peakText }} />
+                  rateMode={{ mean: meanText, peak: peakText }}
+                  metricKey={c.key}
+                  active={activeMetricKey === c.key}
+                  onSelect={(next) => setActiveMetricKey(next as CardKey)}
+                  sparkline={c.historyTrend} />
               )
             }
             return (
               <KpiCard key={c.key} variant="history" label={c.label}
                 description={c.description}
                 total={loading ? '--' : c.formatter(total)}
-                periodAverage={loading ? '--' : c.formatter(c.historyTrend.length ? total / c.historyTrend.length : 0)} />
+                periodAverage={loading ? '--' : c.formatter(c.historyTrend.length ? total / c.historyTrend.length : 0)}
+                metricKey={c.key}
+                active={activeMetricKey === c.key}
+                onSelect={(next) => setActiveMetricKey(next as CardKey)}
+                sparkline={c.historyTrend} />
             )
           })}
         </KpiSection>

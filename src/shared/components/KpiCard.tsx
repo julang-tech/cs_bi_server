@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, type KeyboardEvent } from 'react'
 import { MiniSparkline } from './MiniSparkline'
 import type { TrendPoint } from '../../api/types'
 
@@ -7,23 +7,27 @@ interface DeltaInfo {
   text: string
 }
 
-export interface KpiCardCurrentProps {
-  variant: 'current'
+interface KpiCardBaseProps {
+  metricKey?: string
+  active?: boolean
+  onSelect?: (metricKey: string) => void
   label: string
-  value: string
-  delta?: DeltaInfo
-  periodAverage: string
   description?: string
   sparkline?: TrendPoint[]
   sparklineTone?: 'sales' | 'complaints' | 'rate' | 'neutral'
 }
 
-export interface KpiCardHistoryProps {
+export interface KpiCardCurrentProps extends KpiCardBaseProps {
+  variant: 'current'
+  value: string
+  delta?: DeltaInfo
+  periodAverage: string
+}
+
+export interface KpiCardHistoryProps extends KpiCardBaseProps {
   variant: 'history'
-  label: string
   total: string
   periodAverage: string
-  description?: string
   rateMode?: { mean: string; peak: string }
 }
 
@@ -31,10 +35,35 @@ export type KpiCardProps = KpiCardCurrentProps | KpiCardHistoryProps
 
 export function KpiCard(props: KpiCardProps) {
   const descriptionId = useId()
-  const className = `kpi-card kpi-card--${props.variant}`
+  const isSelectable = Boolean(props.metricKey && props.onSelect)
+  const className = [
+    'kpi-card',
+    `kpi-card--${props.variant}`,
+    props.active ? 'kpi-card--active' : '',
+    isSelectable ? 'kpi-card--selectable' : '',
+  ].filter(Boolean).join(' ')
+
+  function selectMetric() {
+    if (!props.metricKey) return
+    props.onSelect?.(props.metricKey)
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (!isSelectable) return
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    event.preventDefault()
+    selectMetric()
+  }
 
   return (
-    <article className={className}>
+    <article
+      className={className}
+      role={isSelectable ? 'button' : undefined}
+      tabIndex={isSelectable ? 0 : undefined}
+      aria-pressed={isSelectable ? props.active : undefined}
+      onClick={isSelectable ? selectMetric : undefined}
+      onKeyDown={handleKeyDown}
+    >
       <div className="kpi-card__header">
         <h3 className="kpi-card__label" aria-describedby={props.description ? descriptionId : undefined}>
           {props.label}
@@ -61,9 +90,7 @@ export function KpiCard(props: KpiCardProps) {
             <span>周期日均</span>
             <strong>{props.periodAverage}</strong>
           </div>
-          {props.sparkline?.length ? (
-            <MiniSparkline items={props.sparkline} tone={props.sparklineTone} />
-          ) : null}
+          <MiniSparkline items={props.sparkline ?? []} tone={props.sparklineTone} />
         </>
       ) : props.rateMode ? (
         <>
@@ -72,6 +99,7 @@ export function KpiCard(props: KpiCardProps) {
             <span>区间均值 / 峰值</span>
             <strong>{props.rateMode.mean} / {props.rateMode.peak}</strong>
           </div>
+          <MiniSparkline items={props.sparkline ?? []} tone={props.sparklineTone} />
         </>
       ) : (
         <>
@@ -80,6 +108,7 @@ export function KpiCard(props: KpiCardProps) {
             <span>周期均值</span>
             <strong>{props.periodAverage}</strong>
           </div>
+          <MiniSparkline items={props.sparkline ?? []} tone={props.sparklineTone} />
         </>
       )}
     </article>

@@ -17,7 +17,7 @@ const TONE_VARS: Record<NonNullable<MiniSparklineProps['tone']>, string> = {
 export function MiniSparkline({ items, tone = 'neutral' }: MiniSparklineProps) {
   const gradientId = useId().replace(/:/g, '')
   if (!items.length) {
-    return <div className="mini-placeholder">当前卡片不展示趋势折线</div>
+    return <div className="mini-chart mini-chart--empty" aria-hidden="true" />
   }
   const { pointsString, areaString } = computeChartGeometry({ items })
   const color = TONE_VARS[tone]
