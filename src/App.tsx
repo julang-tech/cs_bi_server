@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import './App.css'
-import P1Dashboard from './P1Dashboard'
+import P1Dashboard from './features/p1/legacy/P1Dashboard'
 import P2Dashboard from './features/p2/legacy/P2Dashboard'
 import P3Dashboard from './features/p3/P3Dashboard'
 
