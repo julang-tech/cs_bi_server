@@ -118,17 +118,6 @@ function toText(value: unknown) {
 const ADR_0007_METRIC_NOTE =
   'Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping; refund_amount is now refund-flow (events in window) not cohort (orders in window). See lintico-data-warehouse/shopify_data_sync/docs/decisions/0007-dwd-align-with-cs-bi-finance.md'
 
-function buildSqliteResponseCacheKey(
-  endpoint: 'overview' | 'spu-table' | 'spu-skc-options',
-  generation: string,
-  filters: P2Filters,
-  topN?: number,
-) {
-  return topN === undefined
-    ? JSON.stringify([endpoint, generation, filters])
-    : JSON.stringify([endpoint, generation, filters, topN])
-}
-
 export class P2Service {
   private readonly overviewCache = new TtlCache<P2OverviewPayload>(300_000)
   private readonly spuTableCache = new TtlCache<P2SpuTablePayload>(300_000)
@@ -144,15 +133,16 @@ export class P2Service {
   }
 
   async getOverview(filters: P2Filters): Promise<P2OverviewPayload> {
+    const cacheKey = JSON.stringify(['overview', filters])
+    const cached = this.overviewCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
     let cacheUnavailableMessage: string | null = null
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
         const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
-        const cacheKey = buildSqliteResponseCacheKey('overview', generation, filters)
-        const cached = this.overviewCache.get(cacheKey)
-        if (cached) {
-          return cached
-        }
         const payload = this.cacheRepository.queryP2Overview(filters)
         return this.overviewCache.set(cacheKey, {
           filters,
@@ -196,8 +186,8 @@ export class P2Service {
       }
     }
 
-    const rows = extractRows(
-      await this.client.query({
+    const [orderMetricsResult, salesQtyResult] = await Promise.all([
+      this.client.query({
         query: `
 WITH order_metrics AS (
   SELECT
@@ -252,11 +242,7 @@ CROSS JOIN refund_metrics rm
           ...this.buildParams(filters),
         },
       }),
-    )
-
-    const row = rows[0] ?? {}
-    const salesQtyRows = extractRows(
-      await this.client.query({
+      this.client.query({
         query: `
 SELECT
   COALESCE(SUM(COALESCE(li.quantity, 0)), 0) AS sales_qty
@@ -285,14 +271,18 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
           ...this.buildParams(filters),
         },
       }),
-    )
+    ])
+
+    const rows = extractRows(orderMetricsResult)
+    const row = rows[0] ?? {}
+    const salesQtyRows = extractRows(salesQtyResult)
 
     const orderCount = toNumber(row.order_count)
     const netReceived = toNumber(row.net_received_amount)
     const refundOrderCount = toNumber(row.refund_order_count)
     const refundAmount = toNumber(row.refund_amount)
 
-    return {
+    return this.overviewCache.set(cacheKey, {
       filters,
       cards: {
         order_count: orderCount,
@@ -317,19 +307,20 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
             : []),
         ],
       },
-    }
+    })
   }
 
   async getSpuTable(filters: P2Filters, topN: number): Promise<P2SpuTablePayload> {
+    const cacheKey = JSON.stringify(['spu-table', filters, topN])
+    const cached = this.spuTableCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
     let cacheUnavailableMessage: string | null = null
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
         const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
-        const cacheKey = buildSqliteResponseCacheKey('spu-table', generation, filters, topN)
-        const cached = this.spuTableCache.get(cacheKey)
-        if (cached) {
-          return cached
-        }
         const payload = this.cacheRepository.queryP2SpuTable(filters, topN)
         return this.spuTableCache.set(cacheKey, {
           filters,
@@ -662,7 +653,7 @@ ORDER BY spu, row_type DESC, refund_amount DESC
       item.skc_rows.sort((a, b) => b.refund_amount - a.refund_amount)
     }
 
-    return {
+    return this.spuTableCache.set(cacheKey, {
       filters,
       rows: [...grouped.values()].sort((a, b) => b.refund_amount - a.refund_amount),
       meta: {
@@ -676,19 +667,20 @@ ORDER BY spu, row_type DESC, refund_amount DESC
             : []),
         ],
       },
-    }
+    })
   }
 
   async getSpuSkcOptions(filters: P2Filters): Promise<P2SpuSkcOptionsPayload> {
+    const cacheKey = JSON.stringify(['spu-skc-options', filters])
+    const cached = this.optionsCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
     let cacheUnavailableMessage: string | null = null
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
         const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
-        const cacheKey = buildSqliteResponseCacheKey('spu-skc-options', generation, filters)
-        const cached = this.optionsCache.get(cacheKey)
-        if (cached) {
-          return cached
-        }
         const payload = this.cacheRepository.queryP2SpuSkcOptions(filters)
         return this.optionsCache.set(cacheKey, {
           filters,
@@ -800,7 +792,7 @@ WHERE parsed_skc IS NOT NULL
     const spus = [...new Set(pairs.map((item) => item.spu))].sort()
     const skcs = [...new Set(pairs.map((item) => item.skc))].sort()
 
-    return {
+    return this.optionsCache.set(cacheKey, {
       filters,
       options: { spus, skcs, pairs },
       meta: {
@@ -814,7 +806,7 @@ WHERE parsed_skc IS NOT NULL
             : []),
         ],
       },
-    }
+    })
   }
 
   private buildParams(filters: P2Filters) {
