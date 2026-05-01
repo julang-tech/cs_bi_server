@@ -1130,6 +1130,97 @@ async function testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders() {
   cache.close()
 }
 
+async function testSyncShopifyBiCacheQueriesUseStableSourceIds() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const queries: string[] = []
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query(options: unknown) {
+        queries.push(String((options as { query?: string }).query ?? ''))
+        return [[]]
+      },
+    }),
+  })
+
+  await service.syncTargetToSqlite({ config: configPath })
+
+  const orderLineQuery = queries.find((query) => query.includes('int_line_items_classified')) ?? ''
+  assert.match(orderLineQuery, /line_item_id|JSON_VALUE\(TO_JSON_STRING\(li\), '\$\.line_item_id'\)/)
+  assert.match(orderLineQuery, /TO_HEX\(SHA256\(/)
+  assert.doesNotMatch(orderLineQuery, /ROW_NUMBER\(\) OVER \(PARTITION BY li\.order_id ORDER BY li\.sku, li\.variant_id, li\.product_id\)/)
+
+  const shopifyBiRefundQuery =
+    queries.find(
+      (query) =>
+        query.includes('FROM `julang-dev-database.shopify_dwd.dwd_refund_events` re') &&
+        query.includes('shopify_dwd.dwd_orders_fact_usd') &&
+        query.includes('CAST(re.refund_date AS STRING) AS refund_date') &&
+        query.includes('refund_subtotal_usd'),
+    ) ?? ''
+  assert.match(shopifyBiRefundQuery, /refund_id|JSON_VALUE\(TO_JSON_STRING\(re\), '\$\.refund_id'\)/)
+  assert.match(shopifyBiRefundQuery, /TO_HEX\(SHA256\(/)
+  assert.doesNotMatch(shopifyBiRefundQuery, /ROW_NUMBER\(\) OVER \(PARTITION BY re\.order_id, re\.sku, re\.refund_date ORDER BY re\.refund_subtotal\)/)
+}
+
+async function testSyncLegacyRefundCacheJoinsOrdersForOrderName() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const queries: string[] = []
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query(options: unknown) {
+        queries.push(String((options as { query?: string }).query ?? ''))
+        return [[]]
+      },
+    }),
+  })
+
+  await service.syncTargetToSqlite({ config: configPath })
+
+  const legacyRefundQuery =
+    queries.find(
+      (query) =>
+        query.includes('shopify_dwd.dwd_refund_events') &&
+        query.includes('shopify_dwd.dwd_orders_fact`'),
+    ) ?? ''
+  assert.match(legacyRefundQuery, /FROM `julang-dev-database\.shopify_dwd\.dwd_refund_events` re/)
+  assert.match(legacyRefundQuery, /JOIN `julang-dev-database\.shopify_dwd\.dwd_orders_fact` o/)
+  assert.match(legacyRefundQuery, /o\.order_name AS order_no/)
+}
+
 async function testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache() {
   const tmpDir = createTempDir()
   const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
@@ -1336,6 +1427,116 @@ async function testShopifyBiCacheRefundFlowUsesRefundDateWindow() {
   cache.close()
 }
 
+async function testShopifyBiCacheReplaceWindowRemovesStaleRefundDrivenOrderLines() {
+  const tmpDir = createTempDir()
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+
+  const order = {
+    order_id: 'order-stale-lines',
+    order_no: 'LC250',
+    shop_domain: '2vnpww-33.myshopify.com',
+    processed_date: '2026-03-20',
+    primary_product_type: 'Dress',
+    first_published_at_in_order: '2026-03-01',
+    is_regular_order: true,
+    is_gift_card_order: false,
+    gmv_usd: 120,
+    revenue_usd: 100,
+    net_revenue_usd: 90,
+  }
+  const refundEvent = {
+    refund_id: 'refund-stale-lines',
+    order_id: 'order-stale-lines',
+    order_no: 'LC250',
+    sku: 'SKU-NEW-M',
+    refund_date: '2026-04-02',
+    refund_quantity: 1,
+    refund_subtotal_usd: 50,
+  }
+
+  cache.replaceWindow({
+    dateFrom: '2026-04-01',
+    dateTo: '2026-04-30',
+    orders: [order],
+    orderLines: [
+      {
+        order_id: 'order-stale-lines',
+        order_no: 'LC250',
+        line_key: 'order-stale-lines:old',
+        sku: 'SKU-OLD-M',
+        skc: 'OLD-SKC',
+        spu: 'OLD',
+        product_id: 'prod-old',
+        variant_id: 'var-old',
+        quantity: 1,
+        discounted_total_usd: 20,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
+      },
+      {
+        order_id: 'order-stale-lines',
+        order_no: 'LC250',
+        line_key: 'order-stale-lines:new',
+        sku: 'SKU-NEW-M',
+        skc: 'NEW-SKC',
+        spu: 'NEW',
+        product_id: 'prod-new',
+        variant_id: 'var-new',
+        quantity: 1,
+        discounted_total_usd: 100,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
+      },
+    ],
+    refundEvents: [refundEvent],
+  })
+
+  cache.replaceWindow({
+    dateFrom: '2026-04-01',
+    dateTo: '2026-04-30',
+    orders: [order],
+    orderLines: [{
+      order_id: 'order-stale-lines',
+      order_no: 'LC250',
+      line_key: 'order-stale-lines:new',
+      sku: 'SKU-NEW-M',
+      skc: 'NEW-SKC',
+      spu: 'NEW',
+      product_id: 'prod-new',
+      variant_id: 'var-new',
+      quantity: 1,
+      discounted_total_usd: 100,
+      is_insurance_item: false,
+      is_price_adjustment: false,
+      is_shipping_cost: false,
+    }],
+    refundEvents: [refundEvent],
+  })
+
+  const oldSkcCards = cache.queryP2Overview({
+    date_from: '2026-04-01',
+    date_to: '2026-04-30',
+    grain: 'month',
+    skc: 'OLD-SKC',
+  }).cards
+  assert.equal(oldSkcCards.refund_order_count, 0)
+  assert.equal(oldSkcCards.refund_amount, 0)
+
+  const newSkcCards = cache.queryP2Overview({
+    date_from: '2026-04-01',
+    date_to: '2026-04-30',
+    grain: 'month',
+    skc: 'NEW-SKC',
+  }).cards
+  assert.equal(newSkcCards.refund_order_count, 1)
+  assert.equal(newSkcCards.refund_amount, 50)
+  cache.close()
+}
+
 async function testShopifyBiCacheReplaceWindowRollsBackOnInsertFailure() {
   const tmpDir = createTempDir()
   const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
@@ -1437,9 +1638,12 @@ async function run() {
   await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
   await testSyncRefreshesShopifyBiV2Cache()
   await testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders()
+  await testSyncShopifyBiCacheQueriesUseStableSourceIds()
+  await testSyncLegacyRefundCacheJoinsOrdersForOrderName()
   await testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache()
   await testShopifyBiCacheReplacesDateWindowTransactionally()
   await testShopifyBiCacheRefundFlowUsesRefundDateWindow()
+  await testShopifyBiCacheReplaceWindowRemovesStaleRefundDrivenOrderLines()
   await testShopifyBiCacheReplaceWindowRollsBackOnInsertFailure()
   console.log('Sync tests passed')
 }

@@ -106,6 +106,9 @@ export class SqliteShopifyBiCacheRepository {
       DELETE FROM shopify_bi_order_lines
       WHERE order_id NOT IN (SELECT order_id FROM shopify_bi_orders)
     `)
+    const deleteOrderLinesByOrderId = this.db.prepare(
+      'DELETE FROM shopify_bi_order_lines WHERE order_id = ?',
+    )
     const deleteRefundEvents = this.db.prepare(
       'DELETE FROM shopify_bi_refund_events WHERE refund_date BETWEEN ? AND ?',
     )
@@ -177,6 +180,18 @@ export class SqliteShopifyBiCacheRepository {
       deleteOrphanOrderLines.run()
       deleteRefundEvents.run(input.dateFrom, input.dateTo)
 
+      const affectedOrderIds = new Set<string>()
+      for (const order of input.orders) {
+        if (order.order_id) {
+          affectedOrderIds.add(order.order_id)
+        }
+      }
+      for (const line of input.orderLines) {
+        if (line.order_id) {
+          affectedOrderIds.add(line.order_id)
+        }
+      }
+
       for (const order of input.orders) {
         insertOrder.run({
           order_id: order.order_id,
@@ -192,6 +207,9 @@ export class SqliteShopifyBiCacheRepository {
           net_revenue_usd: order.net_revenue_usd,
           synced_at: syncedAt,
         })
+      }
+      for (const orderId of affectedOrderIds) {
+        deleteOrderLinesByOrderId.run(orderId)
       }
       for (const line of input.orderLines) {
         insertOrderLine.run({

@@ -1205,12 +1205,28 @@ WITH eligible_orders AS (
 SELECT
   CAST(li.order_id AS STRING) AS order_id,
   CAST(o.order_name AS STRING) AS order_no,
-  CONCAT(
-    CAST(li.order_id AS STRING),
-    ':',
-    COALESCE(CAST(li.sku AS STRING), ''),
-    ':',
-    CAST(ROW_NUMBER() OVER (PARTITION BY li.order_id ORDER BY li.sku, li.variant_id, li.product_id) AS STRING)
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(li), '$.line_item_id'),
+    JSON_VALUE(TO_JSON_STRING(li), '$.id'),
+    TO_HEX(SHA256(CONCAT(
+      COALESCE(CAST(li.order_id AS STRING), ''),
+      '|',
+      COALESCE(CAST(li.sku AS STRING), ''),
+      '|',
+      COALESCE(CAST(li.product_id AS STRING), ''),
+      '|',
+      COALESCE(CAST(li.variant_id AS STRING), ''),
+      '|',
+      COALESCE(CAST(li.quantity AS STRING), ''),
+      '|',
+      COALESCE(CAST(li.discounted_total AS STRING), ''),
+      '|',
+      COALESCE(CAST(li.is_insurance_item AS STRING), ''),
+      '|',
+      COALESCE(CAST(li.is_price_adjustment AS STRING), ''),
+      '|',
+      COALESCE(CAST(li.is_shipping_cost AS STRING), '')
+    )))
   ) AS line_key,
   CAST(li.sku AS STRING) AS sku,
   CASE
@@ -1267,14 +1283,20 @@ JOIN eligible_orders eo
     const rows = extractRows(await client.query({
       query: `
 SELECT
-  CONCAT(
-    CAST(re.order_id AS STRING),
-    ':',
-    COALESCE(CAST(re.sku AS STRING), ''),
-    ':',
-    CAST(re.refund_date AS STRING),
-    ':',
-    CAST(ROW_NUMBER() OVER (PARTITION BY re.order_id, re.sku, re.refund_date ORDER BY re.refund_subtotal) AS STRING)
+  COALESCE(
+    JSON_VALUE(TO_JSON_STRING(re), '$.refund_id'),
+    JSON_VALUE(TO_JSON_STRING(re), '$.id'),
+    TO_HEX(SHA256(CONCAT(
+      COALESCE(CAST(re.order_id AS STRING), ''),
+      '|',
+      COALESCE(CAST(re.sku AS STRING), ''),
+      '|',
+      COALESCE(CAST(re.refund_date AS STRING), ''),
+      '|',
+      COALESCE(CAST(re.quantity AS STRING), ''),
+      '|',
+      COALESCE(CAST(re.refund_subtotal AS STRING), '')
+    )))
   ) AS refund_id,
   CAST(re.order_id AS STRING) AS order_id,
   CAST(o.order_name AS STRING) AS order_no,
@@ -1362,11 +1384,13 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
     const rows = extractRows(await client.query({
       query: `
 SELECT
-  order_name AS order_no,
-  sku,
-  CAST(refund_date AS STRING) AS refund_date
-FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\`
-WHERE refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+  o.order_name AS order_no,
+  re.sku,
+  CAST(re.refund_date AS STRING) AS refund_date
+FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
+JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact\` o
+  ON o.order_id = re.order_id
+WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
       `,
       params: {
         date_from: dateFrom,
