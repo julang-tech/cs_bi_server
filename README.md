@@ -14,21 +14,38 @@
 
 业务系统入口：
 
-```powershell
-npm.cmd run dev
-npm.cmd run build
-npm.cmd run start
+```bash
+npm run dev
+npm run build
+npm run start
 ```
 
 飞书同步入口：
 
-```powershell
-npm.cmd run sync:preview
-npm.cmd run sync:source-to-target
-npm.cmd run sync:run
-npm.cmd run sync:worker
-npm.cmd run sync:csv -- --source docs/客服跟进记录表_退款登记_退款登记.csv
+```bash
+npm run sync:preview
+npm run sync:source-to-target
+npm run sync:run
+npm run sync:worker
+npm run sync:csv -- --source docs/客服跟进记录表_退款登记_退款登记.csv
 ```
+
+## Frontend
+
+前端是 React + TypeScript + Vite 单页应用，采用统一看板模板（筛选器 + 当前周期 KPI + 焦点折线图 + 历史区间 KPI + 扩展区），三个看板（P1 聊天、P2 退款、P3 客诉）共享组件、hook、工具和 token 体系。
+
+详细架构见 [docs/frontend-architecture.md](docs/frontend-architecture.md)。
+
+主要命令：
+
+- `npm run dev` — 同时起前端 (vite, http://localhost:5173) + 后端 (Node, http://127.0.0.1:8787)
+- `npm run dev:client` — 仅起前端
+- `npm run typecheck` — 前端 TS 类型检查
+- `npm run test` — 前端单元测试 (Vitest)
+- `npm run lint` — ESLint
+- `npm run build` — 生产构建（前端 + 后端）
+
+> Note: 在 macOS 上如使用 Codex.app 自带 node，可能因 code-signing 与 rolldown 原生 binding 冲突。建议优先使用 Homebrew 的 node：在 `~/.zshrc` 把 `/opt/homebrew/bin` 排到 Codex 路径之前。
 
 ## Environment
 
@@ -74,7 +91,7 @@ SYNC_CONFIG_PATH=config/sync/config.json
 GOOGLE_APPLICATION_CREDENTIALS=config/gcp/julang-dev-database-876c2efba122.json
 ```
 
-字段说明见 [config/README.md](/d:/lxx/Internship/Julang-Tech/code/BIKanBan/config/README.md)。
+字段说明见 [config/README.md](config/README.md)。
 
 ## Current Migration Status
 
