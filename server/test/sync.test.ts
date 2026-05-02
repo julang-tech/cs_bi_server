@@ -3,7 +3,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { SyncService, sanitizeTargetRecord } from '../domain/sync/service.js'
-import { buildDateFilter, filterRowsByDate, transformSourceRecord } from '../domain/sync/transform.js'
+import {
+  buildDateFilter,
+  filterRowsByDate,
+  inferComplaintTypeFromText,
+  inferFollowUpTeam,
+  mergeRecordsByOrderAndSku,
+  transformSourceRecord,
+} from '../domain/sync/transform.js'
 import type { FeishuField, FeishuRecord } from '../integrations/feishu.js'
 import { SqliteMirrorRepository, SqliteP3BigQueryCacheRepository } from '../integrations/sqlite.js'
 import {
@@ -84,6 +91,7 @@ function testTransformBasicFields() {
     具体操作要求: '1件退全款',
     创建人: '张三',
     退款原因分类: '物流问题',
+    备注: '客户反馈物流超期',
   })
 
   assert.equal(result.errors.length, 0)
@@ -91,12 +99,15 @@ function testTransformBasicFields() {
   const record = result.records[0] as Record<string, unknown>
   assert.equal(record['订单号'], 'LC123')
   assert.equal(record['历史订单数'], '2')
-  assert.equal(record['跟进组'], '客服组')
-  assert.match(String(record['待跟进客诉备注'] ?? ''), /物流问题/)
+  // View-driven follow-up team: 1-4物流问题 → 物流组 + 财务组
+  assert.deepEqual(record['跟进组'], ['物流组', '财务组'])
+  // 备注 直传 (no longer prefixed with 退款原因分类)
+  assert.equal(record['待跟进客诉备注'], '客户反馈物流超期')
   assert.equal(record['客诉类型'], '物流问题-其他')
   assert.deepEqual(record['客诉方案'], ['全额退款'])
   assert.deepEqual(record['命中视图'], ['1-4待跟进表-物流问题'])
   assert.equal(record['问题处理状态'], '待处理')
+  assert.equal(record['客服跟进人'], '张三')
 }
 
 function testTransformSplitsMultiSkuRows() {
@@ -343,7 +354,9 @@ async function testSyncPreviewAndRun() {
   const state = JSON.parse(fs.readFileSync(statePath, 'utf8')) as {
     source_to_target_ids: Record<string, string[]>
   }
-  assert.deepEqual(state.source_to_target_ids['rec-1'], ['target-rec-1'])
+  // After multi-source merge state is keyed by `merged:<order>|<sku>` to keep
+  // upserts stable across runs even when multiple source rows collapse together.
+  assert.deepEqual(state.source_to_target_ids['merged:LC200|SKU-1'], ['target-rec-1'])
 
   const secondSync = await service.syncSourceToTarget({ config: configPath })
   assert.equal(secondSync.updated, 1)
@@ -2004,11 +2017,325 @@ async function testShopifyBiCacheReplaceWindowRollsBackOnInsertFailure() {
   cache.close()
 }
 
+// ===== Per-source transformer happy-path tests =====
+
+function testTransformRefundLogFallbacks() {
+  // Unknown 退款原因分类 → fallback complaint type + fallback view (1-1)
+  const result = transformSourceRecord(
+    'src-refund-fallback',
+    {
+      记录日期: '2026/05/01',
+      订单号: 'LC400',
+      退款原因分类: '其他',
+      具体操作要求: '退款',
+      备注: '客户表示款式不合心意',
+    },
+    'refund_log',
+  )
+  assert.equal(result.errors.length, 0)
+  const record = result.records[0] as Record<string, unknown>
+  assert.equal(record['客诉类型'], '客户原因-其他')
+  assert.deepEqual(record['命中视图'], ['1-1待跟进表-退款'])
+  // refund (1-1) → 财务组
+  assert.deepEqual(record['跟进组'], ['财务组'])
+  assert.equal(record['待跟进客诉备注'], '客户表示款式不合心意')
+}
+
+function testTransformReissue6Usd() {
+  const result = transformSourceRecord(
+    'src-reissue-1',
+    {
+      原订单号: 'LC401',
+      日期: '2026/05/01',
+      客户姓名: 'Alice',
+      需补发SKU: 'LWS-PT21BK-M',
+      补发订单号: 'LC401-RE',
+      客诉原因: ['poor fit', 'Size too large'],
+      创建人: '李四',
+    },
+    'reissue_6usd',
+  )
+  assert.equal(result.errors.length, 0)
+  const record = result.records[0] as Record<string, unknown>
+  assert.equal(record['订单号'], 'LC401')
+  assert.equal(record['客诉SKU'], 'LWS-PT21BK-M')
+  assert.equal(record['补发订单号'], 'LC401-RE')
+  assert.deepEqual(record['客诉方案'], ['6美元补发'])
+  assert.deepEqual(record['命中视图'], ['1-5待跟进表-补发'])
+  assert.deepEqual(record['跟进组'], ['仓库组'])
+  assert.equal(record['客诉类型'], '客户原因-尺码不合适')
+  assert.equal(record['客服跟进人'], '李四')
+  assert.match(String(record['待跟进客诉备注'] ?? ''), /poor fit/)
+}
+
+function testTransformManualReturn() {
+  const result = transformSourceRecord(
+    'src-manual-1',
+    {
+      订单号: 'LC402',
+      记录日期: '2026/05/02',
+      客诉SKU: 'LWS-PT21BK-L',
+      客诉原因: ['style', 'don\'t like color'],
+    },
+    'manual_return',
+  )
+  assert.equal(result.errors.length, 0)
+  const record = result.records[0] as Record<string, unknown>
+  assert.deepEqual(record['命中视图'], ['1-1待跟进表-退款'])
+  assert.deepEqual(record['客诉方案'], ['全额退款'])
+  assert.deepEqual(record['跟进组'], ['财务组'])
+  assert.equal(record['客诉类型'], '客户原因-款式不喜欢')
+  assert.equal(record['客诉SKU'], 'LWS-PT21BK-L')
+}
+
+function testTransformDefectFeedback() {
+  const result = transformSourceRecord(
+    'src-defect-1',
+    {
+      订单号: 'LC403',
+      反馈日期: '2026/05/03',
+      产品sku: 'LWS-DF21BK-M',
+      瑕疵说明: '收到时领口缝线开线了',
+      反馈人: '王五',
+    },
+    'defect_feedback',
+  )
+  assert.equal(result.errors.length, 0)
+  const record = result.records[0] as Record<string, unknown>
+  assert.deepEqual(record['命中视图'], ['1-3待跟进表-货品瑕疵'])
+  assert.deepEqual(record['客诉方案'], ['补发'])
+  assert.deepEqual(record['跟进组'], ['采购组', 'OEM组', '商品组', '财务组'])
+  assert.equal(record['客诉类型'], '货品瑕疵-缝线')
+  assert.equal(record['客诉SKU'], 'LWS-DF21BK-M')
+  assert.match(String(record['待跟进客诉备注'] ?? ''), /缝线/)
+  assert.equal(record['客服跟进人'], '王五')
+}
+
+function testTransformWrongSendFeedback() {
+  const result = transformSourceRecord(
+    'src-wrong-1',
+    {
+      订单号: 'LC404',
+      反馈日期: '2026/05/04',
+      产品sku: 'LWS-WR21BK-M',
+      错发说明: '客户漏发了一件外套',
+      反馈人: '赵六',
+    },
+    'wrong_send_feedback',
+  )
+  assert.equal(result.errors.length, 0)
+  const record = result.records[0] as Record<string, unknown>
+  assert.deepEqual(record['命中视图'], ['1-2待跟进表-漏发、发错'])
+  assert.deepEqual(record['客诉方案'], ['补发'])
+  assert.deepEqual(record['跟进组'], ['仓库组'])
+  assert.equal(record['客诉类型'], '仓库-漏发')
+  assert.equal(record['客诉SKU'], 'LWS-WR21BK-M')
+}
+
+function testTransformLogisticsIssueWithSkuLookup() {
+  const result = transformSourceRecord(
+    'src-logistics-1',
+    {
+      订单号: 'LC405',
+      日期: '2026/05/05',
+      物流号: 'TRK-405',
+      物流问题: '包裹超期未送达',
+      跟进1: '已联系承运商',
+      跟进2: '承运商表示已重新派送',
+    },
+    'logistics_issue',
+    {
+      sourceName: '物流问题',
+      lookupOrderSkus: (orderNo) => {
+        assert.equal(orderNo, 'LC405')
+        return ['LWS-LG21BK-M', 'LWS-LG21BK-L']
+      },
+    },
+  )
+  assert.equal(result.errors.length, 0)
+  // 1 source row → 2 records (one per Shopify-cache SKU)
+  assert.equal(result.records.length, 2)
+  const record = result.records[0] as Record<string, unknown>
+  assert.deepEqual(record['命中视图'], ['1-4待跟进表-物流问题'])
+  assert.deepEqual(record['跟进组'], ['物流组', '财务组'])
+  assert.equal(record['客诉类型'], '物流问题-超期')
+  assert.equal(record['物流号'], 'TRK-405')
+  assert.equal(record['待跟进客诉备注'], '包裹超期未送达')
+  assert.match(String(record['物流-跟进过程'] ?? ''), /已联系承运商/)
+  assert.match(String(record['物流-跟进过程'] ?? ''), /重新派送/)
+  assert.equal(record['物流-跟进结果'], '')
+  assert.equal((result.records[0] as Record<string, unknown>)['客诉SKU'], 'LWS-LG21BK-M')
+  assert.equal((result.records[1] as Record<string, unknown>)['客诉SKU'], 'LWS-LG21BK-L')
+}
+
+function testTransformLogisticsIssueFallbackWhenNoSkus() {
+  // No lookup → single record with empty 客诉SKU
+  const result = transformSourceRecord(
+    'src-logistics-2',
+    {
+      订单号: 'LC406',
+      日期: '2026/05/05',
+      物流问题: '包裹丢失',
+    },
+    'logistics_issue',
+  )
+  assert.equal(result.records.length, 1)
+  const record = result.records[0] as Record<string, unknown>
+  assert.equal(record['客诉类型'], '物流问题-丢包')
+  assert.equal(record['客诉SKU'], undefined)
+}
+
+// ===== inferComplaintTypeFromText / inferFollowUpTeam =====
+
+function testInferComplaintTypeFromText() {
+  // Customer-reason inference (no view)
+  assert.equal(inferComplaintTypeFromText('size too large'), '客户原因-尺码不合适')
+  assert.equal(inferComplaintTypeFromText('don\'t like the style'), '客户原因-款式不喜欢')
+  assert.equal(inferComplaintTypeFromText('颜色不喜欢'), '客户原因-款式不喜欢')
+  assert.equal(inferComplaintTypeFromText(''), '客户原因-尺码不合适')
+
+  // Logistics view
+  assert.equal(inferComplaintTypeFromText('包裹超期', '1-4待跟进表-物流问题'), '物流问题-超期')
+  assert.equal(inferComplaintTypeFromText('包裹丢了', '1-4待跟进表-物流问题'), '物流问题-丢包')
+  assert.equal(inferComplaintTypeFromText('地址写错了', '1-4待跟进表-物流问题'), '物流问题-地址')
+  assert.equal(inferComplaintTypeFromText('其他原因', '1-4待跟进表-物流问题'), '物流问题-其他')
+
+  // Defect view
+  assert.equal(inferComplaintTypeFromText('缝线开了', '1-3待跟进表-货品瑕疵'), '货品瑕疵-缝线')
+  assert.equal(inferComplaintTypeFromText('破洞', '1-3待跟进表-货品瑕疵'), '货品瑕疵-破洞')
+  assert.equal(inferComplaintTypeFromText('色差严重', '1-3待跟进表-货品瑕疵'), '货品瑕疵-色差')
+  assert.equal(inferComplaintTypeFromText('扣子掉了', '1-3待跟进表-货品瑕疵'), '货品瑕疵-扣子')
+  assert.equal(inferComplaintTypeFromText('未知', '1-3待跟进表-货品瑕疵'), '货品瑕疵-其他')
+
+  // Wrong-send view
+  assert.equal(inferComplaintTypeFromText('漏发', '1-2待跟进表-漏发、发错'), '仓库-漏发')
+  assert.equal(inferComplaintTypeFromText('发错了款式', '1-2待跟进表-漏发、发错'), '仓库-发错SKU')
+}
+
+function testInferFollowUpTeam() {
+  assert.deepEqual(inferFollowUpTeam(['1-1待跟进表-退款']), ['财务组'])
+  assert.deepEqual(inferFollowUpTeam(['1-2待跟进表-漏发、发错']), ['仓库组'])
+  assert.deepEqual(inferFollowUpTeam(['1-3待跟进表-货品瑕疵']), [
+    '采购组',
+    'OEM组',
+    '商品组',
+    '财务组',
+  ])
+  assert.deepEqual(inferFollowUpTeam(['1-4待跟进表-物流问题']), ['物流组', '财务组'])
+  assert.deepEqual(inferFollowUpTeam(['1-5待跟进表-补发']), ['仓库组'])
+  // Multi-view union, dedupe
+  assert.deepEqual(
+    inferFollowUpTeam(['1-3待跟进表-货品瑕疵', '1-4待跟进表-物流问题']),
+    ['采购组', 'OEM组', '商品组', '财务组', '物流组'],
+  )
+  // Unknown view → fallback
+  assert.deepEqual(inferFollowUpTeam([]), ['客服组'])
+  assert.deepEqual(inferFollowUpTeam(['unknown-view']), ['客服组'])
+}
+
+// ===== merge tests =====
+
+function testMergeNoOverlapPassThrough() {
+  const merged = mergeRecordsByOrderAndSku([
+    {
+      sourceName: '退款登记',
+      transformerKind: 'refund_log',
+      record: { 订单号: 'LC500', 客诉SKU: 'A', 客诉类型: '客户原因-尺码不合适' },
+    },
+    {
+      sourceName: '瑕疵反馈',
+      transformerKind: 'defect_feedback',
+      record: { 订单号: 'LC501', 客诉SKU: 'B', 客诉类型: '货品瑕疵-缝线' },
+    },
+  ])
+  assert.equal(merged.length, 2)
+  assert.equal(merged[0]['客诉类型'], '客户原因-尺码不合适')
+  assert.equal(merged[1]['客诉类型'], '货品瑕疵-缝线')
+}
+
+function testMergeMultiSelectUnion() {
+  const merged = mergeRecordsByOrderAndSku([
+    {
+      sourceName: '退款登记',
+      transformerKind: 'refund_log',
+      record: {
+        订单号: 'LC600',
+        客诉SKU: 'A',
+        命中视图: ['1-1待跟进表-退款'],
+        客诉方案: ['部分退款'],
+        跟进组: ['财务组'],
+      },
+    },
+    {
+      sourceName: '瑕疵反馈',
+      transformerKind: 'defect_feedback',
+      record: {
+        订单号: 'LC600',
+        客诉SKU: 'A',
+        命中视图: ['1-3待跟进表-货品瑕疵'],
+        客诉方案: ['补发'],
+        跟进组: ['采购组', 'OEM组', '商品组', '财务组'],
+      },
+    },
+  ])
+  assert.equal(merged.length, 1)
+  const m = merged[0]
+  assert.deepEqual(m['命中视图'], ['1-1待跟进表-退款', '1-3待跟进表-货品瑕疵'])
+  assert.deepEqual(m['客诉方案'], ['部分退款', '补发'])
+  // 财务组 deduped
+  assert.deepEqual(m['跟进组'], ['财务组', '采购组', 'OEM组', '商品组'])
+}
+
+function testMergeComplaintTypeNonRefundLogWins() {
+  const merged = mergeRecordsByOrderAndSku([
+    {
+      sourceName: '退款登记',
+      transformerKind: 'refund_log',
+      record: {
+        订单号: 'LC700',
+        客诉SKU: 'A',
+        客诉类型: '客户原因-尺码不合适',
+        待跟进客诉备注: '客户说尺码不合适',
+      },
+    },
+    {
+      sourceName: '瑕疵反馈',
+      transformerKind: 'defect_feedback',
+      record: {
+        订单号: 'LC700',
+        客诉SKU: 'A',
+        客诉类型: '货品瑕疵-缝线',
+        待跟进客诉备注: '缝线开了',
+      },
+    },
+  ])
+  assert.equal(merged.length, 1)
+  const m = merged[0]
+  // Non-refund_log complaint type wins
+  assert.equal(m['客诉类型'], '货品瑕疵-缝线')
+  // Text fields concatenated with [source] prefix
+  assert.match(String(m['待跟进客诉备注']), /\[退款登记\]/)
+  assert.match(String(m['待跟进客诉备注']), /\[瑕疵反馈\]/)
+  assert.match(String(m['待跟进客诉备注']), / \| /)
+}
+
 async function run() {
   testTransformBasicFields()
   testTransformSplitsMultiSkuRows()
   testTransformInfersRefundSolutionAndView()
   testTransformMissingRequiredFields()
+  testTransformRefundLogFallbacks()
+  testTransformReissue6Usd()
+  testTransformManualReturn()
+  testTransformDefectFeedback()
+  testTransformWrongSendFeedback()
+  testTransformLogisticsIssueWithSkuLookup()
+  testTransformLogisticsIssueFallbackWhenNoSkus()
+  testInferComplaintTypeFromText()
+  testInferFollowUpTeam()
+  testMergeNoOverlapPassThrough()
+  testMergeMultiSelectUnion()
+  testMergeComplaintTypeNonRefundLogWins()
   testDateFilters()
   testTimestampDateFilter()
   testDateFilterRejectsMixedModes()
