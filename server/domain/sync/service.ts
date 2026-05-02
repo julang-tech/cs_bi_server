@@ -329,7 +329,50 @@ async function enrichResultsWithShopify(
     return { results, diagnostics, summary }
   }
 
+  // Pre-warm the order cache by fetching all unique orderNos in parallel with
+  // a bounded concurrency. The previous sequential `await` per record made
+  // enrichment ~75min for 3k unique orders; bounded parallelism brings it to
+  // ~5-10min while staying well under Shopify Admin API rate limits.
+  const uniqueOrderNos = new Set<string>()
+  for (const result of results) {
+    if (result.errors.length) continue
+    for (const record of result.records) {
+      const orderNo = stringify(record['订单号'])
+      if (orderNo) uniqueOrderNos.add(orderNo)
+    }
+  }
+
   const orderCache = new Map<string, Awaited<ReturnType<ShopifyLikeClient['fetchOrder']>>>()
+  const orderNoList = [...uniqueOrderNos]
+  const SHOPIFY_CONCURRENCY = 8
+  logger.info(
+    `Pre-fetching ${orderNoList.length} unique Shopify orders with concurrency=${SHOPIFY_CONCURRENCY}.`,
+  )
+  let prefetched = 0
+  let nextIndex = 0
+  async function prefetchWorker() {
+    while (true) {
+      const i = nextIndex
+      nextIndex += 1
+      if (i >= orderNoList.length) return
+      const orderNo = orderNoList[i]
+      try {
+        orderCache.set(orderNo, await shopifyClient!.fetchOrder(orderNo))
+      } catch (err) {
+        logger.warn(`Shopify fetchOrder failed for ${orderNo}: ${(err as Error).message}`)
+        orderCache.set(orderNo, null)
+      }
+      prefetched += 1
+      if (prefetched % 100 === 0 || prefetched === orderNoList.length) {
+        logger.info(`Shopify prefetch progress: ${prefetched}/${orderNoList.length}`)
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(SHOPIFY_CONCURRENCY, orderNoList.length) }, () => prefetchWorker()),
+  )
+  logger.info(`Shopify prefetch done: ${orderCache.size} orders cached.`)
+
   const enrichedResults: TransformResult[] = []
 
   for (const result of results) {
@@ -362,9 +405,7 @@ async function enrichResultsWithShopify(
         continue
       }
 
-      if (!orderCache.has(orderNo)) {
-        orderCache.set(orderNo, await shopifyClient.fetchOrder(orderNo))
-      }
+      // Cache is pre-warmed; lookup is synchronous now.
       const order = orderCache.get(orderNo) ?? null
       if (!order) {
         skippedReasons.push('shopify_order_not_found')
