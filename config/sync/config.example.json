@@ -3,11 +3,45 @@
     "app_id": "cli_xxx",
     "app_secret": "your_secret_here"
   },
-  "source": {
-    "app_token": "source_app_token_here",
-    "table_id": "source_table_id_here",
-    "view_id": "source_view_id_here"
-  },
+  "sources": [
+    {
+      "name": "退款登记",
+      "app_token": "source_app_token_here",
+      "table_id": "tblQsSMgz7jtC7mI",
+      "view_id": "source_view_id_here",
+      "transformer_kind": "refund_log"
+    },
+    {
+      "name": "6美元补发订单",
+      "app_token": "source_app_token_here",
+      "table_id": "tblnLyB0ouC1d5SL",
+      "transformer_kind": "reissue_6usd"
+    },
+    {
+      "name": "手工退货登记",
+      "app_token": "source_app_token_here",
+      "table_id": "tblf4JJZOyq4q0nl",
+      "transformer_kind": "manual_return"
+    },
+    {
+      "name": "瑕疵反馈",
+      "app_token": "source_app_token_here",
+      "table_id": "tblchKVT2yi7EmeB",
+      "transformer_kind": "defect_feedback"
+    },
+    {
+      "name": "错发反馈",
+      "app_token": "source_app_token_here",
+      "table_id": "tbloBJUqkCQgllhm",
+      "transformer_kind": "wrong_send_feedback"
+    },
+    {
+      "name": "物流问题",
+      "app_token": "source_app_token_here",
+      "table_id": "tbldrg1cYmPOj51k",
+      "transformer_kind": "logistics_issue"
+    }
+  ],
   "target": {
     "app_token": "target_app_token_here",
     "table_id": "target_table_id_here",
