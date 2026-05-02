@@ -520,6 +520,37 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
     return { issues: enriched, notes }
   }
 
+  /**
+   * Returns the list of valid product SKUs for an order from the cache,
+   * excluding insurance / price-adjustment / shipping lines. Order is
+   * stable (line_key asc) so callers get deterministic per-SKU output.
+   */
+  listValidSkusByOrderNo(orderNo: string): string[] {
+    if (!orderNo) return []
+    const rows = this.db
+      .prepare(`
+        SELECT sku
+        FROM shopify_bi_order_lines
+        WHERE order_no = ?
+          AND is_insurance_item = 0
+          AND is_price_adjustment = 0
+          AND is_shipping_cost = 0
+          AND sku IS NOT NULL
+          AND TRIM(sku) != ''
+        ORDER BY line_key ASC
+      `)
+      .all(orderNo) as Array<{ sku: unknown }>
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const row of rows) {
+      const sku = String(row.sku ?? '').trim()
+      if (!sku || seen.has(sku)) continue
+      seen.add(sku)
+      result.push(sku)
+    }
+    return result
+  }
+
   hasCoverage(dateFrom: string, dateTo: string) {
     const row = this.db
       .prepare(`

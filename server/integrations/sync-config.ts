@@ -79,8 +79,18 @@ export type SourceConfig = z.infer<typeof sourceConfigSchema>
 type RawSyncConfig = z.infer<typeof rawSyncConfigSchema>
 
 export type SyncConfig = Omit<RawSyncConfig, 'source' | 'sources'> & {
-  source: SourceConfig
-  sources: SourceConfig[]
+  /**
+   * Back-compat single-source pointer. Equal to `sources[0]` reduced to a plain
+   * `TableConfig` shape so legacy consumers that only need the table coordinates
+   * (e.g. P3 runtime fetch, FeishuTableClient.listRecords) keep working.
+   */
+  source: TableConfig
+  /**
+   * Marked optional in the type (always populated by `loadSyncConfig`) so
+   * older test fixtures and callers that build a `SyncConfig` literal by hand
+   * keep type-checking without forcing them to declare every transformer kind.
+   */
+  sources?: SourceConfig[]
 }
 
 function normalizeSources(raw: RawSyncConfig): SourceConfig[] {
@@ -103,10 +113,15 @@ export function loadSyncConfig(configPath: string): SyncConfig {
   const raw = JSON.parse(fs.readFileSync(configPath, 'utf8'))
   const parsed = rawSyncConfigSchema.parse(raw)
   const sources = normalizeSources(parsed)
+  const primary: TableConfig = {
+    app_token: sources[0].app_token,
+    table_id: sources[0].table_id,
+    view_id: sources[0].view_id,
+  }
   return {
     ...parsed,
     sources,
-    source: sources[0],
+    source: primary,
   }
 }
 

@@ -16,6 +16,7 @@ import {
   type ShopifyBiOrderLine,
   type ShopifyBiRefundEvent,
 } from '../../integrations/shopify-bi-cache.js'
+import type { SourceConfig } from '../../integrations/sync-config.js'
 import {
   inferLogisticsStatusFromShopify,
   matchSkuAmount,
@@ -25,8 +26,10 @@ import {
 import {
   buildDateFilter,
   filterRowsByDate,
+  mergeRecordsByOrderAndSku,
   summarizeResults,
   transformSourceRecord,
+  type OrderSkuLookup,
   type SyncDateFilterInput,
   type TransformResult,
 } from './transform.js'
@@ -112,6 +115,13 @@ type BigQueryRows = Array<Record<string, unknown>>
 
 type BigQueryLike = {
   query(options: unknown): Promise<unknown>
+}
+
+type PerSourceCount = {
+  source_name: string
+  transformer_kind: SourceConfig['transformer_kind']
+  source_rows: number
+  transformed_records: number
 }
 
 type EnrichmentDiagnostic = {
@@ -831,14 +841,23 @@ export class SyncService {
     const dateFilter = buildDateFilter(options)
     const client = this.createClient(config, logger)
     const shopifyClient = this.createShopifyClient(config, logger)
+    const skuLookup = this.createOrderSkuLookup(options.config, logger)
     logger.info(`Starting preview with config ${options.config}.`)
-    const filteredRows = filterRowsByDate(
-      (await client.listRecords(config.source)).map((record) => [record.record_id, record.fields] as [string, Record<string, unknown>]),
+    const { transformed, perSourceCounts } = await this.transformAllSources(
+      config,
+      client,
       dateFilter,
+      skuLookup,
+      logger,
     )
-    const transformed = filteredRows.map(([sourceKey, row]) => transformSourceRecord(sourceKey, row))
     const enriched = await enrichResultsWithShopify(transformed, config, logger, shopifyClient)
-    logger.info(`Filtered ${filteredRows.length} source rows for preview.`)
+    logger.info(
+      `Preview transformed rows: ${
+        perSourceCounts
+          .map((entry) => `${entry.source_name}=${entry.transformed_records}`)
+          .join(', ')
+      }.`,
+    )
     const synced = await syncResults(enriched.results, config, statePath, true, null, logger)
     logger.info(
       `Preview finished: scanned=${synced.counters.scanned}, created=${synced.counters.created}, updated=${synced.counters.updated}, failed=${synced.counters.failed}.`,
@@ -850,6 +869,7 @@ export class SyncService {
       state: readState(statePath),
       dateFilter,
       summary: summarizeResults(enriched.results),
+      per_source_counts: perSourceCounts,
       enrichment_summary: enriched.summary,
       sqlite: {
         enabled: false,
@@ -882,14 +902,23 @@ export class SyncService {
     const dateFilter = buildDateFilter(options)
     const client = this.createClient(config, logger)
     const shopifyClient = this.createShopifyClient(config, logger)
+    const skuLookup = this.createOrderSkuLookup(options.config, logger)
     logger.info(`Starting source-to-target sync with config ${options.config}.`)
-    const filteredRows = filterRowsByDate(
-      (await client.listRecords(config.source)).map((record) => [record.record_id, record.fields] as [string, Record<string, unknown>]),
+    const { transformed, perSourceCounts } = await this.transformAllSources(
+      config,
+      client,
       dateFilter,
+      skuLookup,
+      logger,
     )
-    const transformed = filteredRows.map(([sourceKey, row]) => transformSourceRecord(sourceKey, row))
     const enriched = await enrichResultsWithShopify(transformed, config, logger, shopifyClient)
-    logger.info(`Filtered ${filteredRows.length} source rows for source-to-target sync.`)
+    logger.info(
+      `Source-to-target transformed rows: ${
+        perSourceCounts
+          .map((entry) => `${entry.source_name}=${entry.transformed_records}`)
+          .join(', ')
+      }.`,
+    )
     const synced = await syncResults(enriched.results, config, statePath, false, client, logger)
     logger.info(
       `Source-to-target sync finished: scanned=${synced.counters.scanned}, created=${synced.counters.created}, updated=${synced.counters.updated}, failed=${synced.counters.failed}.`,
@@ -901,6 +930,7 @@ export class SyncService {
       statePath,
       dateFilter,
       summary: summarizeResults(enriched.results),
+      per_source_counts: perSourceCounts,
       enrichment_summary: enriched.summary,
       sqlite: {
         enabled: false,
@@ -923,6 +953,145 @@ export class SyncService {
       ...synced.counters,
       diagnostics: [...synced.diagnostics, ...enriched.diagnostics],
       state: synced.state,
+    }
+  }
+
+  /**
+   * Pulls every configured source table, applies the per-source transformer,
+   * then merges output by (order_no, sku) so cross-source rows for the same
+   * SKU collapse into a single target record.
+   */
+  private async transformAllSources(
+    config: SyncConfig,
+    client: FeishuSyncClient,
+    dateFilter: ReturnType<typeof buildDateFilter>,
+    skuLookup: OrderSkuLookup | undefined,
+    logger: SyncLogger,
+  ): Promise<{ transformed: TransformResult[]; perSourceCounts: PerSourceCount[] }> {
+    const tagged: Array<{
+      sourceName: string
+      transformerKind: SourceConfig['transformer_kind']
+      result: TransformResult
+    }> = []
+    const perSourceCounts: PerSourceCount[] = []
+
+    const sources: SourceConfig[] =
+      config.sources && config.sources.length > 0
+        ? config.sources
+        : [{
+            ...config.source,
+            name: '退款登记',
+            transformer_kind: 'refund_log',
+          }]
+    for (const source of sources) {
+      const sourceName = source.name ?? source.transformer_kind
+      logger.info(`Listing source records: ${sourceName} (${source.table_id}).`)
+      const records = await client.listRecords({
+        app_token: source.app_token,
+        table_id: source.table_id,
+        view_id: source.view_id ?? null,
+      })
+      const filteredRows = filterRowsByDate(
+        records.map((record) => [record.record_id, record.fields] as [string, Record<string, unknown>]),
+        dateFilter,
+      )
+      const sourceResults = filteredRows.map(([sourceKey, row]) =>
+        transformSourceRecord(`${source.transformer_kind}:${sourceKey}`, row, source.transformer_kind, {
+          sourceName,
+          lookupOrderSkus: skuLookup,
+        }),
+      )
+      let recordsCount = 0
+      for (const result of sourceResults) {
+        recordsCount += result.records.length
+        tagged.push({ sourceName, transformerKind: source.transformer_kind, result })
+      }
+      perSourceCounts.push({
+        source_name: sourceName,
+        transformer_kind: source.transformer_kind,
+        source_rows: filteredRows.length,
+        transformed_records: recordsCount,
+      })
+      logger.info(
+        `Source ${sourceName}: ${filteredRows.length} rows → ${recordsCount} records (transformer=${source.transformer_kind}).`,
+      )
+    }
+
+    // Carry through error-only results (no merging needed for those).
+    const errorResults: TransformResult[] = []
+    const recordsToMerge: Array<{
+      sourceName: string
+      transformerKind: SourceConfig['transformer_kind']
+      record: Record<string, unknown>
+    }> = []
+    for (const { sourceName, transformerKind, result } of tagged) {
+      if (result.errors.length) {
+        errorResults.push(result)
+        continue
+      }
+      for (const record of result.records) {
+        recordsToMerge.push({ sourceName, transformerKind, record })
+      }
+    }
+
+    const mergedRecords = mergeRecordsByOrderAndSku(recordsToMerge)
+    const mergedResults: TransformResult[] = mergedRecords.map((record) => {
+      const orderNo = String(record['订单号'] ?? '').trim()
+      const sku = String(record['客诉SKU'] ?? '').trim()
+      return {
+        source_key: `merged:${orderNo}|${sku}`,
+        records: [record],
+        errors: [],
+      }
+    })
+
+    const transformed = [...mergedResults, ...errorResults]
+    logger.info(
+      `Merged ${recordsToMerge.length} per-source records into ${mergedResults.length} target records (errors: ${errorResults.length}).`,
+    )
+    return { transformed, perSourceCounts }
+  }
+
+  /**
+   * Builds an order → valid-SKU lookup backed by the local Shopify BI cache.
+   * Returns `undefined` if the cache file is missing so transformers gracefully
+   * fall back to row-level SKUs.
+   */
+  private createOrderSkuLookup(configPath: string, logger: SyncLogger): OrderSkuLookup | undefined {
+    let config: SyncConfig
+    try {
+      config = loadSyncConfig(configPath)
+    } catch {
+      return undefined
+    }
+    const sqlitePath = resolveRuntimePath(configPath, config.runtime.sqlite_path)
+    if (!fs.existsSync(sqlitePath)) {
+      logger.info(`Shopify BI cache not found at ${sqlitePath}; logistics SKU lookup disabled.`)
+      return undefined
+    }
+    let repository: SqliteShopifyBiCacheRepository | null = null
+    try {
+      repository = new SqliteShopifyBiCacheRepository(sqlitePath)
+    } catch (error) {
+      logger.warn(
+        `Failed to open Shopify BI cache for SKU lookup: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return undefined
+    }
+    const cache = new Map<string, string[]>()
+    return (orderNo: string) => {
+      if (!orderNo) return null
+      if (cache.has(orderNo)) return cache.get(orderNo) ?? null
+      try {
+        const skus = repository!.listValidSkusByOrderNo(orderNo)
+        cache.set(orderNo, skus)
+        return skus
+      } catch (error) {
+        logger.warn(
+          `Shopify BI cache lookup failed for ${orderNo}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        return null
+      }
     }
   }
 
