@@ -3,15 +3,17 @@ import { Table } from '../../shared/components/Table'
 import { formatPercent } from '../../shared/utils/format'
 import type { P3Dashboard, P3IssueShareItem } from '../../api/types'
 
-const ISSUE_ORDER: Array<P3IssueShareItem['major_issue_type']> = ['product', 'logistics', 'warehouse']
-const ISSUE_LABELS: Record<P3IssueShareItem['major_issue_type'], { label: string; accent: string }> = {
+const ISSUE_ORDER = ['product', 'logistics', 'warehouse'] as const
+type DisplayIssueType = (typeof ISSUE_ORDER)[number]
+
+const ISSUE_LABELS: Record<DisplayIssueType, { label: string; accent: string }> = {
   product: { label: '产品问题', accent: 'issue-row--product' },
   logistics: { label: '物流问题', accent: 'issue-row--logistics' },
   warehouse: { label: '仓库问题', accent: 'issue-row--warehouse' },
 }
 
 interface IssueRow {
-  major_issue_type: P3IssueShareItem['major_issue_type']
+  major_issue_type: DisplayIssueType
   label: string
   count: number
   ratio: number

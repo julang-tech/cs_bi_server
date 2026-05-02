@@ -115,7 +115,7 @@ export interface P2SpuRow {
 }
 
 // ----- P3 -----
-export type MajorIssueType = 'product' | 'logistics' | 'warehouse'
+export type MajorIssueType = 'product' | 'logistics' | 'warehouse' | 'refund' | 'other'
 export interface P3Filters extends PeriodWindow {
   grain: Grain
   date_basis: 'order_date' | 'refund_date'

@@ -26,8 +26,11 @@ function formatRate(value: number | null | undefined): string {
   return formatPercent(value, 1)
 }
 
+const PRODUCT_REFUND_FETCH_LIMIT = 50
+const PRODUCT_REFUND_PAGE_SIZE = 10
+
 export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
-  const [top20Rows, setTop20Rows] = useState<P2SpuRow[]>([])
+  const [top50Rows, setTop50Rows] = useState<P2SpuRow[]>([])
   const [filteredRows, setFilteredRows] = useState<P2SpuRow[]>([])
   const [spuOptions, setSpuOptions] = useState<string[]>([])
   const [skcOptions, setSkcOptions] = useState<string[]>([])
@@ -35,6 +38,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   const [expandedSpu, setExpandedSpu] = useState<Record<string, boolean>>({})
   const [sortState, setSortState] = useState<SortState>({ key: 'refund_amount', direction: 'desc' })
   const [productPickerOpen, setProductPickerOpen] = useState(false)
+  const [page, setPage] = useState(1)
   const [activeSpu, setActiveSpu] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -59,7 +63,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     return map
   }, [spuSkcPairs])
 
-  // Initial / base-filter-driven fetch: top-20 rows + SPU/SKC options
+  // Initial / base-filter-driven fetch: top 50 rows + SPU/SKC options
   useEffect(() => {
     const controller = new AbortController()
     setLoading(true)
@@ -70,7 +74,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
       category: '',
       spu: '',
       skc: '',
-      top_n: 20,
+      top_n: PRODUCT_REFUND_FETCH_LIMIT,
     }
 
     Promise.all([
@@ -78,7 +82,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
       fetchRefundSpuSkcOptions(fetchFilters, controller.signal),
     ])
       .then(([tableResp, optionsResp]) => {
-        setTop20Rows(tableResp.rows ?? [])
+        setTop50Rows(tableResp.rows ?? [])
         setFilteredRows([])
         setSpuOptions(optionsResp?.options?.spus ?? [])
         setSkcOptions(optionsResp?.options?.skcs ?? [])
@@ -94,7 +98,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseFilters.grain, baseFilters.channel, baseFilters.date_from, baseFilters.date_to])
 
-  // Filter-driven fetch: top-500 rows scoped by picker selections
+  // Filter-driven fetch: top 50 rows scoped by picker selections
   useEffect(() => {
     const controller = new AbortController()
     const hasFilters =
@@ -113,7 +117,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
         skc: '',
         spu_list: selectedSpus,
         skc_list: selectedSkcs,
-        top_n: 500,
+        top_n: PRODUCT_REFUND_FETCH_LIMIT,
       },
       controller.signal,
     )
@@ -130,7 +134,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   useEffect(() => {
     const hasTableFilters =
       selectedSpus.length > 0 || selectedSkcs.length > 0 || filteredRows.length > 0
-    const activeRows = hasTableFilters ? filteredRows : top20Rows
+    const activeRows = hasTableFilters ? filteredRows : top50Rows
     if (!activeRows.length) {
       setExpandedSpu({})
       return
@@ -142,12 +146,24 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
       }
       return next
     })
-  }, [top20Rows, filteredRows, selectedSpus.length, selectedSkcs.length])
+  }, [top50Rows, filteredRows, selectedSpus.length, selectedSkcs.length])
+
+  useEffect(() => {
+    setPage(1)
+  }, [
+    selectedSpus,
+    selectedSkcs,
+    sortState,
+    baseFilters.grain,
+    baseFilters.channel,
+    baseFilters.date_from,
+    baseFilters.date_to,
+  ])
 
   const displayedRows = useMemo(() => {
     const hasTableFilters =
       selectedSpus.length > 0 || selectedSkcs.length > 0 || filteredRows.length > 0
-    const sourceRows = hasTableFilters ? filteredRows : top20Rows
+    const sourceRows = hasTableFilters ? filteredRows : top50Rows
     const rows = [...sourceRows]
 
     const getValue = (row: P2SpuRow): number => {
@@ -164,9 +180,13 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
       return sortState.direction === 'asc' ? diff : -diff
     })
 
-    if (!hasTableFilters) return rows.slice(0, 5)
     return rows
-  }, [top20Rows, filteredRows, selectedSpus, selectedSkcs, sortState])
+  }, [top50Rows, filteredRows, selectedSpus, selectedSkcs, sortState])
+
+  const pageCount = Math.max(1, Math.ceil(displayedRows.length / PRODUCT_REFUND_PAGE_SIZE))
+  const safePage = Math.min(page, pageCount)
+  const startIndex = (safePage - 1) * PRODUCT_REFUND_PAGE_SIZE
+  const visibleRows = displayedRows.slice(startIndex, startIndex + PRODUCT_REFUND_PAGE_SIZE)
 
   const visibleActiveSpu = useMemo(() => {
     if (activeSpu && filteredSpuOptions.includes(activeSpu)) return activeSpu
@@ -223,7 +243,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
       <div className="table-head">
         <div>
           <h3>商品退款表现表</h3>
-          <p className="table-note">默认查询退款金额Top20再排序为Top5</p>
+          <p className="table-note">默认拉取退款金额 Top50，每页展示 10 条</p>
         </div>
 
         <div className="table-sort-tools">
@@ -343,6 +363,46 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
               </button>
             </div>
           ) : null}
+
+          {displayedRows.length ? (
+            <div className="ranking-pagination product-table-pagination">
+              <div className="pagination-buttons" role="group" aria-label="商品退款表现表分页">
+                <button
+                  type="button"
+                  className="toolbar-button pagination-button"
+                  onClick={() => setPage(1)}
+                  disabled={safePage === 1}
+                >
+                  首页
+                </button>
+                <button
+                  type="button"
+                  className="toolbar-button pagination-button"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={safePage === 1}
+                >
+                  上一页
+                </button>
+                <span className="pagination-status">{safePage} / {pageCount}</span>
+                <button
+                  type="button"
+                  className="toolbar-button pagination-button"
+                  onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                  disabled={safePage === pageCount}
+                >
+                  下一页
+                </button>
+                <button
+                  type="button"
+                  className="toolbar-button pagination-button"
+                  onClick={() => setPage(pageCount)}
+                  disabled={safePage === pageCount}
+                >
+                  尾页
+                </button>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -377,7 +437,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
           </thead>
 
           <tbody>
-            {displayedRows.map((spuRow) => {
+            {visibleRows.map((spuRow) => {
               const firstSkc = (spuRow.skc_rows ?? []).find(
                 (row) => row.skc && row.skc !== 'UNKNOWN_SKC',
               )?.skc

@@ -281,11 +281,12 @@ async function testFeishuIssueProviderSuccess() {
     assert.equal(authCalls, 1)
     assert.equal(recordsCalls, 1)
     assert.equal(bundle.partial_data, false)
-    assert.equal(bundle.issues.length, 1)
+    // rec-1 (product), rec-3 (no view → other). rec-2 (no order_no) skipped.
+    assert.equal(bundle.issues.length, 2)
     assert.equal(bundle.issues[0]?.major_issue_type, 'product')
-    assert.equal(bundle.notes.length, 2)
+    assert.equal(bundle.issues[1]?.major_issue_type, 'other')
+    assert.equal(bundle.notes.length, 1)
     assert.match(bundle.notes[0] ?? '', /Skipped record rec-2/)
-    assert.match(bundle.notes[1] ?? '', /Ignored 1 records/)
   } finally {
     globalThis.fetch = originalFetch
   }

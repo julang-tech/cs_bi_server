@@ -8,6 +8,8 @@ import {
 describe('metric definitions', () => {
   it('documents global data readiness and currency rules', () => {
     expect(getMetricDefinition('global.data_ready_cutoff')?.detail).toContain('03:00')
+    expect(getMetricDefinition('global.current_period')?.short).toContain('本周/本月至今')
+    expect(getMetricDefinition('global.current_period')?.detail).toContain('上上周')
     expect(getMetricDefinition('global.currency_usd')?.detail).toContain('USD')
   })
 
@@ -21,6 +23,16 @@ describe('metric definitions', () => {
   it('provides short descriptions for KPI tooltips', () => {
     expect(getMetricDescription('p2.gmv')).toContain('GMV')
     expect(getMetricDescription('p3.complaint_rate')).toContain('客诉率')
+  })
+
+  it('uses current table display copy in metric documentation', () => {
+    expect(getMetricDefinition('global.history_range')?.name).toBe('时间范围')
+    expect(getMetricDefinition('p1.agent_reply_span_hours')?.name).toBe('回信时长')
+    expect(getMetricDefinition('p1.agent_hourly_reply_span')).toBeUndefined()
+    expect(getMetricDefinition('p2.product_refund_table')?.short).toContain('Top50')
+    expect(getMetricDefinition('p2.product_refund_table')?.short).toContain('每页展示 10 行')
+    expect(getMetricDefinition('p3.product_ranking')?.short).toContain('Top50')
+    expect(getMetricDefinition('p3.product_ranking')?.short).toContain('每页展示 10 行')
   })
 
   it('does not duplicate definition ids', () => {

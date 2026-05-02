@@ -18,4 +18,20 @@ describe('P1 overview KPI composition', () => {
     expect(cardsSource).not.toContain('首封邮件数')
     expect(cardsSource).not.toContain('还没回复数')
   })
+
+  it('does not compute hidden previous-range deltas for the focus chart summary', () => {
+    const summarySource = source.slice(
+      source.indexOf('  // Per-metric summary line for focus chart'),
+      source.indexOf('  return ('),
+    )
+
+    expect(summarySource).toContain('summaryByKey')
+    expect(summarySource).not.toContain('previousHistory')
+    expect(summarySource).not.toContain('delta,')
+  })
+
+  it('hides the internal schedule-table missing note from the dashboard banner', () => {
+    expect(source).toContain('visibleP1Note')
+    expect(source).toContain('工时表暂未接入')
+  })
 })

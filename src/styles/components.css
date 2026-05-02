@@ -432,9 +432,10 @@
 .kpi-card {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  min-height: 156px;
-  padding: 12px 14px;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 132px;
+  padding: 10px 12px 9px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
@@ -442,6 +443,15 @@
     border-color 0.15s ease,
     background-color 0.15s ease,
     box-shadow 0.15s ease;
+}
+
+.kpi-card__content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px;
 }
 
 .kpi-card--history {
@@ -472,6 +482,27 @@
   justify-content: space-between;
   gap: var(--space-2);
   min-height: 22px;
+}
+
+.kpi-card__top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, auto);
+  align-items: start;
+  gap: 12px;
+}
+
+.kpi-card__main {
+  min-width: 0;
+}
+
+.kpi-card__side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+  min-width: 90px;
+  padding-top: 2px;
+  text-align: right;
 }
 
 .kpi-card__label {
@@ -538,7 +569,10 @@
 .kpi-card__delta {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
+  justify-content: center;
+  align-self: flex-end;
+  min-width: 76px;
+  padding: 3px 9px;
   border-radius: 999px;
   font-size: var(--fs-xs);
   font-weight: 700;
@@ -566,10 +600,10 @@
 }
 
 .kpi-card__value {
-  margin: 2px 0 0;
+  margin: 5px 0 0;
   color: var(--heading);
   font-family: var(--sans);
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 600;
   line-height: 1.1;
   letter-spacing: 0;
@@ -581,12 +615,16 @@
 .kpi-card__secondary {
   display: inline-flex;
   align-items: baseline;
+  justify-content: flex-end;
   gap: 6px;
+  width: 100%;
   padding: 0;
   background: transparent;
   color: var(--muted);
   font-size: var(--fs-xs);
   font-weight: 500;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 .kpi-card__secondary strong {
@@ -603,14 +641,15 @@
 
 .mini-chart,
 .mini-placeholder {
-  margin-top: 4px;
-  height: 36px;
+  margin-top: 0;
+  height: 42px;
   border: 0;
   background: transparent;
 }
 
 .mini-chart {
   padding: 0;
+  width: 100%;
 }
 
 .mini-chart--empty {
@@ -720,6 +759,16 @@
 .focus-chart__summary-delta--down { color: var(--tone-down); }
 .focus-chart__summary-delta--neutral { color: var(--muted); }
 .focus-chart__summary-delta--muted { color: var(--muted-strong); }
+
+.focus-chart__peak-label {
+  fill: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
 
 .focus-chart__plot {
   position: relative;

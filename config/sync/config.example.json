@@ -17,7 +17,9 @@
     "state_path": "./data/state.json",
     "log_path": "./logs/sync.log",
     "sqlite_path": "./data/issues.sqlite",
-    "refresh_interval_minutes": 120
+    "refresh_interval_minutes": 120,
+    "daily_full_refresh_time": "03:30",
+    "daily_full_refresh_timezone_offset_minutes": 480
   },
   "shopify": {
     "sites": {

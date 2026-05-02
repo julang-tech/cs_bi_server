@@ -1,6 +1,10 @@
-import { describe, expect, it } from 'vitest'
-import { buildWorkloadTableRows, getReplySpanHours } from './WorkloadAnalysis'
+import { act, createElement } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
+import { afterEach, describe, expect, it } from 'vitest'
+import { WorkloadAnalysis, buildWorkloadTableRows, getReplySpanHours } from './WorkloadAnalysis'
 import type { P1AgentRow } from '../../api/types'
+
+;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const rows: P1AgentRow[] = [
   {
@@ -18,6 +22,28 @@ const rows: P1AgentRow[] = [
     qa_reply_counts: { excellent: 5, pass: 7, fail: 2 },
   },
 ]
+
+let root: Root | null = null
+let host: HTMLDivElement | null = null
+
+function renderWorkloadAnalysis() {
+  host = document.createElement('div')
+  document.body.appendChild(host)
+  root = createRoot(host)
+
+  act(() => {
+    root?.render(createElement(WorkloadAnalysis, { workloadRows: rows, loading: false }))
+  })
+}
+
+afterEach(() => {
+  act(() => {
+    root?.unmount()
+  })
+  host?.remove()
+  root = null
+  host = null
+})
 
 describe('WorkloadAnalysis table rows', () => {
   it('derives first-to-last reply span from outbound count and span hourly average', () => {
@@ -43,5 +69,14 @@ describe('WorkloadAnalysis table rows', () => {
 
   it('does not add an average row when no agents are present', () => {
     expect(buildWorkloadTableRows([])).toEqual([])
+  })
+
+  it('shows reply duration without exposing the first-to-last hourly average column', () => {
+    renderWorkloadAnalysis()
+
+    expect(host?.textContent).toContain('回信时长')
+    expect(host?.textContent).not.toContain('首末封时间跨度')
+    expect(host?.textContent).not.toContain('每小时回邮数均值（首末封）')
+    expect(host?.textContent).toContain('每小时回邮数均值（工时表）')
   })
 })

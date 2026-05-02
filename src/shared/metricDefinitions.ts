@@ -22,7 +22,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
   {
     id: 'global',
     title: '全局口径',
-    description: '所有看板共用的数据时间、历史区间、店铺和金额换算规则。',
+    description: '所有看板共用的数据时间、时间范围、店铺和金额换算规则。',
     sections: [
       {
         title: '数据时间',
@@ -38,17 +38,17 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'global.current_period',
             name: '当前周期',
-            short: '昨日 / 近 7 天 / 近 30 天均截止到数据截至日期。',
-            formula: '按日=1 天，按周=7 天，按月=30 天',
+            short: '按日为数据就绪日；按周/按月优先展示本周/本月至今，空周期回退到上周/上月。',
+            formula: '按日=数据就绪日；按周=本周周一到数据就绪日，若无本周数据则上周；按月=本月 1 日到数据就绪日，若无本月数据则上月',
             detail:
-              '当前周期使用滚动窗口，而不是自然周或自然月，避免周初/月初出现当前周期过短或包含未就绪日期。',
+              '数据截至日期受 03:00 回写规则约束。若今天是周一或每月 1 日且当前周/月尚无就绪数据，看板自动展示上周或上月，并用上上周或上上月作为上期对比。',
           },
           {
             id: 'global.history_range',
-            name: '历史区间',
-            short: '历史趋势按用户选择的区间和粒度聚合。',
+            name: '时间范围',
+            short: '历史趋势按用户选择的时间范围和粒度聚合。',
             detail:
-              '历史区间不能超过数据截至日期。按周和按月输入会对齐到自然周或自然月边界，末尾周期可能只包含已就绪日期。',
+              '时间范围不能超过数据截至日期。按周和按月输入会对齐到自然周或自然月边界，末尾周期可能只包含已就绪日期。',
           },
         ],
       },
@@ -113,15 +113,9 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
         items: [
           {
             id: 'p1.agent_reply_span_hours',
-            name: '首末封时间跨度',
-            short: '坐席首封到末封之间的时间跨度。',
-            detail: '用于解释按首末封估算的每小时回邮数；当前前端优先使用上游返回的 reply_span_hours，没有该字段时按总回邮数 / 每小时回邮数均值（首末封）反推。',
-          },
-          {
-            id: 'p1.agent_hourly_reply_span',
-            name: '每小时回邮数均值（首末封）',
-            short: '按坐席首封到末封时间跨度估算每小时回邮数。',
-            detail: '适合观察实际回复节奏，但会受到中途离线、休息或跨班影响。',
+            name: '回信时长',
+            short: '坐席有回复记录的有效时间跨度。',
+            detail: '前端优先使用上游返回的 reply_span_hours；没有该字段时按总回邮数和内部回邮效率字段反推。',
           },
           {
             id: 'p1.agent_hourly_reply_schedule',
@@ -213,9 +207,9 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p2.product_refund_table',
             name: '商品退款表现表',
-            short: '默认取退款金额 Top20 SPU，再展示排序后的前 5 行。',
+            short: '默认拉取退款金额 Top50 SPU，每页展示 10 行。',
             detail:
-              '筛选 SPU/SKC 后，会按筛选条件查询最多 500 行。SPU/SKC 来自 SKU 解析结果。',
+              '筛选 SPU/SKC 后，同样按筛选条件拉取 Top50。SPU/SKC 来自 SKU 解析结果。',
           },
           {
             id: 'p2.refund_qty_ratio',
@@ -291,7 +285,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p3.product_ranking',
             name: '商品客诉表现表',
-            short: '默认按客诉量展示 Top20 SPU，并可展开 SKC 明细。',
+            short: '默认按客诉量拉取 Top50 SPU，每页展示 10 行，并可展开 SKC 明细。',
             detail:
               '用于定位客诉集中商品。销量、客诉量和客诉率均使用当前筛选时间口径。',
           },

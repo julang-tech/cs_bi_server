@@ -12,6 +12,7 @@ import {
 } from '../domain/p1/service.js'
 import { createP3Service } from '../domain/p3/service.js'
 import { createP2Service } from '../domain/p2/service.js'
+import { getSyncCacheStatus } from '../domain/sync/cache-status.js'
 
 const p1FilterSchema = z.object({
   date_from: z.string(),
@@ -78,6 +79,8 @@ export async function buildApp(overrides?: {
   })
 
   app.get('/healthz', async () => ({ status: 'ok' }))
+
+  app.get('/api/bi/cache-status', async () => getSyncCacheStatus(env.syncConfigPath))
 
   app.get('/api/bi/p1/dashboard', async (request, reply) => {
     const parsed = p1FilterSchema.safeParse(request.query)

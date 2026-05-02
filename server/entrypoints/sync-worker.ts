@@ -44,11 +44,55 @@ type WorkerService = {
   }>
 }
 
+type SyncWorkerTrigger = 'startup' | 'interval' | 'daily-full-refresh'
+
+const DEFAULT_DAILY_FULL_REFRESH_TIME = '03:30'
+const DEFAULT_BUSINESS_TIMEZONE_OFFSET_MINUTES = 8 * 60
+
+export function millisecondsUntilNextDailyRun(options: {
+  now: Date
+  time: string
+  timezoneOffsetMinutes?: number
+}) {
+  const match = /^(\d{2}):(\d{2})$/.exec(options.time)
+  if (!match) {
+    throw new Error(`Invalid daily full refresh time: ${options.time}`)
+  }
+  const hour = Number(match[1])
+  const minute = Number(match[2])
+  if (hour > 23 || minute > 59) {
+    throw new Error(`Invalid daily full refresh time: ${options.time}`)
+  }
+
+  const offsetMinutes =
+    options.timezoneOffsetMinutes ?? DEFAULT_BUSINESS_TIMEZONE_OFFSET_MINUTES
+  const offsetMs = offsetMinutes * 60 * 1000
+  const businessNow = new Date(options.now.getTime() + offsetMs)
+  let targetUtcMs =
+    Date.UTC(
+      businessNow.getUTCFullYear(),
+      businessNow.getUTCMonth(),
+      businessNow.getUTCDate(),
+      hour,
+      minute,
+      0,
+      0,
+    ) - offsetMs
+
+  if (targetUtcMs <= options.now.getTime()) {
+    targetUtcMs += 24 * 60 * 60 * 1000
+  }
+
+  return targetUtcMs - options.now.getTime()
+}
+
 export function createSyncWorker(options: {
   configPath: string
   service?: WorkerService
   logger?: WorkerLogger
   intervalMs?: number
+  dailyFullRefreshTime?: string
+  timezoneOffsetMinutes?: number
 }) {
   const config = loadSyncConfig(options.configPath)
   const service = options.service ?? new SyncService()
@@ -57,10 +101,19 @@ export function createSyncWorker(options: {
     createLogger(resolveRuntimePath(options.configPath, config.runtime.log_path))
   const intervalMs =
     options.intervalMs ?? (config.runtime.refresh_interval_minutes ?? 120) * 60 * 1000
+  const dailyFullRefreshTime =
+    options.dailyFullRefreshTime ??
+    config.runtime.daily_full_refresh_time ??
+    DEFAULT_DAILY_FULL_REFRESH_TIME
+  const timezoneOffsetMinutes =
+    options.timezoneOffsetMinutes ??
+    config.runtime.daily_full_refresh_timezone_offset_minutes ??
+    DEFAULT_BUSINESS_TIMEZONE_OFFSET_MINUTES
   let interval: NodeJS.Timeout | null = null
+  let dailyTimeout: NodeJS.Timeout | null = null
   let running = false
 
-  async function runOnce(trigger: 'startup' | 'interval') {
+  async function runOnce(trigger: SyncWorkerTrigger) {
     if (running) {
       logger.warn(`Skipping ${trigger} sync tick because the previous run is still in progress.`)
       return
@@ -71,7 +124,7 @@ export function createSyncWorker(options: {
     try {
       const result = await service.syncTargetToSqlite({
         config: options.configPath,
-        refreshBigQueryCache: trigger === 'startup',
+        refreshBigQueryCache: trigger !== 'interval',
       })
       const shopifyBiCache = service.syncShopifyBiCacheIfDue
         ? await service.syncShopifyBiCacheIfDue({ config: options.configPath })
@@ -103,11 +156,26 @@ export function createSyncWorker(options: {
     }
   }
 
+  function scheduleDailyFullRefresh() {
+    const delayMs = millisecondsUntilNextDailyRun({
+      now: new Date(),
+      time: dailyFullRefreshTime,
+      timezoneOffsetMinutes,
+    })
+    logger.info(
+      `Sync worker scheduled daily full refresh in ${Math.round(delayMs / 1000)} seconds at ${dailyFullRefreshTime} UTC${timezoneOffsetMinutes >= 0 ? '+' : ''}${timezoneOffsetMinutes / 60}.`,
+    )
+    dailyTimeout = setTimeout(() => {
+      void runOnce('daily-full-refresh').finally(scheduleDailyFullRefresh)
+    }, delayMs)
+  }
+
   function start() {
     void runOnce('startup')
     interval = setInterval(() => {
       void runOnce('interval')
     }, intervalMs)
+    scheduleDailyFullRefresh()
     return intervalMs
   }
 
@@ -115,6 +183,10 @@ export function createSyncWorker(options: {
     if (interval) {
       clearInterval(interval)
       interval = null
+    }
+    if (dailyTimeout) {
+      clearTimeout(dailyTimeout)
+      dailyTimeout = null
     }
   }
 

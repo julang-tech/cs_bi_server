@@ -26,11 +26,26 @@ type FeishuLogger = {
   error?: (message: string) => void
 }
 
+// Keep in sync with server/integrations/sqlite.ts.
 const VIEW_TO_MAJOR_TYPE = {
-  '1-3待跟进表-货品瑕疵': 'product',
+  '1-1待跟进表-退款': 'product',
   '1-2待跟进表-漏发、发错': 'warehouse',
+  '1-3待跟进表-货品瑕疵': 'product',
   '1-4待跟进表-物流问题': 'logistics',
+  '1-5待跟进表-补发': 'warehouse',
+  '2-催单表': 'other',
+  '3-客诉争议表': 'other',
 } as const
+
+const COMPLAINT_TYPE_PREFIX_MAP: Array<[string, 'product' | 'warehouse' | 'logistics' | 'refund' | 'other']> = [
+  ['仓库-', 'warehouse'],
+  ['货品瑕疵-', 'product'],
+  ['物流问题-', 'logistics'],
+  ['客户原因-', 'refund'],
+  ['高风险订单', 'other'],
+  ['欧洲被税', 'other'],
+  ['其他问题', 'other'],
+]
 
 function normalizeText(value: unknown): string | null {
   if (value == null) return null
@@ -51,20 +66,33 @@ function normalizeText(value: unknown): string | null {
   return text || null
 }
 
-function inferMajorIssueType(fields: Record<string, unknown>) {
-  const view = normalizeText(fields['命中视图'])
-  if (view && view in VIEW_TO_MAJOR_TYPE) {
-    return VIEW_TO_MAJOR_TYPE[view as keyof typeof VIEW_TO_MAJOR_TYPE]
+function inferMajorIssueType(
+  fields: Record<string, unknown>,
+): 'product' | 'warehouse' | 'logistics' | 'refund' | 'other' {
+  const viewRaw = fields['命中视图']
+  const viewValues = Array.isArray(viewRaw)
+    ? (viewRaw.map((v) => normalizeText(v)).filter(Boolean) as string[])
+    : ([normalizeText(viewRaw)].filter(Boolean) as string[])
+  for (const view of viewValues) {
+    if (view in VIEW_TO_MAJOR_TYPE) {
+      return VIEW_TO_MAJOR_TYPE[view as keyof typeof VIEW_TO_MAJOR_TYPE]
+    }
   }
 
-  const logistics = normalizeText(fields['物流-跟进结果'])
-  const warehouse = normalizeText(fields['错/漏发原因'])
-  const product = normalizeText(fields['瑕疵原因'])
+  const complaintType = normalizeText(fields['客诉类型'])
+  if (complaintType) {
+    for (const [prefix, type] of COMPLAINT_TYPE_PREFIX_MAP) {
+      if (complaintType.startsWith(prefix) || complaintType === prefix) {
+        return type
+      }
+    }
+  }
 
-  if (product) return 'product'
-  if (warehouse) return 'warehouse'
-  if (logistics) return 'logistics'
-  return null
+  if (normalizeText(fields['瑕疵原因'])) return 'product'
+  if (normalizeText(fields['错/漏发原因'])) return 'warehouse'
+  if (normalizeText(fields['物流-跟进结果'])) return 'logistics'
+
+  return 'other'
 }
 
 function inferMinorIssueType(
@@ -146,7 +174,6 @@ export class FeishuIssueProvider implements IssueProvider {
       const records = await this.fetchAllRecords(appToken, tableId, viewId)
       const issues: StandardIssueRecord[] = []
       const notes: string[] = []
-      let ignoredNonIssueRecords = 0
 
       for (const record of records) {
         if (!normalizeText(record.fields['订单号'])) {
@@ -154,18 +181,10 @@ export class FeishuIssueProvider implements IssueProvider {
           continue
         }
 
+        // normalizeRecord always returns an issue when 订单号 is present;
+        // unrecognised 命中视图 + 客诉类型 fall into 'other' rather than being dropped.
         const normalized = normalizeRecord(record)
-        if (!normalized) {
-          ignoredNonIssueRecords += 1
-          continue
-        }
-        issues.push(normalized)
-      }
-
-      if (ignoredNonIssueRecords) {
-        notes.push(
-          `Ignored ${ignoredNonIssueRecords} records that did not map to product/warehouse/logistics issues.`,
-        )
+        if (normalized) issues.push(normalized)
       }
 
       const bundle = { issues, notes, partial_data: false }
@@ -484,8 +503,9 @@ function normalizeRecord(record: FeishuRecord): StandardIssueRecord | null {
   const orderNo = normalizeText(record.fields['订单号'])
   if (!orderNo) return null
 
+  // inferMajorIssueType always returns a value now; records without recognized
+  // 命中视图 fall into 'other' rather than being dropped from the count.
   const majorIssueType = inferMajorIssueType(record.fields)
-  if (!majorIssueType) return null
 
   return {
     source_system: 'openclaw_feishu',

@@ -48,6 +48,7 @@ interface ChartRow {
   bucket: string
   value: number | null         // solid history line
   valueDashed: number | null   // dashed in-progress segment (anchored at last history point)
+  peakValue: number | null     // single visible peak marker
   raw: number                  // always populated, used for the area fill + tooltip
   isCurrent: boolean
 }
@@ -65,6 +66,7 @@ function buildSeries(history: TrendPoint[], current: TrendPoint[]): ChartRow[] {
       value: p.value,
       // Anchor the dashed segment at the last history point so the two lines connect.
       valueDashed: isLastHistory ? p.value : null,
+      peakValue: null,
       raw: p.value,
       isCurrent: false,
     })
@@ -74,10 +76,18 @@ function buildSeries(history: TrendPoint[], current: TrendPoint[]): ChartRow[] {
       bucket: p.bucket,
       value: null,
       valueDashed: p.value,
+      peakValue: null,
       raw: p.value,
       isCurrent: true,
     })
   })
+  const peak = rows.reduce<{ index: number; value: number } | null>((max, row, index) => {
+    if (!max || row.raw > max.value) return { index, value: row.raw }
+    return max
+  }, null)
+  if (peak) {
+    rows[peak.index].peakValue = peak.value
+  }
   return rows
 }
 
@@ -172,6 +182,37 @@ export function FocusLineChart({
     )
   }
 
+  const renderPeakDot = (props: {
+    cx?: number; cy?: number; value?: number; index?: number; key?: string
+  }) => {
+    const { cx, cy, value, index, key } = props
+    const k = key ?? `peak-${index ?? `${cx}-${cy}`}`
+    if (cx == null || cy == null || value == null) {
+      return <circle key={k} cx={cx ?? 0} cy={cy ?? 0} r={0} fill="none" />
+    }
+    const labelToLeft = (index ?? 0) >= Math.max(data.length - 2, 0)
+    return (
+      <g key={k} className="focus-chart__peak-marker">
+        <circle
+          cx={cx}
+          cy={cy}
+          r={5}
+          fill="var(--surface)"
+          stroke="var(--accent)"
+          strokeWidth={2}
+        />
+        <text
+          x={cx + (labelToLeft ? -10 : 10)}
+          y={cy - 10}
+          textAnchor={labelToLeft ? 'end' : 'start'}
+          className="focus-chart__peak-label"
+        >
+          {`峰值 ${active.formatter(value)}`}
+        </text>
+      </g>
+    )
+  }
+
   const gradientId = `focus-gradient-${active.key}`
 
   function selectMetric(next: string) {
@@ -219,7 +260,7 @@ export function FocusLineChart({
       ) : null}
       <div className="focus-chart__plot">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+          <ComposedChart data={data} margin={{ top: 24, right: 56, left: 0, bottom: 4 }}>
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.18} />
@@ -257,9 +298,17 @@ export function FocusLineChart({
             {historyMean !== null ? (
               <ReferenceLine
                 y={historyMean}
-                stroke="var(--muted)"
-                strokeDasharray="3 3"
-                strokeOpacity={0.55}
+                stroke="var(--muted-strong)"
+                strokeDasharray="5 4"
+                strokeOpacity={0.9}
+                strokeWidth={1.5}
+                label={{
+                  value: `均值 ${active.formatter(historyMean)}`,
+                  position: 'insideTopRight',
+                  fill: 'var(--muted-strong)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
               />
             ) : null}
             {/* Area fill for the entire (history + current) trend. Uses `raw`
@@ -294,6 +343,17 @@ export function FocusLineChart({
               activeDot={{ r: 4, fill: 'var(--accent)', stroke: 'var(--surface)', strokeWidth: 1.5 }}
               isAnimationActive={false}
               connectNulls={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="peakValue"
+              stroke="transparent"
+              strokeWidth={0}
+              dot={renderPeakDot}
+              activeDot={false}
+              isAnimationActive={false}
+              connectNulls={false}
+              legendType="none"
             />
           </ComposedChart>
         </ResponsiveContainer>

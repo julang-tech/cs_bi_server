@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { formatInteger, formatPercent } from '../../shared/utils/format'
 import type { P3ProductRankingRow } from '../../api/types'
 
-const RANKING_PAGE_SIZE_OPTIONS = [5, 10, 20, 50]
+const RANKING_PAGE_SIZE_OPTIONS = [10, 20, 50]
 
 interface ProductComplaintRankingProps {
   rows: P3ProductRankingRow[]
@@ -77,9 +77,9 @@ function RankingPagination({ pageSize, setPageSize, safePage, pageCount, setPage
 export function ProductComplaintRanking({ rows, loading, error }: ProductComplaintRankingProps) {
   const [expandedSpus, setExpandedSpus] = useState<Set<string>>(() => new Set())
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(5)
+  const [pageSize, setPageSize] = useState(10)
 
-  const topRows = useMemo(() => rows.slice(0, 20), [rows])
+  const topRows = useMemo(() => rows.slice(0, 50), [rows])
 
   function toggleSpu(spu: string) {
     setExpandedSpus((current) => {
@@ -103,7 +103,7 @@ export function ProductComplaintRanking({ rows, loading, error }: ProductComplai
       <div className="table-card__header">
         <div>
           <h3>商品客诉表现表</h3>
-          <p className="table-card__hint">默认按客诉量排序，仅展示 Top20 SPU，可展开查看对应 SKC 明细。</p>
+          <p className="table-card__hint">默认按客诉量排序拉取 Top50 SPU，每页展示 10 条，可展开查看对应 SKC 明细。</p>
         </div>
         {topRows.length ? (
           <RankingPagination

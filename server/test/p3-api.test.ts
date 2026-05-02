@@ -159,7 +159,7 @@ async function run() {
   assert.equal(dashboardPayload.filters.date_basis, 'order_date')
   assert.deepEqual(dashboardPayload.trends.sales_qty[0], { bucket: '2026-03-02', value: 70 })
   assert.equal(dashboardPayload.meta.version, 'p3-formal-runtime')
-  assert.equal(dashboardPayload.issue_share.length, 3)
+  assert.equal(dashboardPayload.issue_share.length, 5)
 
   const optionsResponse = await app.inject({
     method: 'GET',

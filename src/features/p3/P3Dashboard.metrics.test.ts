@@ -18,4 +18,16 @@ describe('P3 overview KPI composition', () => {
     expect(cardsSource).not.toContain('物流问题客诉量')
     expect(cardsSource).not.toContain('仓库问题客诉量')
   })
+
+  it('does not compute hidden previous-range deltas for the focus chart summary', () => {
+    const summaryStart = source.indexOf('  // Build per-metric summary for the focus chart')
+    const summarySource = source.slice(
+      summaryStart,
+      source.indexOf('  return (', summaryStart),
+    )
+
+    expect(summarySource).toContain('summaryByKey')
+    expect(summarySource).not.toContain('previousHistory')
+    expect(summarySource).not.toContain('delta,')
+  })
 })

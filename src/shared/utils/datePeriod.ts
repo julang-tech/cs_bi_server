@@ -44,38 +44,85 @@ export function getDataReadyDate(today: Date = new Date()): Date {
   return shiftDate(today, today.getHours() < DATA_READY_HOUR ? -2 : -1)
 }
 
-// Rolling-window semantics: the "current period" for a given grain is the most
-// recent N ready days. day=1, week=7, month=30. This avoids the day-1 / Monday
-// edge case where calendar-aligned current periods have no data.
-function rollingDays(grain: Grain): number {
-  if (grain === 'day') return 1
-  if (grain === 'week') return 7
-  return 30
+function latestCompleteWeek(readyDate: Date): PeriodWindow {
+  const readyWeekEnd = endOfWeek(readyDate)
+  const end = readyWeekEnd <= readyDate ? readyWeekEnd : shiftDate(startOfWeek(readyDate), -1)
+  return {
+    date_from: formatDateInput(shiftDate(end, -6)),
+    date_to: formatDateInput(end),
+  }
+}
+
+function latestCompleteMonth(readyDate: Date): PeriodWindow {
+  const readyMonthEnd = endOfMonth(readyDate)
+  const month = readyMonthEnd <= readyDate
+    ? readyDate
+    : new Date(readyDate.getFullYear(), readyDate.getMonth() - 1, 1)
+  return {
+    date_from: formatDateInput(startOfMonth(month)),
+    date_to: formatDateInput(endOfMonth(month)),
+  }
+}
+
+function currentWeekPeriod(today: Date): PeriodWindow {
+  const readyDate = getDataReadyDate(today)
+  const currentWeekStart = startOfWeek(today)
+  if (readyDate >= currentWeekStart) {
+    return {
+      date_from: formatDateInput(currentWeekStart),
+      date_to: formatDateInput(readyDate),
+    }
+  }
+  return latestCompleteWeek(readyDate)
+}
+
+function currentMonthPeriod(today: Date): PeriodWindow {
+  const readyDate = getDataReadyDate(today)
+  const currentMonthStart = startOfMonth(today)
+  if (readyDate >= currentMonthStart) {
+    return {
+      date_from: formatDateInput(currentMonthStart),
+      date_to: formatDateInput(readyDate),
+    }
+  }
+  return latestCompleteMonth(readyDate)
 }
 
 export function getCurrentPeriod(grain: Grain, today: Date = new Date()): PeriodWindow {
   const end = getDataReadyDate(today)
-  const start = shiftDate(end, -(rollingDays(grain) - 1))
-  return { date_from: formatDateInput(start), date_to: formatDateInput(end) }
+  if (grain === 'day') return { date_from: formatDateInput(end), date_to: formatDateInput(end) }
+  if (grain === 'week') return currentWeekPeriod(today)
+  return currentMonthPeriod(today)
 }
 
 export function getPreviousPeriod(grain: Grain, today: Date = new Date()): PeriodWindow {
-  const days = rollingDays(grain)
-  const end = shiftDate(getDataReadyDate(today), -days)  // one full window before current
-  const start = shiftDate(end, -(days - 1))
-  return { date_from: formatDateInput(start), date_to: formatDateInput(end) }
+  const current = getCurrentPeriod(grain, today)
+  const currentStart = parseDateInput(current.date_from)
+  if (grain === 'day') {
+    const day = shiftDate(currentStart, -1)
+    return { date_from: formatDateInput(day), date_to: formatDateInput(day) }
+  }
+  if (grain === 'week') {
+    const end = shiftDate(currentStart, -1)
+    return { date_from: formatDateInput(shiftDate(end, -6)), date_to: formatDateInput(end) }
+  }
+  const previousMonth = new Date(currentStart.getFullYear(), currentStart.getMonth() - 1, 1)
+  return {
+    date_from: formatDateInput(startOfMonth(previousMonth)),
+    date_to: formatDateInput(endOfMonth(previousMonth)),
+  }
 }
 
-export function getCurrentPeriodLabel(grain: Grain): string {
+export function getCurrentPeriodLabel(grain: Grain, today: Date = new Date()): string {
   if (grain === 'day') return '昨日'
-  if (grain === 'week') return '近 7 天'
-  return '近 30 天'
+  const current = getCurrentPeriod(grain, today)
+  if (grain === 'week') {
+    return current.date_from === formatDateInput(startOfWeek(today)) ? '本周至今' : '上周'
+  }
+  return current.date_from === formatDateInput(startOfMonth(today)) ? '本月至今' : '上月'
 }
 
-// Default history range = N most recent calendar buckets up to the ready date.
-// Bucket = day/week/month per grain. The trailing bucket may be partial
-// (current week-to-date / month-to-date) and is rendered with in-progress
-// styling by the chart.
+// Default history range = complete BI buckets up to the latest ready period.
 export function getDefaultHistoryRange(grain: Grain, today: Date = new Date()): PeriodWindow {
   const readyDate = getDataReadyDate(today)
   if (grain === 'day') {
@@ -86,19 +133,29 @@ export function getDefaultHistoryRange(grain: Grain, today: Date = new Date()): 
     }
   }
   if (grain === 'week') {
-    // 8 weeks: 7 complete prior weeks + the ready-date week to date.
-    const startMonday = shiftDate(startOfWeek(readyDate), -7 * 7)
-    return { date_from: formatDateInput(startMonday), date_to: formatDateInput(readyDate) }
+    const currentWeek = currentWeekPeriod(today)
+    const start = parseDateInput(currentWeek.date_from)
+    return { date_from: formatDateInput(shiftDate(start, -7 * 7)), date_to: currentWeek.date_to }
   }
-  // 2 months: 1 complete prior month + the ready-date month to date.
-  const startMonth = new Date(readyDate.getFullYear(), readyDate.getMonth() - 1, 1)
-  return { date_from: formatDateInput(startMonth), date_to: formatDateInput(readyDate) }
+  const currentMonth = currentMonthPeriod(today)
+  const monthStart = parseDateInput(currentMonth.date_from)
+  const startMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1)
+  return { date_from: formatDateInput(startMonth), date_to: currentMonth.date_to }
 }
 
-export function getPresetHistoryRange(days: number, today: Date = new Date()): PeriodWindow {
+export function getPresetHistoryRange(
+  preset: number | 'week_to_date' | 'month_to_date',
+  today: Date = new Date(),
+): PeriodWindow {
   const end = getDataReadyDate(today)
+  if (preset === 'week_to_date') {
+    return { date_from: formatDateInput(startOfWeek(end)), date_to: formatDateInput(end) }
+  }
+  if (preset === 'month_to_date') {
+    return { date_from: formatDateInput(startOfMonth(end)), date_to: formatDateInput(end) }
+  }
   return {
-    date_from: formatDateInput(shiftDate(end, -(days - 1))),
+    date_from: formatDateInput(shiftDate(end, -(preset - 1))),
     date_to: formatDateInput(end),
   }
 }
@@ -119,9 +176,7 @@ export function alignHistoryRangeToGrain(window: PeriodWindow, grain: Grain): Pe
   }
 }
 
-// History range is valid if it doesn't reach past the latest ready date. Cards
-// use rolling windows independently; chart and cards are decoupled, so overlap
-// is fine.
+// History range is valid if it doesn't reach past the latest ready date.
 export function isHistoryRangeValid(
   _window: PeriodWindow, _grain: Grain, _today: Date = new Date(),
 ): boolean {

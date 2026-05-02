@@ -13,9 +13,11 @@ const GRAIN_OPTIONS: Array<{ value: Grain; label: string }> = [
 ]
 
 const PRESET_OPTIONS = [
-  { label: '近 7 天', days: 7 },
-  { label: '近 30 天', days: 30 },
-  { label: '近 90 天', days: 90 },
+  { label: '近 7 天', value: 7 },
+  { label: '近 30 天', value: 30 },
+  { label: '近 90 天', value: 90 },
+  { label: '本周至今', value: 'week_to_date' as const },
+  { label: '本月至今', value: 'month_to_date' as const },
 ]
 
 const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
@@ -90,8 +92,8 @@ export function FilterBar({
     setPickerOpen(true)
   }
 
-  function applyRange(range: PeriodWindow) {
-    const next = alignHistoryRangeToGrain(range, grain)
+  function applyRange(range: PeriodWindow, options: { alignToGrain?: boolean } = {}) {
+    const next = options.alignToGrain === false ? range : alignHistoryRangeToGrain(range, grain)
     if (next.date_from > next.date_to) return
     if (!isHistoryRangeValid(next, grain)) return
     onHistoryRangeChange(next)
@@ -117,8 +119,8 @@ export function FilterBar({
     setSelecting('from')
   }
 
-  function applyPreset(days: number) {
-    applyRange(getPresetHistoryRange(days))
+  function applyPreset(value: number | 'week_to_date' | 'month_to_date') {
+    applyRange(getPresetHistoryRange(value), { alignToGrain: false })
   }
 
   function renderMonth(month: Date) {
@@ -194,7 +196,7 @@ export function FilterBar({
       ) : null}
 
       <div className="filter-bar__group filter-bar__group--dates">
-        <span className="filter-bar__label">历史区间</span>
+        <span className="filter-bar__label">时间范围</span>
         <div className="date-range-picker" ref={pickerRef}>
           <button
             type="button"
@@ -218,7 +220,7 @@ export function FilterBar({
             <div className="date-range-popover">
               <div className="range-presets" aria-label="快捷日期范围">
                 {PRESET_OPTIONS.map((preset) => (
-                  <button key={preset.days} type="button" onClick={() => applyPreset(preset.days)}>
+                  <button key={preset.label} type="button" onClick={() => applyPreset(preset.value)}>
                     {preset.label}
                   </button>
                 ))}

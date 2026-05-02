@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { setTimeout as sleep } from 'node:timers/promises'
-import { createSyncWorker } from '../entrypoints/sync-worker.js'
+import { createSyncWorker, millisecondsUntilNextDailyRun } from '../entrypoints/sync-worker.js'
 
 async function testWorkerRunsImmediately() {
   const calls: Array<{ name: string; options: unknown }> = []
@@ -111,6 +111,71 @@ async function testWorkerIntervalSplitsFeishuMirrorFromShopifyBiDueCheck() {
   ])
 }
 
+async function testWorkerDailyFullRefreshForcesBigQueryCache() {
+  const calls: Array<{ name: string; options: unknown }> = []
+  const worker = createSyncWorker({
+    configPath: 'config/sync/config.example.json',
+    intervalMs: 10_000,
+    logger: {
+      info() {},
+      warn() {},
+      error() {},
+    },
+    service: {
+      async syncTargetToSqlite(options) {
+        calls.push({ name: 'syncTargetToSqlite', options })
+        return {
+          created: 0,
+          updated: 0,
+          failed: 0,
+          sqlite: {
+            ok: true,
+            inserted: 0,
+            updated: 0,
+            deleted: 0,
+            sqlite_failed: 0,
+          },
+        }
+      },
+      async syncShopifyBiCacheIfDue(options) {
+        calls.push({ name: 'syncShopifyBiCacheIfDue', options })
+        return { enabled: true, ok: true, skipped: true, failed: 0 }
+      },
+    },
+  })
+
+  await worker.runOnce('daily-full-refresh')
+  assert.deepEqual(calls, [
+    {
+      name: 'syncTargetToSqlite',
+      options: { config: 'config/sync/config.example.json', refreshBigQueryCache: true },
+    },
+    {
+      name: 'syncShopifyBiCacheIfDue',
+      options: { config: 'config/sync/config.example.json' },
+    },
+  ])
+}
+
+function testDailyRefreshDelayUsesBeijingBusinessTime() {
+  assert.equal(
+    millisecondsUntilNextDailyRun({
+      now: new Date('2026-05-01T18:00:00.000Z'),
+      time: '03:30',
+      timezoneOffsetMinutes: 480,
+    }),
+    90 * 60 * 1000,
+  )
+  assert.equal(
+    millisecondsUntilNextDailyRun({
+      now: new Date('2026-05-01T19:30:00.000Z'),
+      time: '03:30',
+      timezoneOffsetMinutes: 480,
+    }),
+    24 * 60 * 60 * 1000,
+  )
+}
+
 async function testWorkerUsesIntervalAndSkipsOverlap() {
   let calls = 0
   let markStarted!: () => void
@@ -172,6 +237,8 @@ async function testWorkerUsesIntervalAndSkipsOverlap() {
 async function run() {
   await testWorkerRunsImmediately()
   await testWorkerIntervalSplitsFeishuMirrorFromShopifyBiDueCheck()
+  await testWorkerDailyFullRefreshForcesBigQueryCache()
+  testDailyRefreshDelayUsesBeijingBusinessTime()
   await testWorkerUsesIntervalAndSkipsOverlap()
   console.log('Sync worker tests passed')
 }

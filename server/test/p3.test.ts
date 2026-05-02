@@ -332,6 +332,8 @@ async function run() {
     { major_issue_type: 'product', label: '产品问题', count: 1, ratio: 0.333333 },
     { major_issue_type: 'warehouse', label: '仓库问题', count: 1, ratio: 0.333333 },
     { major_issue_type: 'logistics', label: '物流问题', count: 1, ratio: 0.333333 },
+    { major_issue_type: 'refund', label: '退款/客户原因', count: 0, ratio: 0 },
+    { major_issue_type: 'other', label: '其他', count: 0, ratio: 0 },
   ])
   assert.deepEqual(payload.trends.sales_qty, [
     { bucket: '2026-03-02', value: 70 },

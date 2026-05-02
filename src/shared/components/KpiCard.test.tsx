@@ -37,7 +37,8 @@ describe('KpiCard metric linking', () => {
         onSelect={onSelect}
         label="GMV"
         value="$100"
-        periodAverage="$10"
+        secondaryLabel="上期"
+        secondaryValue="$90"
       />,
     )
 
@@ -50,6 +51,10 @@ describe('KpiCard metric linking', () => {
       card?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     expect(onSelect).toHaveBeenCalledWith('gmv')
+    expect(host?.textContent).toContain('上期')
+    expect(host?.textContent).toContain('$90')
+    expect(host?.textContent).not.toContain('周期日均')
+    expect(document.querySelector('.kpi-card__side')).not.toBeNull()
   })
 
   it('renders a sparkline for history KPI cards', () => {
@@ -59,7 +64,7 @@ describe('KpiCard metric linking', () => {
         metricKey="complaint_rate"
         label="客诉率"
         total="2.0%"
-        periodAverage="2.0%"
+        periodAverage="1.8%"
         sparkline={[
           { bucket: '2026-04-01', value: 0.01 },
           { bucket: '2026-04-02', value: 0.02 },

@@ -42,15 +42,15 @@ const metrics: FocusMetricSpec[] = [
   },
 ]
 
-function renderChart(onActiveKeyChange = vi.fn()) {
+function renderChart(onActiveKeyChange = vi.fn(), nextMetrics = metrics) {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
   act(() => {
     root?.render(
       <FocusLineChart
-        metrics={metrics}
-        activeKey="refund"
+        metrics={nextMetrics}
+        activeKey={nextMetrics[1]?.key ?? nextMetrics[0]?.key}
         onActiveKeyChange={onActiveKeyChange}
       />,
     )
@@ -79,5 +79,24 @@ describe('FocusLineChart controlled active metric', () => {
     })
 
     expect(onActiveKeyChange).toHaveBeenCalledWith('sales')
+  })
+
+  it('renders a labeled mean line and highlights the visible peak point', () => {
+    renderChart(vi.fn(), [
+      {
+        key: 'sales',
+        label: '销量',
+        formatter: (n) => `${n}`,
+        history: [
+          { bucket: '2026-04-01', value: 10 },
+          { bucket: '2026-04-02', value: 30 },
+          { bucket: '2026-04-03', value: 20 },
+        ],
+        current: [],
+      },
+    ])
+
+    expect(document.body.textContent).toContain('均值 20')
+    expect(document.body.textContent).toContain('峰值 30')
   })
 })

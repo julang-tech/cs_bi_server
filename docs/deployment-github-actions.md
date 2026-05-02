@@ -12,6 +12,8 @@ This project deploys to `lintico-server-1@183.6.71.38:2222` under `~/work/cs_bi_
   - `cs-bi-app.service`
   - `cs-bi-worker.service`
 
+`cs-bi-worker.service` is a separate long-running sync process. It runs a full cache refresh on startup, keeps the regular interval sync from `runtime.refresh_interval_minutes`, and runs another full BigQuery/Shopify BI cache refresh at `runtime.daily_full_refresh_time` in the configured business timezone.
+
 ## Required GitHub Secret
 
 Add this repository secret:
@@ -31,6 +33,8 @@ The deployment script:
 5. Cleans leftover project Node processes from `~/work/cs_bi_server`.
 6. Restarts the two user-level systemd services.
 7. Checks `http://127.0.0.1:8787/healthz`.
+
+After deployment, `http://127.0.0.1:8787/api/bi/cache-status` can be used on the server to inspect SQLite cache freshness and table max dates.
 
 Server-local `.env`, `config/sync/config.json`, `config/gcp/*.json`, and `config/data/*` are preserved because they are gitignored.
 

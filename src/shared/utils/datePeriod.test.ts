@@ -13,6 +13,10 @@ import {
 const today = new Date(2026, 4, 1, 12)  // 2026-05-01 12:00; ready date = 2026-04-30
 const beforeCutoff = new Date(2026, 4, 2, 2, 59)  // ready date = 2026-04-30
 const afterCutoff = new Date(2026, 4, 2, 3, 0)  // ready date = 2026-05-01
+const mondayWithNoCurrentWeekData = new Date(2026, 4, 4, 12)  // ready date = 2026-05-03
+const tuesdayWithCurrentWeekData = new Date(2026, 4, 5, 12)  // ready date = 2026-05-04
+const firstOfMonthWithNoCurrentMonthData = new Date(2026, 4, 1, 12)  // ready date = 2026-04-30
+const midMonthWithCurrentMonthData = new Date(2026, 4, 15, 12)  // ready date = 2026-05-14
 
 describe('formatDateInput / parseDateInput / shiftDate', () => {
   it('round-trips a date', () => {
@@ -38,18 +42,38 @@ describe('getDataReadyDate', () => {
   })
 })
 
-describe('getCurrentPeriod (rolling windows aligned to data readiness)', () => {
+describe('getCurrentPeriod (natural periods aligned to data readiness)', () => {
   it('day = ready date to ready date', () => {
     expect(getCurrentPeriod('day', today)).toEqual({
       date_from: '2026-04-30', date_to: '2026-04-30',
     })
   })
-  it('week = latest 7 ready days', () => {
-    expect(getCurrentPeriod('week', today)).toEqual({
-      date_from: '2026-04-24', date_to: '2026-04-30',
+  it('week falls back to last complete week when current week has no ready data', () => {
+    expect(getCurrentPeriod('week', mondayWithNoCurrentWeekData)).toEqual({
+      date_from: '2026-04-27', date_to: '2026-05-03',
     })
   })
-  it('month = latest 30 ready days', () => {
+  it('week = current week to ready date once current week has ready data', () => {
+    expect(getCurrentPeriod('week', tuesdayWithCurrentWeekData)).toEqual({
+      date_from: '2026-05-04', date_to: '2026-05-04',
+    })
+  })
+  it('week = current week to ready date when the ready date is inside this week', () => {
+    expect(getCurrentPeriod('week', today)).toEqual({
+      date_from: '2026-04-27', date_to: '2026-04-30',
+    })
+  })
+  it('month falls back to last complete month when current month has no ready data', () => {
+    expect(getCurrentPeriod('month', firstOfMonthWithNoCurrentMonthData)).toEqual({
+      date_from: '2026-04-01', date_to: '2026-04-30',
+    })
+  })
+  it('month = current month to ready date once current month has ready data', () => {
+    expect(getCurrentPeriod('month', midMonthWithCurrentMonthData)).toEqual({
+      date_from: '2026-05-01', date_to: '2026-05-14',
+    })
+  })
+  it('month = previous complete calendar month when this month has no ready data', () => {
     expect(getCurrentPeriod('month', today)).toEqual({
       date_from: '2026-04-01', date_to: '2026-04-30',
     })
@@ -64,18 +88,15 @@ describe('getCurrentPeriod (rolling windows aligned to data readiness)', () => {
       date_from: '2026-05-01', date_to: '2026-05-01',
     })
   })
-  it('month remains a rolling 30-day window when the ready date is mid-month', () => {
-    expect(getCurrentPeriod('month', new Date(2026, 4, 15, 12))).toEqual({
-      date_from: '2026-04-15', date_to: '2026-05-14',
-    })
-  })
 })
 
 describe('getCurrentPeriodLabel', () => {
-  it('names the rolling current periods', () => {
+  it('names the current periods by BI grain', () => {
     expect(getCurrentPeriodLabel('day')).toBe('昨日')
-    expect(getCurrentPeriodLabel('week')).toBe('近 7 天')
-    expect(getCurrentPeriodLabel('month')).toBe('近 30 天')
+    expect(getCurrentPeriodLabel('week', mondayWithNoCurrentWeekData)).toBe('上周')
+    expect(getCurrentPeriodLabel('week', tuesdayWithCurrentWeekData)).toBe('本周至今')
+    expect(getCurrentPeriodLabel('month', firstOfMonthWithNoCurrentMonthData)).toBe('上月')
+    expect(getCurrentPeriodLabel('month', midMonthWithCurrentMonthData)).toBe('本月至今')
   })
 })
 
@@ -85,14 +106,24 @@ describe('getPreviousPeriod', () => {
       date_from: '2026-04-29', date_to: '2026-04-29',
     })
   })
-  it('week = prior 7-day rolling window', () => {
-    expect(getPreviousPeriod('week', today)).toEqual({
-      date_from: '2026-04-17', date_to: '2026-04-23',
+  it('week = previous complete ISO week before current week-to-date', () => {
+    expect(getPreviousPeriod('week', tuesdayWithCurrentWeekData)).toEqual({
+      date_from: '2026-04-27', date_to: '2026-05-03',
     })
   })
-  it('month = prior 30-day rolling window', () => {
-    expect(getPreviousPeriod('month', today)).toEqual({
-      date_from: '2026-03-02', date_to: '2026-03-31',
+  it('week = week before last when current period falls back to last week', () => {
+    expect(getPreviousPeriod('week', mondayWithNoCurrentWeekData)).toEqual({
+      date_from: '2026-04-20', date_to: '2026-04-26',
+    })
+  })
+  it('month = previous complete month before current month-to-date', () => {
+    expect(getPreviousPeriod('month', midMonthWithCurrentMonthData)).toEqual({
+      date_from: '2026-04-01', date_to: '2026-04-30',
+    })
+  })
+  it('month = month before last when current period falls back to last month', () => {
+    expect(getPreviousPeriod('month', firstOfMonthWithNoCurrentMonthData)).toEqual({
+      date_from: '2026-03-01', date_to: '2026-03-31',
     })
   })
 })
@@ -103,14 +134,25 @@ describe('getDefaultHistoryRange', () => {
       date_from: '2026-04-17', date_to: '2026-04-30',
     })
   })
-  it('week = 7 complete prior weeks plus the ready-date week to date', () => {
+  it('week = 7 complete prior weeks plus the current visible week period', () => {
+    expect(getDefaultHistoryRange('week', mondayWithNoCurrentWeekData)).toEqual({
+      date_from: '2026-03-09', date_to: '2026-05-03',
+    })
+    expect(getDefaultHistoryRange('week', tuesdayWithCurrentWeekData)).toEqual({
+      date_from: '2026-03-16', date_to: '2026-05-04',
+    })
+  })
+  it('week history includes current week-to-date when this week has ready data', () => {
     expect(getDefaultHistoryRange('week', today)).toEqual({
       date_from: '2026-03-09', date_to: '2026-04-30',
     })
   })
-  it('month = previous month plus the ready-date month to date', () => {
-    expect(getDefaultHistoryRange('month', today)).toEqual({
+  it('month = previous complete month plus the current visible month period', () => {
+    expect(getDefaultHistoryRange('month', firstOfMonthWithNoCurrentMonthData)).toEqual({
       date_from: '2026-03-01', date_to: '2026-04-30',
+    })
+    expect(getDefaultHistoryRange('month', midMonthWithCurrentMonthData)).toEqual({
+      date_from: '2026-04-01', date_to: '2026-05-14',
     })
   })
 })
@@ -125,6 +167,14 @@ describe('getPresetHistoryRange', () => {
     })
     expect(getPresetHistoryRange(90, today)).toEqual({
       date_from: '2026-01-31', date_to: '2026-04-30',
+    })
+  })
+  it('builds week-to-date and month-to-date ranges ending at the ready date', () => {
+    expect(getPresetHistoryRange('week_to_date', today)).toEqual({
+      date_from: '2026-04-27', date_to: '2026-04-30',
+    })
+    expect(getPresetHistoryRange('month_to_date', today)).toEqual({
+      date_from: '2026-04-01', date_to: '2026-04-30',
     })
   })
 })

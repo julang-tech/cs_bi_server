@@ -34,6 +34,8 @@ const syncConfigSchema = z.object({
     log_path: z.string(),
     sqlite_path: z.string(),
     refresh_interval_minutes: z.number().int().positive().optional(),
+    daily_full_refresh_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    daily_full_refresh_timezone_offset_minutes: z.number().int().optional(),
   }),
   shopify: z.object({
     sites: z.object({
@@ -74,6 +76,9 @@ export function loadP3RuntimeConfig(configPath: string) {
       logPath: resolveRuntimePath(configPath, config.runtime.log_path),
       sqlitePath: resolveRuntimePath(configPath, config.runtime.sqlite_path),
       refreshIntervalMinutes: config.runtime.refresh_interval_minutes ?? 120,
+      dailyFullRefreshTime: config.runtime.daily_full_refresh_time ?? '03:30',
+      dailyFullRefreshTimezoneOffsetMinutes:
+        config.runtime.daily_full_refresh_timezone_offset_minutes ?? 480,
     },
     shopify: config.shopify,
     bigquery: config.bigquery,

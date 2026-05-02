@@ -86,13 +86,8 @@ export function WorkloadAnalysis({ workloadRows, loading }: WorkloadAnalysisProp
     },
     {
       key: 'reply_span_hours',
-      label: '首末封时间跨度',
+      label: '回信时长',
       render: (row: WorkloadTableRow) => formatNullableHours(row.reply_span_hours),
-    },
-    {
-      key: 'avg_outbound_emails_per_hour_by_span',
-      label: '每小时回邮数均值（首末封）',
-      render: (row: WorkloadTableRow) => formatDecimal(row.avg_outbound_emails_per_hour_by_span),
     },
     {
       key: 'avg_outbound_emails_per_hour_by_schedule',

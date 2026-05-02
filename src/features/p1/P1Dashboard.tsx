@@ -8,8 +8,8 @@ import { useDashboardData } from '../../shared/hooks/useDashboardData'
 import { fetchP1Dashboard } from '../../api/p1'
 import { formatHours, formatInteger } from '../../shared/utils/format'
 import {
-  getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount, getPeriodLengthDays,
-  getCurrentPeriodLabel, getPreviousHistoryRange,
+  getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
+  getCurrentPeriodLabel,
 } from '../../shared/utils/datePeriod'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { WorkloadAnalysis } from './WorkloadAnalysis'
@@ -56,7 +56,6 @@ export default function P1Dashboard() {
 
   const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
   const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
-  const previousHistoryRange = useMemo(() => getPreviousHistoryRange(historyRange), [historyRange])
 
   function handleGrainChange(next: Grain) {
     setGrain(next)
@@ -65,17 +64,19 @@ export default function P1Dashboard() {
 
   const baseFilters = { grain, agent_name: agentName } as const
 
-  const { current, previous, history, previousHistory, loading, error } = useDashboardData<typeof baseFilters, P1DashboardData>({
+  const { current, previous, history, loading, error } = useDashboardData<typeof baseFilters, P1DashboardData>({
     baseFilters,
     currentPeriod,
     previousPeriod,
     historyRange,
-    previousHistoryRange,
     fetcher: (filters, signal) => fetchP1Dashboard(filters as never, signal),
   })
 
+  const visibleP1Note = current?.meta?.notes?.find(
+    (note) => !note.includes('工时表暂未接入'),
+  )
+
   const periodCount = getPeriodCount(historyRange, grain)
-  const currentPeriodDays = getPeriodLengthDays(currentPeriod)
 
   const cards = [
     {
@@ -152,28 +153,16 @@ export default function P1Dashboard() {
   const rangeLabel = grain === 'day' ? `近 ${periodCount} 天`
     : grain === 'week' ? `近 ${periodCount} 周`
     : `近 ${periodCount} 月`
-  type P1TrendKey = keyof NonNullable<P1DashboardData['trends']>
   const summaryByKey: Record<string, FocusMetricSummary> = {}
   for (const c of cards) {
     const total = c.historyTrend.reduce((s, p) => s + p.value, 0)
     const count = c.historyTrend.length
     const mean = count ? total / count : 0
-    const prevTrend = (previousHistory?.trends?.[c.key as P1TrendKey] ?? []) as TrendPoint[]
-    const prevTotal = prevTrend.reduce((s, p) => s + p.value, 0)
-    let delta: FocusMetricSummary['delta']
-    if (!prevTotal) delta = { tone: 'muted', text: '-' }
-    else {
-      const ratio = (total - prevTotal) / prevTotal
-      delta = ratio === 0
-        ? { tone: 'neutral', text: '0.0%' }
-        : { tone: ratio > 0 ? 'up' : 'down', text: `${ratio > 0 ? '↑' : '↓'} ${Math.abs(ratio * 100).toFixed(1)}%` }
-    }
     summaryByKey[c.key] = {
       items: [
         { label: `${rangeLabel}累计`, value: count ? c.formatter(total) : '--' },
         { label: '区间均值', value: count ? c.formatter(mean) : '--' },
       ],
-      delta,
     }
   }
 
@@ -203,22 +192,18 @@ export default function P1Dashboard() {
       }
       banner={
         error ? <section className="status-banner status-banner--error">{error}</section> :
-        current?.meta?.partial_data ? (
+        visibleP1Note ? (
           <section className="status-banner status-banner--info">
-            {current.meta.notes?.[0] ?? '当前数据存在局部缺失。'}
+            {visibleP1Note}
           </section>
         ) : null
       }
       currentPeriodSection={
         <KpiSection title={getCurrentPeriodLabel(grain)} subtitle={`数据截至 ${currentPeriod.date_to}`} variant="current">
           {cards.map((c) => {
-            const periodAverage = c.isRate
-              ? (loading || c.currentValue === undefined || c.currentValue === null
-                ? '--'
-                : c.formatter(c.currentValue))
-              : (loading || c.currentValue === undefined || c.currentValue === null
-                ? '--'
-                : c.formatter((c.currentValue ?? 0) / currentPeriodDays))
+            const secondaryValue = loading || c.previousValue === undefined || c.previousValue === null
+              ? '--'
+              : c.formatter(c.previousValue)
             return (
               <KpiCard
                 key={c.key}
@@ -227,7 +212,8 @@ export default function P1Dashboard() {
                 description={c.description}
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
                 delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
-                periodAverage={periodAverage}
+                secondaryLabel="上期"
+                secondaryValue={secondaryValue}
                 metricKey={c.key}
                 active={activeMetricKey === c.key}
                 onSelect={setActiveMetricKey}

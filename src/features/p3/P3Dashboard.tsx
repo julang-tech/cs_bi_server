@@ -8,8 +8,8 @@ import { useDashboardData } from '../../shared/hooks/useDashboardData'
 import { fetchDashboard, fetchDrilldownOptions, fetchProductRanking } from '../../api/p3'
 import { formatInteger, formatPercent } from '../../shared/utils/format'
 import {
-  getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount, getPeriodLengthDays,
-  getCurrentPeriodLabel, getPreviousHistoryRange,
+  getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
+  getCurrentPeriodLabel,
 } from '../../shared/utils/datePeriod'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { IssueStructure } from './IssueStructure'
@@ -37,7 +37,6 @@ export default function P3Dashboard() {
 
   const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
   const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
-  const previousHistoryRange = useMemo(() => getPreviousHistoryRange(historyRange), [historyRange])
 
   function handleGrainChange(next: Grain) {
     setGrain(next)
@@ -46,9 +45,9 @@ export default function P3Dashboard() {
 
   const baseFilters = { grain, date_basis: dateBasis } as const
 
-  const { current, previous, history, previousHistory, loading, error } = useDashboardData<typeof baseFilters, P3DashboardData>({
+  const { current, previous, history, loading, error } = useDashboardData<typeof baseFilters, P3DashboardData>({
     baseFilters,
-    currentPeriod, previousPeriod, historyRange, previousHistoryRange,
+    currentPeriod, previousPeriod, historyRange,
     fetcher: (filters, signal) => fetchDashboard(filters as never, signal),
   })
 
@@ -82,7 +81,6 @@ export default function P3Dashboard() {
   }, [grain, dateBasis, historyRange.date_from, historyRange.date_to])
 
   const periodCount = getPeriodCount(historyRange, grain)
-  const currentPeriodDays = getPeriodLengthDays(currentPeriod)
 
   const cards = [
     {
@@ -122,54 +120,29 @@ export default function P3Dashboard() {
     current: c.currentTrend,
   }))
 
-  // Build per-metric summary for the focus chart (区间累计/均值 + vs 上一区间)
+  // Build per-metric summary for the focus chart from the visible range only.
   const rangeLabel = grain === 'day' ? `近 ${periodCount} 天`
     : grain === 'week' ? `近 ${periodCount} 周`
     : `近 ${periodCount} 月`
-  function previousRangeTotal(key: 'sales_qty' | 'complaint_count' | 'complaint_rate'): number | null {
-    const t = previousHistory?.trends?.[key] ?? null
-    if (!t) return null
-    return t.reduce((s, p) => s + p.value, 0)
-  }
   const summaryByKey: Record<string, FocusMetricSummary> = {}
   for (const c of cards) {
     const total = c.historyTrend.reduce((s, p) => s + p.value, 0)
     const count = c.historyTrend.length
     const mean = count ? total / count : 0
     const peak = count ? Math.max(...c.historyTrend.map((p) => p.value)) : 0
-    const prevTotal = previousRangeTotal(c.key as 'sales_qty' | 'complaint_count' | 'complaint_rate')
-    const prevCount = previousHistory?.trends?.[c.key as 'sales_qty']?.length ?? 0
-    const prevMean = prevCount && prevTotal !== null ? prevTotal / prevCount : null
-    let delta: FocusMetricSummary['delta']
     if (c.isRate) {
-      if (prevMean === null) delta = { tone: 'muted', text: '-' }
-      else {
-        const diff = mean - prevMean
-        delta = diff === 0
-          ? { tone: 'neutral', text: '0.00pp' }
-          : { tone: diff > 0 ? 'up' : 'down', text: `${diff > 0 ? '↑' : '↓'} ${Math.abs(diff * 100).toFixed(2)}pp` }
-      }
       summaryByKey[c.key] = {
         items: [
           { label: '区间均值', value: count ? c.formatter(mean) : '--' },
           { label: '区间峰值', value: count ? c.formatter(peak) : '--' },
         ],
-        delta,
       }
     } else {
-      if (prevTotal === null || prevTotal === 0) delta = { tone: 'muted', text: '-' }
-      else {
-        const ratio = (total - prevTotal) / prevTotal
-        delta = ratio === 0
-          ? { tone: 'neutral', text: '0.0%' }
-          : { tone: ratio > 0 ? 'up' : 'down', text: `${ratio > 0 ? '↑' : '↓'} ${Math.abs(ratio * 100).toFixed(1)}%` }
-      }
       summaryByKey[c.key] = {
         items: [
           { label: `${rangeLabel}累计`, value: count ? c.formatter(total) : '--' },
           { label: '区间均值', value: count ? c.formatter(mean) : '--' },
         ],
-        delta,
       }
     }
   }
@@ -210,13 +183,9 @@ export default function P3Dashboard() {
       currentPeriodSection={
         <KpiSection title={getCurrentPeriodLabel(grain)} subtitle={`数据截至 ${currentPeriod.date_to}`} variant="current">
           {cards.map((c) => {
-            const periodAverage = c.isRate
-              ? (loading || c.currentValue === undefined || c.currentValue === null
-                ? '--'
-                : c.formatter(c.currentValue))
-              : (loading || c.currentValue === undefined || c.currentValue === null
-                ? '--'
-                : c.formatter((c.currentValue ?? 0) / currentPeriodDays))
+            const secondaryValue = loading || c.previousValue === undefined || c.previousValue === null
+              ? '--'
+              : c.formatter(c.previousValue)
             return (
               <KpiCard
                 key={c.key}
@@ -225,7 +194,8 @@ export default function P3Dashboard() {
                 description={c.description}
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
                 delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
-                periodAverage={periodAverage}
+                secondaryLabel="上期"
+                secondaryValue={secondaryValue}
                 metricKey={c.key}
                 active={activeMetricKey === c.key}
                 onSelect={setActiveMetricKey}

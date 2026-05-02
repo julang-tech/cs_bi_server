@@ -21,7 +21,8 @@ export interface KpiCardCurrentProps extends KpiCardBaseProps {
   variant: 'current'
   value: string
   delta?: DeltaInfo
-  periodAverage: string
+  secondaryLabel: string
+  secondaryValue: string
 }
 
 export interface KpiCardHistoryProps extends KpiCardBaseProps {
@@ -64,36 +65,54 @@ export function KpiCard(props: KpiCardProps) {
       onClick={isSelectable ? selectMetric : undefined}
       onKeyDown={handleKeyDown}
     >
-      <div className="kpi-card__header">
-        <h3 className="kpi-card__label" aria-describedby={props.description ? descriptionId : undefined}>
-          {props.label}
-          {props.description ? (
-            <>
-              <span className="kpi-card__info" aria-hidden="true">?</span>
-              <span id={descriptionId} role="tooltip" className="kpi-card__tooltip">
-                {props.description}
-              </span>
-            </>
-          ) : null}
-        </h3>
-        {props.variant === 'current' && props.delta ? (
-          <span className={`kpi-card__delta kpi-card__delta--${props.delta.tone}`}>
-            {props.delta.text}
-          </span>
-        ) : null}
-      </div>
-
       {props.variant === 'current' ? (
         <>
-          <div className="kpi-card__value">{props.value}</div>
-          <div className="kpi-card__secondary">
-            <span>周期日均</span>
-            <strong>{props.periodAverage}</strong>
+          <div className="kpi-card__content">
+            <div className="kpi-card__top">
+              <div className="kpi-card__main">
+                <h3 className="kpi-card__label" aria-describedby={props.description ? descriptionId : undefined}>
+                  {props.label}
+                  {props.description ? (
+                    <>
+                      <span className="kpi-card__info" aria-hidden="true">?</span>
+                      <span id={descriptionId} role="tooltip" className="kpi-card__tooltip">
+                        {props.description}
+                      </span>
+                    </>
+                  ) : null}
+                </h3>
+                <div className="kpi-card__value">{props.value}</div>
+              </div>
+              <div className="kpi-card__side">
+                {props.delta ? (
+                  <span className={`kpi-card__delta kpi-card__delta--${props.delta.tone}`}>
+                    {props.delta.text}
+                  </span>
+                ) : null}
+                <div className="kpi-card__secondary">
+                  <span>{props.secondaryLabel}</span>
+                  <strong>{props.secondaryValue}</strong>
+                </div>
+              </div>
+            </div>
+            <MiniSparkline items={props.sparkline ?? []} tone={props.sparklineTone} />
           </div>
-          <MiniSparkline items={props.sparkline ?? []} tone={props.sparklineTone} />
         </>
       ) : props.rateMode ? (
         <>
+          <div className="kpi-card__header">
+            <h3 className="kpi-card__label" aria-describedby={props.description ? descriptionId : undefined}>
+              {props.label}
+              {props.description ? (
+                <>
+                  <span className="kpi-card__info" aria-hidden="true">?</span>
+                  <span id={descriptionId} role="tooltip" className="kpi-card__tooltip">
+                    {props.description}
+                  </span>
+                </>
+              ) : null}
+            </h3>
+          </div>
           <div className="kpi-card__value">{props.rateMode.mean}</div>
           <div className="kpi-card__secondary">
             <span>区间均值 / 峰值</span>
@@ -103,6 +122,19 @@ export function KpiCard(props: KpiCardProps) {
         </>
       ) : (
         <>
+          <div className="kpi-card__header">
+            <h3 className="kpi-card__label" aria-describedby={props.description ? descriptionId : undefined}>
+              {props.label}
+              {props.description ? (
+                <>
+                  <span className="kpi-card__info" aria-hidden="true">?</span>
+                  <span id={descriptionId} role="tooltip" className="kpi-card__tooltip">
+                    {props.description}
+                  </span>
+                </>
+              ) : null}
+            </h3>
+          </div>
           <div className="kpi-card__value">{props.total}</div>
           <div className="kpi-card__secondary">
             <span>周期均值</span>
