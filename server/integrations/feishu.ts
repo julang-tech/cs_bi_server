@@ -424,6 +424,28 @@ export class FeishuTableClient {
     return String((response.data as { record?: { record_id?: string } })?.record?.record_id ?? '')
   }
 
+  async batchCreateRecords(
+    table: SyncConfig['target'],
+    fieldsList: Array<Record<string, unknown>>,
+  ): Promise<string[]> {
+    if (fieldsList.length === 0) return []
+    const BATCH_SIZE = 500
+    const ids: string[] = []
+    for (let i = 0; i < fieldsList.length; i += BATCH_SIZE) {
+      const chunk = fieldsList.slice(i, i + BATCH_SIZE)
+      const response = await this.request({
+        method: 'POST',
+        path: `/bitable/v1/apps/${table.app_token}/tables/${table.table_id}/records/batch_create`,
+        payload: { records: chunk.map((fields) => ({ fields })) },
+      })
+      const items = (response.data as { records?: Array<{ record_id?: string }> })?.records ?? []
+      for (const item of items) {
+        ids.push(String(item.record_id ?? ''))
+      }
+    }
+    return ids
+  }
+
   async updateRecord(table: SyncConfig['target'], recordId: string, fields: Record<string, unknown>) {
     const response = await this.request({
       method: 'PUT',

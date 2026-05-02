@@ -82,6 +82,10 @@ export function KpiCard(props: KpiCardProps) {
                   ) : null}
                 </h3>
                 <div className="kpi-card__value">{props.value}</div>
+                <div className="kpi-card__secondary kpi-card__secondary--current">
+                  <span>{props.secondaryLabel}</span>
+                  <strong>{props.secondaryValue}</strong>
+                </div>
               </div>
               <div className="kpi-card__side">
                 {props.delta ? (
@@ -89,10 +93,6 @@ export function KpiCard(props: KpiCardProps) {
                     {props.delta.text}
                   </span>
                 ) : null}
-                <div className="kpi-card__secondary">
-                  <span>{props.secondaryLabel}</span>
-                  <strong>{props.secondaryValue}</strong>
-                </div>
               </div>
             </div>
             <MiniSparkline items={props.sparkline ?? []} tone={props.sparklineTone} />

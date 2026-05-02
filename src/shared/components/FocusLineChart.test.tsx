@@ -99,4 +99,21 @@ describe('FocusLineChart controlled active metric', () => {
     expect(document.body.textContent).toContain('均值 20')
     expect(document.body.textContent).toContain('峰值 30')
   })
+
+  it('does not render an in-progress marker when no current point is supplied', () => {
+    renderChart(vi.fn(), [
+      {
+        key: 'sales',
+        label: '销量',
+        formatter: (n) => `${n}`,
+        history: [
+          { bucket: '2026-04-30', value: 10 },
+          { bucket: '2026-05-01', value: 20 },
+        ],
+        current: [],
+      },
+    ])
+
+    expect(document.body.textContent).not.toContain('进行中')
+  })
 })

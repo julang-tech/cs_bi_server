@@ -9,7 +9,7 @@ import { fetchP1Dashboard } from '../../api/p1'
 import { formatHours, formatInteger } from '../../shared/utils/format'
 import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
-  getCurrentPeriodLabel,
+  getCurrentPeriodLabel, getPreviousPeriodLabel,
 } from '../../shared/utils/datePeriod'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { WorkloadAnalysis } from './WorkloadAnalysis'
@@ -24,6 +24,16 @@ const AGENT_OPTIONS = [
   { value: 'Mia', label: 'Mia' },
   { value: 'Jovie', label: 'Jovie' },
 ]
+
+function currentTrendPoint(
+  current: P1DashboardData | null,
+  currentPeriod: { date_to: string },
+  historyRange: { date_to: string },
+  value: number | undefined,
+): TrendPoint[] {
+  if (!current || currentPeriod.date_to <= historyRange.date_to) return []
+  return [{ bucket: currentPeriod.date_to, value: value ?? 0 }]
+}
 
 function buildDelta(
   current: number | null | undefined,
@@ -56,6 +66,7 @@ export default function P1Dashboard() {
 
   const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
   const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
+  const previousPeriodLabel = useMemo(() => getPreviousPeriodLabel(grain), [grain])
 
   function handleGrainChange(next: Grain) {
     setGrain(next)
@@ -87,9 +98,12 @@ export default function P1Dashboard() {
       currentValue: current?.summary.inbound_email_count,
       previousValue: previous?.summary.inbound_email_count,
       historyTrend: (history?.trends.inbound_email_count ?? []) as TrendPoint[],
-      currentTrend: current
-        ? [{ bucket: currentPeriod.date_to, value: current.summary.inbound_email_count }]
-        : [],
+      currentTrend: currentTrendPoint(
+        current,
+        currentPeriod,
+        historyRange,
+        current?.summary.inbound_email_count,
+      ),
       formatter: formatInteger,
       deltaMode: 'percent' as const,
       isRate: false,
@@ -102,9 +116,12 @@ export default function P1Dashboard() {
       currentValue: current?.summary.outbound_email_count,
       previousValue: previous?.summary.outbound_email_count,
       historyTrend: (history?.trends.outbound_email_count ?? []) as TrendPoint[],
-      currentTrend: current
-        ? [{ bucket: currentPeriod.date_to, value: current.summary.outbound_email_count }]
-        : [],
+      currentTrend: currentTrendPoint(
+        current,
+        currentPeriod,
+        historyRange,
+        current?.summary.outbound_email_count,
+      ),
       formatter: formatInteger,
       deltaMode: 'percent' as const,
       isRate: false,
@@ -117,9 +134,12 @@ export default function P1Dashboard() {
       currentValue: current?.summary.avg_queue_hours,
       previousValue: previous?.summary.avg_queue_hours,
       historyTrend: (history?.trends.avg_queue_hours ?? []) as TrendPoint[],
-      currentTrend: current
-        ? [{ bucket: currentPeriod.date_to, value: current.summary.avg_queue_hours }]
-        : [],
+      currentTrend: currentTrendPoint(
+        current,
+        currentPeriod,
+        historyRange,
+        current?.summary.avg_queue_hours,
+      ),
       formatter: (n: number) => formatHours(n, 1),
       deltaMode: 'percent' as const,
       isRate: false,
@@ -132,9 +152,12 @@ export default function P1Dashboard() {
       currentValue: current?.summary.first_response_timeout_count,
       previousValue: previous?.summary.first_response_timeout_count,
       historyTrend: (history?.trends.first_response_timeout_count ?? []) as TrendPoint[],
-      currentTrend: current
-        ? [{ bucket: currentPeriod.date_to, value: current.summary.first_response_timeout_count }]
-        : [],
+      currentTrend: currentTrendPoint(
+        current,
+        currentPeriod,
+        historyRange,
+        current?.summary.first_response_timeout_count,
+      ),
       formatter: formatInteger,
       deltaMode: 'percent' as const,
       isRate: false,
@@ -212,7 +235,7 @@ export default function P1Dashboard() {
                 description={c.description}
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
                 delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
-                secondaryLabel="上期"
+                secondaryLabel={previousPeriodLabel}
                 secondaryValue={secondaryValue}
                 metricKey={c.key}
                 active={activeMetricKey === c.key}

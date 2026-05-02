@@ -14,12 +14,17 @@ const TONE_VARS: Record<NonNullable<MiniSparklineProps['tone']>, string> = {
   neutral: 'var(--accent)',
 }
 
+const MINI_SPARKLINE_BOUNDS = { left: 0, right: 100, top: 10, bottom: 86 }
+
 export function MiniSparkline({ items, tone = 'neutral' }: MiniSparklineProps) {
   const gradientId = useId().replace(/:/g, '')
   if (!items.length) {
     return <div className="mini-chart mini-chart--empty" aria-hidden="true" />
   }
-  const { pointsString, areaString } = computeChartGeometry({ items })
+  const { pointsString, areaString } = computeChartGeometry({
+    items,
+    bounds: MINI_SPARKLINE_BOUNDS,
+  })
   const color = TONE_VARS[tone]
   return (
     <div className="mini-chart" aria-hidden="true">

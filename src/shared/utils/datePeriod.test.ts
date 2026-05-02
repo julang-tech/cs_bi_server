@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   formatDateInput, parseDateInput, shiftDate,
   getDataReadyDate, getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange,
-  getCurrentPeriodLabel,
+  getCurrentPeriodLabel, getPreviousPeriodLabel,
   getPresetHistoryRange,
   alignHistoryRangeToGrain, isHistoryRangeValid,
   getPeriodCount, getPeriodLengthDays,
@@ -100,6 +100,14 @@ describe('getCurrentPeriodLabel', () => {
   })
 })
 
+describe('getPreviousPeriodLabel', () => {
+  it('names the comparison period by BI grain', () => {
+    expect(getPreviousPeriodLabel('day')).toBe('前日')
+    expect(getPreviousPeriodLabel('week')).toBe('上周')
+    expect(getPreviousPeriodLabel('month')).toBe('上月')
+  })
+})
+
 describe('getPreviousPeriod', () => {
   it('day = T-2 to T-2', () => {
     expect(getPreviousPeriod('day', today)).toEqual({
@@ -129,30 +137,30 @@ describe('getPreviousPeriod', () => {
 })
 
 describe('getDefaultHistoryRange', () => {
-  it('day = 14 days ending at the ready date', () => {
+  it('day = 1 month ending at the ready date', () => {
     expect(getDefaultHistoryRange('day', today)).toEqual({
-      date_from: '2026-04-17', date_to: '2026-04-30',
+      date_from: '2026-04-01', date_to: '2026-04-30',
     })
   })
-  it('week = 7 complete prior weeks plus the current visible week period', () => {
+  it('week = 2 months ending at the current visible week period', () => {
     expect(getDefaultHistoryRange('week', mondayWithNoCurrentWeekData)).toEqual({
-      date_from: '2026-03-09', date_to: '2026-05-03',
+      date_from: '2026-03-04', date_to: '2026-05-03',
     })
     expect(getDefaultHistoryRange('week', tuesdayWithCurrentWeekData)).toEqual({
-      date_from: '2026-03-16', date_to: '2026-05-04',
+      date_from: '2026-03-05', date_to: '2026-05-04',
     })
   })
   it('week history includes current week-to-date when this week has ready data', () => {
     expect(getDefaultHistoryRange('week', today)).toEqual({
-      date_from: '2026-03-09', date_to: '2026-04-30',
-    })
-  })
-  it('month = previous complete month plus the current visible month period', () => {
-    expect(getDefaultHistoryRange('month', firstOfMonthWithNoCurrentMonthData)).toEqual({
       date_from: '2026-03-01', date_to: '2026-04-30',
     })
+  })
+  it('month = 3 months ending at the current visible month period', () => {
+    expect(getDefaultHistoryRange('month', firstOfMonthWithNoCurrentMonthData)).toEqual({
+      date_from: '2026-02-01', date_to: '2026-04-30',
+    })
     expect(getDefaultHistoryRange('month', midMonthWithCurrentMonthData)).toEqual({
-      date_from: '2026-04-01', date_to: '2026-05-14',
+      date_from: '2026-03-01', date_to: '2026-05-14',
     })
   })
 })

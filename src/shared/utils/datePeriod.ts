@@ -36,6 +36,16 @@ function endOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0)
 }
 
+function shiftMonthClamped(date: Date, months: number): Date {
+  const targetMonthStart = new Date(date.getFullYear(), date.getMonth() + months, 1)
+  const targetMonthEnd = endOfMonth(targetMonthStart)
+  return new Date(
+    targetMonthStart.getFullYear(),
+    targetMonthStart.getMonth(),
+    Math.min(date.getDate(), targetMonthEnd.getDate()),
+  )
+}
+
 const DATA_READY_HOUR = 3
 
 // BigQuery backfills the previous 72 hours at 03:00 local time. Before then,
@@ -122,24 +132,33 @@ export function getCurrentPeriodLabel(grain: Grain, today: Date = new Date()): s
   return current.date_from === formatDateInput(startOfMonth(today)) ? '本月至今' : '上月'
 }
 
+export function getPreviousPeriodLabel(grain: Grain): string {
+  if (grain === 'day') return '前日'
+  if (grain === 'week') return '上周'
+  return '上月'
+}
+
 // Default history range = complete BI buckets up to the latest ready period.
 export function getDefaultHistoryRange(grain: Grain, today: Date = new Date()): PeriodWindow {
   const readyDate = getDataReadyDate(today)
   if (grain === 'day') {
-    // 14 days ending at the ready date inclusive.
+    // 1 month ending at the ready date inclusive.
     return {
-      date_from: formatDateInput(shiftDate(readyDate, -13)),
+      date_from: formatDateInput(shiftDate(readyDate, -29)),
       date_to: formatDateInput(readyDate),
     }
   }
   if (grain === 'week') {
     const currentWeek = currentWeekPeriod(today)
-    const start = parseDateInput(currentWeek.date_from)
-    return { date_from: formatDateInput(shiftDate(start, -7 * 7)), date_to: currentWeek.date_to }
+    const end = parseDateInput(currentWeek.date_to)
+    return {
+      date_from: formatDateInput(shiftDate(shiftMonthClamped(end, -2), 1)),
+      date_to: currentWeek.date_to,
+    }
   }
   const currentMonth = currentMonthPeriod(today)
   const monthStart = parseDateInput(currentMonth.date_from)
-  const startMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() - 1, 1)
+  const startMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() - 2, 1)
   return { date_from: formatDateInput(startMonth), date_to: currentMonth.date_to }
 }
 

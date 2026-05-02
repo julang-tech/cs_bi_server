@@ -62,7 +62,10 @@ export type SyncCsvOptions = {
   to?: string
 }
 
-type FeishuSyncClient = Pick<FeishuTableClient, 'listRecords' | 'listFields' | 'createRecord' | 'updateRecord'>
+type FeishuSyncClient = Pick<
+  FeishuTableClient,
+  'listRecords' | 'listFields' | 'createRecord' | 'updateRecord' | 'batchCreateRecords'
+>
 
 type SyncServiceDeps = {
   createClient?: (config: SyncConfig, logger: SyncLogger) => FeishuSyncClient
@@ -743,6 +746,20 @@ async function syncResults(
   const mirroredRecords: SqliteMirrorRecord[] = []
   logger.info(`Starting result sync loop (dry_run=${dryRun}).`)
 
+  // Pending creates collected across all results, flushed once at the end via
+  // Feishu batch_create (500 records per HTTP call) — replaces ~6000 sequential
+  // POSTs with ~12 batch calls.
+  type PendingCreate = {
+    resultIndex: number
+    recordIndex: number
+    sourceKey: string
+    sanitizedRecord: Record<string, unknown>
+  }
+  const pendingCreates: PendingCreate[] = []
+  // Track which result_index → array of synced IDs (sparse — only non-create
+  // entries get filled inline; create entries get filled after the batch flush).
+  const syncedIdsByResult = new Map<number, Array<string | null>>()
+
   for (const [resultIndex, result] of results.entries()) {
     counters.scanned += 1
     if (resultIndex === 0 || (resultIndex + 1) % 10 === 0) {
@@ -769,7 +786,9 @@ async function syncResults(
       continue
     }
 
-    const syncedIds: string[] = []
+    const syncedIds: Array<string | null> = new Array(result.records.length).fill(null)
+    syncedIdsByResult.set(resultIndex, syncedIds)
+
     for (let index = 0; index < result.records.length; index += 1) {
       const rawRecord = result.records[index]
       const { sanitizedRecord, dropped_invalid_fields, dropped_unknown_fields } =
@@ -794,7 +813,7 @@ async function syncResults(
       if (existingId) {
         try {
           const updatedId = await client.updateRecord(config.target, existingId, sanitizedRecord)
-          syncedIds.push(updatedId)
+          syncedIds[index] = updatedId
           mirroredRecords.push({
             record_id: updatedId,
             source_record_id: result.source_key,
@@ -803,42 +822,70 @@ async function syncResults(
             fields: sanitizedRecord,
           })
           counters.updated += 1
-          logger.info(
-            `${result.source_key} target ${index + 1}/${result.records.length} updated (${counters.created} created, ${counters.updated} updated).`,
-          )
           continue
         } catch (error) {
           if (!(error instanceof Error) || !error.message.includes('RecordIdNotFound')) {
             throw error
           }
           logger.warn(
-            `${result.source_key} target record ${existingId} no longer exists; recreating target ${index + 1}/${result.records.length}.`,
+            `${result.source_key} target record ${existingId} no longer exists; queuing recreate for target ${index + 1}/${result.records.length}.`,
           )
         }
       }
 
-      const createdId = await client.createRecord(config.target, sanitizedRecord)
-      syncedIds.push(createdId)
-      mirroredRecords.push({
-        record_id: createdId,
-        source_record_id: result.source_key,
-        source_record_index: index,
-        synced_at: new Date().toISOString(),
-        fields: sanitizedRecord,
+      // Queue for batch create.
+      pendingCreates.push({
+        resultIndex,
+        recordIndex: index,
+        sourceKey: result.source_key,
+        sanitizedRecord,
       })
-      counters.created += 1
-      logger.info(
-        `${result.source_key} target ${index + 1}/${result.records.length} created as ${createdId} (${counters.created} created, ${counters.updated} updated).`,
-      )
     }
 
-    state.source_to_target_ids[result.source_key] = syncedIds
-    writeState(statePath, state)
     if (existingIds.length > result.records.length) {
       logger.warn(
         `${result.source_key} previously synced to ${existingIds.length} target records, now only ${result.records.length} records generated; extra target records were left untouched.`,
       )
     }
+  }
+
+  // Flush all pending creates via Feishu batch_create.
+  if (client && pendingCreates.length > 0) {
+    logger.info(`Batch-creating ${pendingCreates.length} target records.`)
+    const fieldsList = pendingCreates.map((p) => p.sanitizedRecord)
+    const createdIds = await client.batchCreateRecords(config.target, fieldsList)
+    if (createdIds.length !== pendingCreates.length) {
+      throw new Error(
+        `batchCreateRecords returned ${createdIds.length} ids for ${pendingCreates.length} requests`,
+      )
+    }
+    for (let i = 0; i < pendingCreates.length; i += 1) {
+      const pc = pendingCreates[i]
+      const createdId = createdIds[i]
+      const syncedIds = syncedIdsByResult.get(pc.resultIndex)
+      if (syncedIds) syncedIds[pc.recordIndex] = createdId
+      mirroredRecords.push({
+        record_id: createdId,
+        source_record_id: pc.sourceKey,
+        source_record_index: pc.recordIndex,
+        synced_at: new Date().toISOString(),
+        fields: pc.sanitizedRecord,
+      })
+      counters.created += 1
+    }
+    logger.info(`Batch create finished: ${counters.created} created, ${counters.updated} updated.`)
+  }
+
+  // Persist state once at the end.
+  for (const [resultIndex, syncedIds] of syncedIdsByResult.entries()) {
+    const result = results[resultIndex]
+    if (!result) continue
+    state.source_to_target_ids[result.source_key] = syncedIds.filter(
+      (id): id is string => id !== null,
+    )
+  }
+  if (client && !dryRun) {
+    writeState(statePath, state)
   }
 
   return {

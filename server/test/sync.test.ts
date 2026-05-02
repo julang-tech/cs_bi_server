@@ -292,6 +292,14 @@ async function testSyncPreviewAndRun() {
         updatedRecords.push({ recordId, fields })
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => ({
       async fetchOrder(orderNo: string) {
@@ -404,6 +412,14 @@ async function testShopifyBackfillOnlyFillsEmptyFields() {
       async updateRecord(_table, recordId) {
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => ({
       async fetchOrder() {
@@ -475,6 +491,14 @@ async function testSkuAmountStaysEmptyWhenComplaintSkuMissingOnMultiProductOrder
       },
       async updateRecord(_table, recordId) {
         return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
       },
     }),
     createShopifyClient: () => ({
@@ -587,6 +611,14 @@ async function testSqliteMirrorDeletesMissingRecords() {
       async updateRecord(_table, recordId) {
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => null,
   })
@@ -649,6 +681,14 @@ async function testSqliteMirrorRangeSyncDoesNotDeleteMissingRecords() {
       async updateRecord(_table, recordId) {
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => null,
   })
@@ -704,6 +744,14 @@ async function testSyncSqliteFailureMarksRunFailed() {
       async updateRecord(_table, recordId) {
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => null,
     createSqliteRepository: () =>
@@ -750,6 +798,14 @@ async function testSyncTargetToSqliteReadsTargetTable() {
       },
       async updateRecord() {
         throw new Error('target-to-sqlite should not update target records')
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
       },
     }),
     createShopifyClient: () => null,
@@ -804,6 +860,14 @@ async function testSyncTargetToSqlitePrunesMissingTargetRecords() {
       },
       async updateRecord(_table, recordId) {
         return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
       },
     }),
     createShopifyClient: () => null,
@@ -884,6 +948,14 @@ async function testSyncRefreshesBigQueryCache() {
       async updateRecord(_table, recordId) {
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => null,
     createBigQueryClient: () => ({
@@ -959,6 +1031,14 @@ async function testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror() {
       async updateRecord(_table, recordId) {
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => null,
     createBigQueryClient: () => ({
@@ -1001,6 +1081,14 @@ async function testSyncRefreshesShopifyBiV2Cache() {
       },
       async updateRecord(_table, recordId) {
         return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
       },
     }),
     createShopifyClient: () => null,
@@ -1112,6 +1200,14 @@ async function testSyncTargetToSqliteCanSkipBigQueryCacheRefreshes() {
       async updateRecord(_table, recordId) {
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => null,
     createBigQueryClient: () => ({
@@ -1163,6 +1259,14 @@ async function testSyncShopifyBiCacheIfDueSkipsWhenWindowCovered() {
       async updateRecord(_table, recordId) {
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => null,
     createBigQueryClient: () => ({
@@ -1205,6 +1309,14 @@ async function testSyncShopifyBiCacheIfDueReturnsFailureWhenCoverageCheckFails()
       async updateRecord(_table, recordId) {
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => null,
     createBigQueryClient: () => ({
@@ -1241,6 +1353,14 @@ async function testSyncShopifyBiCacheIfDueRefreshesWhenWindowMissing() {
       },
       async updateRecord(_table, recordId) {
         return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
       },
     }),
     createShopifyClient: () => null,
@@ -1326,6 +1446,14 @@ async function testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders() {
       },
       async updateRecord(_table, recordId) {
         return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
       },
     }),
     createShopifyClient: () => null,
@@ -1438,6 +1566,14 @@ async function testSyncShopifyBiV2CacheKeysRefundEventsByRefundLine() {
       async updateRecord(_table, recordId) {
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => null,
     createBigQueryClient: () => ({
@@ -1549,6 +1685,14 @@ async function testSyncShopifyBiCacheQueriesUseStableSourceIds() {
       async updateRecord(_table, recordId) {
         return recordId
       },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
     }),
     createShopifyClient: () => null,
     createBigQueryClient: () => ({
@@ -1600,6 +1744,14 @@ async function testSyncLegacyRefundCacheJoinsOrdersForOrderName() {
       },
       async updateRecord(_table, recordId) {
         return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
       },
     }),
     createShopifyClient: () => null,

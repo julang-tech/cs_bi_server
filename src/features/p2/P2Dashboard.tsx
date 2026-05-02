@@ -9,7 +9,7 @@ import { fetchRefundOverview } from '../../api/p2'
 import { formatInteger, formatMoney, formatPercent } from '../../shared/utils/format'
 import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
-  getCurrentPeriodLabel,
+  getCurrentPeriodLabel, getPreviousPeriodLabel,
 } from '../../shared/utils/datePeriod'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { ProductRefundTable } from './ProductRefundTable'
@@ -46,6 +46,16 @@ function buildDelta(
   }
 }
 
+function currentTrendPoint(
+  current: P2Overview | null,
+  currentPeriod: { date_to: string },
+  historyRange: { date_to: string },
+  key: CardKey,
+): TrendPoint[] {
+  if (!current || currentPeriod.date_to <= historyRange.date_to) return []
+  return [{ bucket: currentPeriod.date_to, value: current.cards[key] ?? 0 }]
+}
+
 export default function P2Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
   const [store, setStore] = useState<string>('')
@@ -54,6 +64,7 @@ export default function P2Dashboard() {
 
   const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
   const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
+  const previousPeriodLabel = useMemo(() => getPreviousPeriodLabel(grain), [grain])
 
   function handleGrainChange(next: Grain) {
     setGrain(next)
@@ -95,9 +106,7 @@ export default function P2Dashboard() {
     const currentValue = current?.cards[c.key]
     const previousValue = previous?.cards[c.key]
     const historyTrend: TrendPoint[] = history?.trends?.[c.key] ?? []
-    const currentTrend: TrendPoint[] = current
-      ? [{ bucket: currentPeriod.date_to, value: current.cards[c.key] ?? 0 }]
-      : []
+    const currentTrend = currentTrendPoint(current, currentPeriod, historyRange, c.key)
     return { ...c, currentValue, previousValue, historyTrend, currentTrend }
   })
 
@@ -169,7 +178,7 @@ export default function P2Dashboard() {
                 description={c.description}
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
                 delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
-                secondaryLabel="上期"
+                secondaryLabel={previousPeriodLabel}
                 secondaryValue={secondaryValue}
                 metricKey={c.key}
                 active={activeMetricKey === c.key}

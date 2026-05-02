@@ -9,7 +9,7 @@ import { fetchDashboard, fetchDrilldownOptions, fetchProductRanking } from '../.
 import { formatInteger, formatPercent } from '../../shared/utils/format'
 import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
-  getCurrentPeriodLabel,
+  getCurrentPeriodLabel, getPreviousPeriodLabel,
 } from '../../shared/utils/datePeriod'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { IssueStructure } from './IssueStructure'
@@ -29,6 +29,16 @@ function buildDelta(current: number | null | undefined, previous: number | null 
   return { tone: ratio > 0 ? 'up' as const : 'down' as const, text: `${ratio > 0 ? '↑' : '↓'} ${Math.abs(ratio * 100).toFixed(1)}%` }
 }
 
+function currentTrendPoint(
+  current: P3DashboardData | null,
+  currentPeriod: { date_to: string },
+  historyRange: { date_to: string },
+  value: number | undefined,
+) {
+  if (!current || currentPeriod.date_to <= historyRange.date_to) return []
+  return [{ bucket: currentPeriod.date_to, value: value ?? 0 }]
+}
+
 export default function P3Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
   const [dateBasis, setDateBasis] = useState<'order_date' | 'refund_date'>('order_date')
@@ -37,6 +47,7 @@ export default function P3Dashboard() {
 
   const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
   const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
+  const previousPeriodLabel = useMemo(() => getPreviousPeriodLabel(grain), [grain])
 
   function handleGrainChange(next: Grain) {
     setGrain(next)
@@ -89,7 +100,12 @@ export default function P3Dashboard() {
       currentValue: current?.summary.sales_qty,
       previousValue: previous?.summary.sales_qty,
       historyTrend: history?.trends.sales_qty ?? [],
-      currentTrend: current ? [{ bucket: currentPeriod.date_to, value: current.summary.sales_qty }] : [],
+      currentTrend: currentTrendPoint(
+        current,
+        currentPeriod,
+        historyRange,
+        current?.summary.sales_qty,
+      ),
       formatter: formatInteger, deltaMode: 'percent' as const, isRate: false,
     },
     {
@@ -98,7 +114,12 @@ export default function P3Dashboard() {
       currentValue: current?.summary.complaint_count,
       previousValue: previous?.summary.complaint_count,
       historyTrend: history?.trends.complaint_count ?? [],
-      currentTrend: current ? [{ bucket: currentPeriod.date_to, value: current.summary.complaint_count }] : [],
+      currentTrend: currentTrendPoint(
+        current,
+        currentPeriod,
+        historyRange,
+        current?.summary.complaint_count,
+      ),
       formatter: formatInteger, deltaMode: 'percent' as const, isRate: false,
     },
     {
@@ -107,7 +128,12 @@ export default function P3Dashboard() {
       currentValue: current?.summary.complaint_rate,
       previousValue: previous?.summary.complaint_rate,
       historyTrend: history?.trends.complaint_rate ?? [],
-      currentTrend: current ? [{ bucket: currentPeriod.date_to, value: current.summary.complaint_rate }] : [],
+      currentTrend: currentTrendPoint(
+        current,
+        currentPeriod,
+        historyRange,
+        current?.summary.complaint_rate,
+      ),
       formatter: (n: number) => formatPercent(n, 2), deltaMode: 'pp' as const, isRate: true,
     },
   ]
@@ -194,7 +220,7 @@ export default function P3Dashboard() {
                 description={c.description}
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
                 delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
-                secondaryLabel="上期"
+                secondaryLabel={previousPeriodLabel}
                 secondaryValue={secondaryValue}
                 metricKey={c.key}
                 active={activeMetricKey === c.key}
