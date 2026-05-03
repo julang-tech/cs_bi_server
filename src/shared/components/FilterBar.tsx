@@ -97,9 +97,16 @@ export function FilterBar({
   }
 
   function applyRange(range: PeriodWindow, options: { alignToGrain?: boolean } = {}) {
-    const next = options.alignToGrain === false ? range : alignHistoryRangeToGrain(range, grain)
+    const aligned = options.alignToGrain === false ? range : alignHistoryRangeToGrain(range, grain)
+    // For week/month grain, alignment can push date_to past the data-ready
+    // date (e.g. picking through 5/2 with 按周 → endOfWeek = 5/3 > maxDate).
+    // Silently dropping the apply confused users — clamp instead so the
+    // partial trailing bucket still renders with whatever data is ready.
+    const next: PeriodWindow = {
+      date_from: aligned.date_from,
+      date_to: aligned.date_to > maxDateText ? maxDateText : aligned.date_to,
+    }
     if (next.date_from > next.date_to) return
-    if (next.date_to > maxDateText) return
     onHistoryRangeChange(next)
     setDraftRange(next)
     setPickerOpen(false)
