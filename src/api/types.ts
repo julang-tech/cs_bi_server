@@ -58,6 +58,44 @@ export interface P1Dashboard {
   agent_workload_trends: P1AgentTrendRow[]
   meta: DashboardMeta
 }
+export interface P1BacklogMail {
+  mail_id: number
+  thread_id?: string | null
+  conversation_id?: string | null
+  subject?: string | null
+  from_email?: string | null
+  from_name?: string | null
+  received_at: string
+  wait_hours: number
+  age_bucket?: string | null
+  needs_reply?: boolean | null
+  is_manually_reviewed?: boolean | null
+  assignee_name?: string | null
+  language?: string | null
+  preview?: string | null
+  body?: {
+    original?: string | null
+    zh?: string | null
+  } | null
+  last_customer_message_at?: string | null
+  last_agent_reply_at?: string | null
+}
+export interface P1BacklogMailList {
+  items: P1BacklogMail[]
+  page?: { next_cursor?: string | null }
+  meta?: {
+    snapshot_at?: string
+    tz_offset_minutes?: number
+    total?: number
+    filters?: Partial<P1Filters> & { needs_reply?: boolean | null }
+    notes?: string[]
+  }
+}
+export interface P1BacklogMailNeedsReplyResult {
+  mail_id: number
+  needs_reply: boolean
+  is_manually_reviewed: boolean
+}
 
 // ----- P2 -----
 export interface P2Filters extends PeriodWindow {

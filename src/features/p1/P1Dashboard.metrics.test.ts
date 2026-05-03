@@ -27,6 +27,13 @@ describe('P1 overview KPI composition', () => {
     expect(source).toContain('backlogSnapshot')
     expect(source).toContain('<dt>当前积压未回</dt>')
     expect(source).toContain('<dt>当前积压平均等待</dt>')
+    expect(source).toContain('backlogModalOpen')
+    expect(source).toContain('fetchP1BacklogMails')
+    expect(source).toContain('markP1BacklogMailNeedsReply')
+    expect(source).toContain('p1-backlog-modal')
+    expect(source).toContain('待 review')
+    expect(source).toContain('is_manually_reviewed')
+    expect(source).not.toContain('body?.en')
 
     const focusSource = source.slice(
       source.indexOf('  const focusMetrics: FocusMetricSpec[]'),
@@ -47,9 +54,10 @@ describe('P1 overview KPI composition', () => {
   })
 
   it('does not compute hidden previous-range deltas for the focus chart summary', () => {
+    const summaryStart = source.indexOf('  // Per-metric summary line for focus chart')
     const summarySource = source.slice(
-      source.indexOf('  // Per-metric summary line for focus chart'),
-      source.indexOf('  return ('),
+      summaryStart,
+      source.indexOf('  return (', summaryStart),
     )
 
     expect(summarySource).toContain('summaryByKey')

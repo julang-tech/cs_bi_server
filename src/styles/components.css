@@ -657,6 +657,7 @@
 
 .p1-backlog-snapshot {
   display: flex;
+  width: 100%;
   min-height: 132px;
   flex-direction: column;
   justify-content: space-between;
@@ -665,6 +666,15 @@
   border: 1px solid rgba(11, 110, 79, 0.18);
   border-radius: var(--radius-md);
   background: #f7fbf9;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.p1-backlog-snapshot:hover {
+  border-color: rgba(11, 110, 79, 0.42);
+  background: #f2faf6;
 }
 
 .p1-backlog-snapshot__header {
@@ -716,6 +726,206 @@
   line-height: 1.1;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
+}
+
+.p1-backlog-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.p1-backlog-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(23, 33, 29, 0.36);
+}
+
+.p1-backlog-modal__panel {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  width: min(980px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.p1-backlog-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.p1-backlog-modal__header h2 {
+  font-size: var(--fs-md);
+}
+
+.p1-backlog-modal__header span {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+}
+
+.p1-backlog-modal__header button,
+.p1-backlog-list__actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--muted-strong);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.p1-backlog-modal__header button:hover,
+.p1-backlog-list__actions button:hover:not(:disabled) {
+  border-color: rgba(11, 110, 79, 0.32);
+  color: var(--accent);
+}
+
+.p1-backlog-modal__body {
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px 16px;
+}
+
+.p1-backlog-modal__empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+
+.p1-backlog-list {
+  display: grid;
+  gap: 10px;
+}
+
+.p1-backlog-list__item {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.p1-backlog-list__summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.p1-backlog-list__summary:hover {
+  background: var(--surface-subtle);
+}
+
+.p1-backlog-list__summary span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.p1-backlog-list__summary strong,
+.p1-backlog-list__summary small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.p1-backlog-list__summary strong {
+  color: var(--heading);
+  font-size: var(--fs-sm);
+}
+
+.p1-backlog-list__summary small,
+.p1-backlog-list__meta {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.p1-backlog-list__summary em {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.p1-backlog-list__detail {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 12px;
+}
+
+.p1-backlog-list__meta,
+.p1-backlog-list__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.p1-backlog-list__translations {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.p1-backlog-list__translations section {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 120px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+
+.p1-backlog-list__translations h4 {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: var(--fs-xs);
+}
+
+.p1-backlog-list__translations p {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.p1-backlog-list__actions {
+  justify-content: flex-end;
+}
+
+.p1-backlog-list__actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 /* ===========================================================================

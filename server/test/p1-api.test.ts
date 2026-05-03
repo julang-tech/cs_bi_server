@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import { buildApp } from '../entrypoints/app.js'
-import { P1Service, P1UpstreamError, type P1Filters } from '../domain/p1/service.js'
+import {
+  P1Service,
+  P1UpstreamError,
+  type P1BacklogMailFilters,
+  type P1Filters,
+} from '../domain/p1/service.js'
 
 function createP1Payload(filters: P1Filters) {
   return {
@@ -41,7 +46,7 @@ async function testP1RouteReturnsServicePayload() {
 
   const response = await app.inject({
     method: 'GET',
-    url: '/api/bi/p1/dashboard?date_from=2026-04-01&date_to=2026-04-30&agent_name=Mira',
+    url: '/api/bi/p1/dashboard?date_from=2026-04-01&date_to=2026-04-30&agent_name=Mira&tz_offset_minutes=480',
   })
   const payload = response.json()
 
@@ -51,9 +56,63 @@ async function testP1RouteReturnsServicePayload() {
     date_to: '2026-04-30',
     grain: 'day',
     agent_name: 'Mira',
+    tz_offset_minutes: 480,
   })
   assert.equal(payload.summary.inbound_email_count, 10)
   assert.equal(payload.meta.version, 'p1-chat-dashboard-v1')
+
+  await app.close()
+}
+
+async function testP1BacklogMailRoutesProxyService() {
+  let receivedFilters: P1BacklogMailFilters | null = null
+  let receivedMark: { mailId: number; needsReply: boolean } | null = null
+  const { app } = await buildApp({
+    p1Service: {
+      async getDashboard(filters: P1Filters) {
+        return createP1Payload(filters)
+      },
+      async getBacklogMails(filters: P1BacklogMailFilters) {
+        receivedFilters = filters
+        return { items: [], page: { next_cursor: null }, meta: { total: 0 } }
+      },
+      async markBacklogMailNeedsReply(mailId: number, needsReply: boolean) {
+        receivedMark = { mailId, needsReply }
+        return { mail_id: mailId, needs_reply: needsReply, is_manually_reviewed: true }
+      },
+    },
+  })
+
+  const listResponse = await app.inject({
+    method: 'GET',
+    url: '/api/bi/p1/backlog-mails?date_from=2026-05-03&date_to=2026-05-03&grain=day&tz_offset_minutes=480&limit=100',
+  })
+  assert.equal(listResponse.statusCode, 200)
+  assert.deepEqual(receivedFilters, {
+    date_from: '2026-05-03',
+    date_to: '2026-05-03',
+    grain: 'day',
+    tz_offset_minutes: 480,
+    limit: 100,
+  })
+
+  const snapshotResponse = await app.inject({
+    method: 'GET',
+    url: '/api/bi/p1/backlog-mails?tz_offset_minutes=480',
+  })
+  assert.equal(snapshotResponse.statusCode, 200)
+  assert.deepEqual(receivedFilters, {
+    tz_offset_minutes: 480,
+    limit: 100,
+  })
+
+  const patchResponse = await app.inject({
+    method: 'POST',
+    url: '/api/bi/p1/backlog-mails/12345/needs-reply',
+    payload: { needs_reply: false },
+  })
+  assert.equal(patchResponse.statusCode, 200)
+  assert.deepEqual(receivedMark, { mailId: 12345, needsReply: false })
 
   await app.close()
 }
@@ -127,6 +186,7 @@ async function testP1ServiceForwardsApiKeyHeader() {
     date_to: '2026-04-30',
     grain: 'week',
     agent_name: 'Mira',
+    tz_offset_minutes: 480,
   }) as { summary: Record<string, unknown> }
 
   const url = new URL(capturedUrl)
@@ -136,9 +196,52 @@ async function testP1ServiceForwardsApiKeyHeader() {
   assert.equal(url.searchParams.get('date_to'), '2026-04-30')
   assert.equal(url.searchParams.get('grain'), 'week')
   assert.equal(url.searchParams.get('agent_name'), 'Mira')
+  assert.equal(url.searchParams.get('tz_offset_minutes'), '480')
   assert.equal(capturedHeader, 'secret-key')
   assert.equal(payload.summary.first_email_count, 6)
   assert.equal(payload.summary.unreplied_email_count, 1)
+}
+
+async function testP1ServiceMarksBacklogMailWithPost() {
+  let capturedUrl = ''
+  let capturedMethod = ''
+  let capturedBody = ''
+  const service = new P1Service({
+    baseUrl: 'https://cs-mail.example.test',
+    apiKey: 'secret-key',
+    fetchImpl: async (input, init) => {
+      capturedUrl = String(input)
+      capturedMethod = init?.method ?? 'GET'
+      capturedBody = String(init?.body ?? '')
+      return new Response(JSON.stringify({
+        mail_id: 12345,
+        needs_reply: false,
+        is_manually_reviewed: true,
+      }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    },
+  })
+
+  const payload = await service.markBacklogMailNeedsReply(12345, false) as {
+    mail_id: number
+    needs_reply: boolean
+    is_manually_reviewed: boolean
+  }
+
+  const url = new URL(capturedUrl)
+  assert.equal(url.pathname, '/api/bi/p1/backlog-mails/12345/needs-reply')
+  assert.equal(capturedMethod, 'POST')
+  assert.deepEqual(JSON.parse(capturedBody), {
+    needs_reply: false,
+    operator: 'dashboard',
+  })
+  assert.deepEqual(payload, {
+    mail_id: 12345,
+    needs_reply: false,
+    is_manually_reviewed: true,
+  })
 }
 
 async function testP1ServiceBackfillsMissingSummaryFields() {
@@ -180,9 +283,11 @@ async function testP1ServiceBackfillsMissingSummaryFields() {
 }
 
 await testP1RouteReturnsServicePayload()
+await testP1BacklogMailRoutesProxyService()
 await testP1RouteRejectsInvalidDateRange()
 await testP1RouteMapsUpstreamFailure()
 await testP1ServiceForwardsApiKeyHeader()
+await testP1ServiceMarksBacklogMailWithPost()
 await testP1ServiceBackfillsMissingSummaryFields()
 
 console.log('P1 API tests passed')

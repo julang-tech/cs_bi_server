@@ -19,6 +19,27 @@ const p1FilterSchema = z.object({
   date_to: z.string(),
   grain: z.enum(['day', 'week', 'month']).default('day'),
   agent_name: z.string().default(''),
+  tz_offset_minutes: z.coerce.number().int().optional(),
+})
+
+const p1BacklogMailSchema = z.object({
+  date_from: z.string().optional(),
+  date_to: z.string().optional(),
+  grain: z.enum(['day', 'week', 'month']).optional(),
+  agent_name: z.string().optional(),
+  tz_offset_minutes: z.coerce.number().int().min(-840).max(840),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  cursor: z.string().optional(),
+  needs_reply: z
+    .union([z.literal('true'), z.literal('false'), z.boolean()])
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value === true || value === 'true')),
+})
+
+const p1NeedsReplyBodySchema = z.object({
+  needs_reply: z.boolean(),
+  reason: z.string().optional(),
+  operator: z.string().optional(),
 })
 
 const filterSchema = z.object({
@@ -99,6 +120,59 @@ export async function buildApp(overrides?: {
       }
       if (error instanceof P1UpstreamError) {
         return reply.status(502).send({ detail: error.message })
+      }
+      throw error
+    }
+  })
+
+  app.get('/api/bi/p1/backlog-mails', async (request, reply) => {
+    const parsed = p1BacklogMailSchema.safeParse(request.query)
+    if (!parsed.success) {
+      return reply.status(400).send({ detail: parsed.error.flatten() })
+    }
+    if (!p1Service.getBacklogMails) {
+      return reply.status(501).send({ detail: 'P1 backlog mail list is not configured.' })
+    }
+
+    try {
+      return await p1Service.getBacklogMails(parsed.data)
+    } catch (error) {
+      if (error instanceof P1ConfigError) {
+        return reply.status(503).send({ detail: error.message })
+      }
+      if (error instanceof P1UpstreamError) {
+        return reply.status(error.statusCode).send({ detail: error.message })
+      }
+      throw error
+    }
+  })
+
+  app.post('/api/bi/p1/backlog-mails/:mail_id/needs-reply', async (request, reply) => {
+    const parsed = p1NeedsReplyBodySchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ detail: parsed.error.flatten() })
+    }
+    const params = request.params as { mail_id: string }
+    const mailId = Number(params.mail_id)
+    if (!Number.isInteger(mailId)) {
+      return reply.status(400).send({ detail: 'mail_id must be an integer.' })
+    }
+    if (!p1Service.markBacklogMailNeedsReply) {
+      return reply.status(501).send({ detail: 'P1 backlog mail marking is not configured.' })
+    }
+
+    try {
+      return await p1Service.markBacklogMailNeedsReply(
+        mailId,
+        parsed.data.needs_reply,
+        { reason: parsed.data.reason, operator: parsed.data.operator },
+      )
+    } catch (error) {
+      if (error instanceof P1ConfigError) {
+        return reply.status(503).send({ detail: error.message })
+      }
+      if (error instanceof P1UpstreamError) {
+        return reply.status(error.statusCode).send({ detail: error.message })
       }
       throw error
     }
