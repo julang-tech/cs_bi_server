@@ -176,27 +176,42 @@ function inferMinorIssueType(
   return normalizeText(fields['物流-跟进结果']) ?? '物流问题-其他'
 }
 
+function formatLocalDate(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 function parseIsoDate(rawValue: unknown) {
   const text = normalizeText(rawValue)
   if (!text) {
     return null
   }
 
+  // Numeric timestamps (Feishu date-only fields) are stored as midnight-of-the
+  // user's TZ. Slicing the UTC ISO would shift them back a day for users east
+  // of UTC, so we read in local TZ — matching transform.ts:parseRecordDate.
   if (/^\d+$/.test(text)) {
     const timestamp = Number(text)
     const millis = timestamp < 10_000_000_000 ? timestamp * 1000 : timestamp
     const date = new Date(millis)
     if (!Number.isNaN(date.getTime())) {
-      return date.toISOString().slice(0, 10)
+      return formatLocalDate(date)
     }
   }
 
   const normalized = text.replace(/\//g, '-')
+  // Date-only strings (YYYY-MM-DD) parse as UTC midnight — return the literal
+  // date so the local-TZ shift below doesn't bump them off-by-one.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    return normalized
+  }
   const date = new Date(normalized.includes('T') ? normalized : normalized.replace(' ', 'T'))
   if (Number.isNaN(date.getTime())) {
     return null
   }
-  return date.toISOString().slice(0, 10)
+  return formatLocalDate(date)
 }
 
 function stringifyJson(value: unknown) {
