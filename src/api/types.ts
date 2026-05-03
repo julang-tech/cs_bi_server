@@ -65,6 +65,7 @@ export interface P1BacklogMail {
   subject?: string | null
   from_email?: string | null
   from_name?: string | null
+  customer_email?: string | null
   received_at: string
   wait_hours: number
   age_bucket?: string | null

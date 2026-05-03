@@ -40,6 +40,8 @@ Query 参数：
 | 字段 | 说明 |
 |---|---|
 | `mail_id` | integer，后端 `cs_emails.id` |
+| `from_email` | 邮件 envelope sender；Shopify relay 邮件时可能是 `mailer@shopify.com` |
+| `customer_email` | 真实客户邮箱 / pairing 身份；前端客户识别优先使用该字段 |
 | `received_at` | 当前积压计时起点，ISO UTC |
 | `wait_hours` | 后端按 `snapshot_at - received_at` 计算，前端直接展示 |
 | `needs_reply` | 生效值：人工标记优先于 LLM label |
