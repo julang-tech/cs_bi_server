@@ -1,0 +1,60 @@
+/* Reset + global element styles */
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+body,
+button,
+input,
+select {
+  font-family: var(--sans);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  color: var(--heading);
+  font-family: var(--heading-font);
+  font-weight: 650;
+  letter-spacing: 0;
+}
+
+h1 {
+  margin-top: 8px;
+  font-size: 36px;
+  line-height: 1.05;
+}
+
+h2 {
+  font-size: 22px;
+}
+
+h3 {
+  font-size: 18px;
+}
+
+p {
+  margin: 0;
+}
+
+button,
+input,
+select {
+  color: inherit;
+}

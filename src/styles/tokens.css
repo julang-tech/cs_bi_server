@@ -1,0 +1,68 @@
+:root {
+  /* Operations dashboard palette */
+  --page-bg: #f5f6f3;
+  --surface: #ffffff;
+  --surface-subtle: #f8faf8;
+  --chip-bg: #eef2ef;
+  --border: rgba(31, 41, 37, 0.12);
+  --input-border: rgba(31, 41, 37, 0.18);
+  --heading: #17211d;
+  --text: #26332e;
+  --muted: #66736d;
+  --muted-strong: #4d5b55;
+  --accent: #0b6e4f;
+
+  /* Tones (semantic) */
+  --tone-up: #0b6e4f;
+  --tone-down: #b65c68;
+  --tone-neutral: var(--muted);
+  --tone-muted: var(--muted-strong);
+
+  /* Sparkline / chart tones */
+  --tone-sales: #52728d;
+  --tone-complaints: #b65c68;
+  --tone-rate: #b17220;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* Font sizes */
+  --fs-xs: 12px;
+  --fs-sm: 14px;
+  --fs-md: 16px;
+  --fs-lg: 20px;
+  --fs-xl: 28px;
+  --fs-2xl: 40px;
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+
+  /* Shadows */
+  --shadow-soft:
+    0 1px 2px rgba(31, 41, 37, 0.06),
+    0 8px 20px rgba(31, 41, 37, 0.04);
+
+  /* Fonts */
+  --sans:
+    'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --heading-font:
+    var(--sans);
+
+  font-family: var(--sans);
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--text);
+  background: var(--page-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}

@@ -76,11 +76,30 @@ type ShopifyRefundEventRow = SqliteShopifyRefundEvent & {
   synced_at: string
 }
 
+// All known target-table 命中视图 values mapped to BI major types.
+// 1-1 (退款): refund-related, classified as product per agreement.
+// 1-5 (补发): warehouse-driven action, counted as warehouse.
+// 2-催单 / 3-客诉争议: workflow-driven, no product/warehouse/logistics root cause → other.
 const ISSUE_VIEW_TO_MAJOR_TYPE = {
-  '1-3待跟进表-货品瑕疵': 'product',
+  '1-1待跟进表-退款': 'product',
   '1-2待跟进表-漏发、发错': 'warehouse',
+  '1-3待跟进表-货品瑕疵': 'product',
   '1-4待跟进表-物流问题': 'logistics',
+  '1-5待跟进表-补发': 'warehouse',
+  '2-催单表': 'other',
+  '3-客诉争议表': 'other',
 } as const
+
+// 客诉类型 (singleSelect) prefix → major type, used when 命中视图 is empty.
+const COMPLAINT_TYPE_PREFIX_MAP: Array<[string, 'product' | 'warehouse' | 'logistics' | 'refund' | 'other']> = [
+  ['仓库-', 'warehouse'],
+  ['货品瑕疵-', 'product'],
+  ['物流问题-', 'logistics'],
+  ['客户原因-', 'refund'],
+  ['高风险订单', 'other'],
+  ['欧洲被税', 'other'],
+  ['其他问题', 'other'],
+]
 
 function ensureParentDir(filePath: string) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -107,22 +126,37 @@ function normalizeText(value: unknown): string | null {
   return text || null
 }
 
-function inferMajorIssueType(fields: Record<string, unknown>) {
-  const view = normalizeText(fields['命中视图'])
-  if (view && view in ISSUE_VIEW_TO_MAJOR_TYPE) {
-    return ISSUE_VIEW_TO_MAJOR_TYPE[view as keyof typeof ISSUE_VIEW_TO_MAJOR_TYPE]
+function inferMajorIssueType(
+  fields: Record<string, unknown>,
+): 'product' | 'warehouse' | 'logistics' | 'refund' | 'other' {
+  // 1. Prefer 命中视图 (multi-select). May contain multiple values; first match wins.
+  const viewRaw = fields['命中视图']
+  const viewValues = Array.isArray(viewRaw)
+    ? viewRaw.map((v) => normalizeText(v)).filter(Boolean) as string[]
+    : [normalizeText(viewRaw)].filter(Boolean) as string[]
+  for (const view of viewValues) {
+    if (view in ISSUE_VIEW_TO_MAJOR_TYPE) {
+      return ISSUE_VIEW_TO_MAJOR_TYPE[view as keyof typeof ISSUE_VIEW_TO_MAJOR_TYPE]
+    }
   }
 
-  if (normalizeText(fields['瑕疵原因'])) {
-    return 'product'
+  // 2. Fall back to 客诉类型 prefix (single-select).
+  const complaintType = normalizeText(fields['客诉类型'])
+  if (complaintType) {
+    for (const [prefix, type] of COMPLAINT_TYPE_PREFIX_MAP) {
+      if (complaintType.startsWith(prefix) || complaintType === prefix) {
+        return type
+      }
+    }
   }
-  if (normalizeText(fields['错/漏发原因'])) {
-    return 'warehouse'
-  }
-  if (normalizeText(fields['物流-跟进结果'])) {
-    return 'logistics'
-  }
-  return null
+
+  // 3. Legacy reason fields (kept for backward compat).
+  if (normalizeText(fields['瑕疵原因'])) return 'product'
+  if (normalizeText(fields['错/漏发原因'])) return 'warehouse'
+  if (normalizeText(fields['物流-跟进结果'])) return 'logistics'
+
+  // 4. Still unknown but the record is a valid 客诉 — bucket into 'other'.
+  return 'other'
 }
 
 function inferMinorIssueType(
@@ -296,13 +330,12 @@ export class SqliteMirrorRepository {
       sqlite_failed: 0,
     }
 
-    const existingRows = this.db
-      .prepare('SELECT source_record_id, source_record_index FROM feishu_target_records')
-      .all() as Array<{ source_record_id: string; source_record_index: number }>
-    const existingKeys = new Set(
-      existingRows.map((row) => `${row.source_record_id}#${row.source_record_index}`),
-    )
-    const nextKeys = new Set(records.map((record) => `${record.source_record_id}#${record.source_record_index}`))
+    const isFullTargetMirrorRebuild =
+      mode.pruneMissing &&
+      records.every(
+        (record) =>
+          record.record_id === record.source_record_id && record.source_record_index === 0,
+      )
 
     const upsert = this.db.prepare(`
       INSERT INTO feishu_target_records (
@@ -381,6 +414,33 @@ export class SqliteMirrorRepository {
 
     this.db.exec('BEGIN')
     try {
+      let existingRows = this.db
+        .prepare(`
+          SELECT record_id, source_record_id, source_record_index
+          FROM feishu_target_records
+        `)
+        .all() as Array<{
+          record_id: string
+          source_record_id: string
+          source_record_index: number
+        }>
+
+      if (
+        isFullTargetMirrorRebuild &&
+        existingRows.some((row) => row.record_id !== row.source_record_id)
+      ) {
+        this.db.prepare('DELETE FROM feishu_target_records').run()
+        stats.deleted += existingRows.length
+        existingRows = []
+      }
+
+      const existingKeys = new Set(
+        existingRows.map((row) => `${row.source_record_id}#${row.source_record_index}`),
+      )
+      const nextKeys = new Set(
+        records.map((record) => `${record.source_record_id}#${record.source_record_index}`),
+      )
+
       for (const item of records) {
         const key = `${item.source_record_id}#${item.source_record_index}`
         const fields = item.fields
@@ -622,6 +682,10 @@ export class SqliteMirrorRepository {
     return Number(row.order_lines ?? 0) > 0 || Number(row.refund_events ?? 0) > 0
   }
 
+  unsafeDatabaseForTest() {
+    return this.db
+  }
+
   close() {
     this.db.close()
   }
@@ -644,10 +708,14 @@ export class SqliteP3BigQueryCacheRepository implements SalesRepository, OrderEn
       return cached
     }
 
-    const result = this.withRepository((repository) => ({
-      sales_qty: uniqueOrderCount(repository.listOrderLines(filters)),
-      complaint_count: 0,
-    }))
+    const result = this.withRepository((repository) => {
+      const orderNo = uniqueOrderCount(repository.listOrderLines(filters))
+      return {
+        sales_qty: orderNo,
+        order_count: orderNo,
+        complaint_count: 0,
+      }
+    })
     return this.summaryCache.set(cacheKey, result)
   }
 
@@ -669,6 +737,7 @@ export class SqliteP3BigQueryCacheRepository implements SalesRepository, OrderEn
         .map(([bucket, orderNos]) => ({
           bucket,
           sales_qty: orderNos.size,
+          order_count: orderNos.size,
           complaint_count: 0,
         }))
     })
@@ -888,10 +957,9 @@ export function normalizeSqliteMirroredRecord(record: SqliteMirrorRecord): Stand
     return null
   }
 
+  // inferMajorIssueType always returns a value now ('other' if nothing matches).
+  // Records are no longer dropped based on 命中视图 — every active 客诉 counts.
   const majorIssueType = inferMajorIssueType(record.fields)
-  if (!majorIssueType) {
-    return null
-  }
 
   return {
     source_system: 'sqlite_mirror',

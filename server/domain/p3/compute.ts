@@ -111,6 +111,9 @@ export function resolveIssueQueryDate(
 }
 
 function resolveIssueDateByBasis(issue: StandardIssueRecord, dateBasis: DateBasis) {
+  if (dateBasis === 'record_date') {
+    return issue.record_date ?? null
+  }
   if (dateBasis === 'refund_date') {
     return issue.refund_date ?? null
   }
@@ -118,9 +121,17 @@ function resolveIssueDateByBasis(issue: StandardIssueRecord, dateBasis: DateBasi
   return issue.order_date ?? issue.record_date ?? null
 }
 
+// Non-product line items (insurance/shipping/price-adjustment) — already filtered
+// out at sync time via lookupOrderSkus, but kept here as a safety net so any future
+// leak doesn't pollute complaint counts or product ranking.
+const EXCLUDED_SKUS = new Set(['Insure01', 'Insure02', 'SHIPPINGCOST', 'PRICE ADJUSTMENT'])
+
 export function filterIssues(issues: StandardIssueRecord[], filters: P3Filters) {
   const seen = new Set<string>()
   return issues.filter((issue) => {
+    if (issue.sku && EXCLUDED_SKUS.has(issue.sku)) {
+      return false
+    }
     const queryDate = resolveIssueQueryDate(issue, filters)
     if (!queryDate) {
       return false
@@ -151,6 +162,7 @@ export function computeDashboard(
   const complaintCount = issues.length
   const summary: SummaryMetrics = {
     sales_qty: salesSummary.sales_qty,
+    order_count: salesSummary.order_count,
     complaint_count: complaintCount,
   }
 
@@ -162,14 +174,20 @@ export function computeDashboard(
     complaintByBucket.set(bucket, (complaintByBucket.get(bucket) ?? 0) + 1)
   }
 
-  const salesByBucket = new Map(salesTrends.map((point) => [point.bucket, point.sales_qty]))
+  const salesByBucket = new Map(
+    salesTrends.map((point) => [point.bucket, { sales_qty: point.sales_qty, order_count: point.order_count }]),
+  )
   const buckets = [...new Set([...salesByBucket.keys(), ...complaintByBucket.keys()])].sort()
 
-  const trends: TrendPoint[] = buckets.map((bucket) => ({
-    bucket,
-    sales_qty: salesByBucket.get(bucket) ?? 0,
-    complaint_count: complaintByBucket.get(bucket) ?? 0,
-  }))
+  const trends: TrendPoint[] = buckets.map((bucket) => {
+    const sales = salesByBucket.get(bucket) ?? { sales_qty: 0, order_count: 0 }
+    return {
+      bucket,
+      sales_qty: sales.sales_qty,
+      order_count: sales.order_count,
+      complaint_count: complaintByBucket.get(bucket) ?? 0,
+    }
+  })
 
   const countByType = new Map(MAJOR_ISSUE_TYPES.map((type) => [type, 0]))
   for (const issue of issues) {
@@ -208,11 +226,13 @@ export function buildDashboardPayload(
     },
     summary: {
       sales_qty: result.summary.sales_qty,
+      order_count: result.summary.order_count,
       complaint_count: result.summary.complaint_count,
       complaint_rate: safeRate(result.summary.complaint_count, result.summary.sales_qty),
     },
     trends: {
       sales_qty: result.trends.map((point) => ({ bucket: point.bucket, value: point.sales_qty })),
+      order_count: result.trends.map((point) => ({ bucket: point.bucket, value: point.order_count })),
       complaint_count: result.trends.map((point) => ({
         bucket: point.bucket,
         value: point.complaint_count,
@@ -395,6 +415,9 @@ export function computeProductRanking(
         if (!lineItem.spu || !lineItem.skc) {
           continue
         }
+        if (EXCLUDED_SKUS.has(lineItem.sku) || EXCLUDED_SKUS.has(lineItem.spu)) {
+          continue
+        }
         const pairKey = `${lineItem.spu}__${lineItem.skc}`
         if (seenPairs.has(pairKey)) {
           continue
@@ -407,6 +430,9 @@ export function computeProductRanking(
     }
 
     if (!issue.spu || !issue.skc) {
+      continue
+    }
+    if (EXCLUDED_SKUS.has(issue.spu) || (issue.sku && EXCLUDED_SKUS.has(issue.sku))) {
       continue
     }
 

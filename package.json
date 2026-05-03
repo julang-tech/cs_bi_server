@@ -5,12 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm:dev:app\" \"npm:dev:client\"",
-    "dev:app": "npm run build:server --silent && node server-dist/server/entrypoints/app.js",
+    "dev:all": "concurrently \"npm:dev:app\" \"npm:dev:client\" \"npm:dev:worker\"",
+    "dev:app": "tsx watch --clear-screen=false server/entrypoints/app.ts",
     "dev:client": "vite",
+    "dev:worker": "tsx watch --clear-screen=false server/entrypoints/sync-worker.ts",
     "build": "npm run build:client && npm run build:server",
     "build:client": "vite build",
     "build:server": "tsc -p tsconfig.server.json",
     "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:p3": "npm run build:server --silent && node server-dist/server/test/p3.test.js",
     "test:p1-api": "npm run build:server --silent && node server-dist/server/test/p1-api.test.js",
     "test:p2": "npm run build:server --silent && node server-dist/server/test/p2.test.js",
@@ -19,6 +24,7 @@
     "test:integrations": "npm run build:server --silent && node server-dist/server/test/integrations.test.js",
     "test:sync": "npm run build:server --silent && node server-dist/server/test/sync.test.js",
     "test:worker": "npm run build:server --silent && node server-dist/server/test/sync-worker.test.js",
+    "test:cache-status": "npm run build:server --silent && node server-dist/server/test/cache-status.test.js",
     "preview": "vite preview",
     "start": "node server-dist/server/entrypoints/app.js",
     "sync:preview": "npm run build:server --silent && node server-dist/server/entrypoints/sync.js preview",
@@ -37,8 +43,8 @@
     "fastify": "^5.8.5",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
+    "recharts": "^2.15.4",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3",
     "zod": "^4.3.6"
   },
   "devDependencies": {
@@ -50,6 +56,10 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.5.0",
-    "vite": "^8.0.9"
+    "jsdom": "^24.1.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.1",
+    "vite": "^8.0.9",
+    "vitest": "^2.1.9"
   }
 }

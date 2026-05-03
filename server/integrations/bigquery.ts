@@ -32,7 +32,7 @@ export class SampleSalesRepository implements SalesRepository {
 
   async fetchSummary(): Promise<SummaryMetrics> {
     const sample = readDashboardSample(this.repoRoot)
-    return { sales_qty: sample.summary.sales_qty, complaint_count: 0 }
+    return { sales_qty: sample.summary.sales_qty, order_count: sample.summary.sales_qty, complaint_count: 0 }
   }
 
   async fetchTrends(): Promise<TrendPoint[]> {
@@ -40,6 +40,7 @@ export class SampleSalesRepository implements SalesRepository {
     return sample.trends.sales_qty.map((point) => ({
       bucket: point.bucket,
       sales_qty: point.value,
+      order_count: point.value,
       complaint_count: 0,
     }))
   }
@@ -165,6 +166,7 @@ WHERE o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
 
     const result = {
       sales_qty: Number(rows[0]?.sales_qty ?? 0),
+      order_count: Number(rows[0]?.sales_qty ?? 0),
       complaint_count: 0,
     }
     return this.summaryCache.set(cacheKey, result)
@@ -228,6 +230,7 @@ ORDER BY 1
     const result = rows.map((row) => ({
       bucket: String(row.bucket),
       sales_qty: Number(row.sales_qty ?? 0),
+      order_count: Number(row.sales_qty ?? 0),
       complaint_count: 0,
     }))
     return this.trendCache.set(cacheKey, result)

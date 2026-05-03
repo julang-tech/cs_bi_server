@@ -14,13 +14,13 @@ import type {
 
 class StubSalesRepository implements SalesRepository {
   async fetchSummary(_filters: P3Filters): Promise<SummaryMetrics> {
-    return { sales_qty: 120, complaint_count: 0 }
+    return { sales_qty: 120, order_count: 90, complaint_count: 0 }
   }
 
   async fetchTrends(_filters: P3Filters): Promise<TrendPoint[]> {
     return [
-      { bucket: '2026-03-02', sales_qty: 70, complaint_count: 0 },
-      { bucket: '2026-03-09', sales_qty: 50, complaint_count: 0 },
+      { bucket: '2026-03-02', sales_qty: 70, order_count: 50, complaint_count: 0 },
+      { bucket: '2026-03-09', sales_qty: 50, order_count: 40, complaint_count: 0 },
     ]
   }
 
@@ -159,7 +159,7 @@ async function run() {
   assert.equal(dashboardPayload.filters.date_basis, 'order_date')
   assert.deepEqual(dashboardPayload.trends.sales_qty[0], { bucket: '2026-03-02', value: 70 })
   assert.equal(dashboardPayload.meta.version, 'p3-formal-runtime')
-  assert.equal(dashboardPayload.issue_share.length, 3)
+  assert.equal(dashboardPayload.issue_share.length, 5)
 
   const optionsResponse = await app.inject({
     method: 'GET',
@@ -177,7 +177,7 @@ async function run() {
   })
   const previewPayload = previewResponse.json()
   assert.equal(previewResponse.statusCode, 200)
-  assert.equal(previewPayload.filters.date_basis, 'order_date')
+  assert.equal(previewPayload.filters.date_basis, 'record_date')
   assert.equal(previewPayload.preview.top_reasons[0].reason, '货品瑕疵-其他')
   assert.equal(previewPayload.preview.top_spus[0].spu, 'SPU-1')
 

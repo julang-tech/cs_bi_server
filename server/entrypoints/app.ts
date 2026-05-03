@@ -12,6 +12,7 @@ import {
 } from '../domain/p1/service.js'
 import { createP3Service } from '../domain/p3/service.js'
 import { createP2Service } from '../domain/p2/service.js'
+import { getSyncCacheStatus } from '../domain/sync/cache-status.js'
 
 const p1FilterSchema = z.object({
   date_from: z.string(),
@@ -24,7 +25,7 @@ const filterSchema = z.object({
   date_from: z.string(),
   date_to: z.string(),
   grain: z.enum(['day', 'week', 'month']).default('week'),
-  date_basis: z.enum(['order_date', 'refund_date']).default('order_date'),
+  date_basis: z.enum(['record_date', 'order_date', 'refund_date']).default('record_date'),
   sku: z.string().optional(),
   skc: z.string().optional(),
   spu: z.string().optional(),
@@ -73,7 +74,13 @@ export async function buildApp(overrides?: {
   const p2Service = createP2Service()
   const app = Fastify({ logger: true })
 
+  app.addHook('onClose', async () => {
+    p2Service.close()
+  })
+
   app.get('/healthz', async () => ({ status: 'ok' }))
+
+  app.get('/api/bi/cache-status', async () => getSyncCacheStatus(env.syncConfigPath))
 
   app.get('/api/bi/p1/dashboard', async (request, reply) => {
     const parsed = p1FilterSchema.safeParse(request.query)

@@ -18,7 +18,7 @@ import type {
   SummaryMetrics,
   TrendPoint,
 } from '../domain/p3/models.js'
-import { SqliteMirrorRepository, SqliteP3BigQueryCacheRepository } from '../integrations/sqlite.js'
+import { SqliteShopifyBiCacheRepository } from '../integrations/shopify-bi-cache.js'
 
 const baseFilters: P3Filters = {
   date_from: '2026-03-01',
@@ -88,68 +88,159 @@ const issues: StandardIssueRecord[] = [
   },
 ]
 
-const salesSummary: SummaryMetrics = { sales_qty: 120, complaint_count: 0 }
+const salesSummary: SummaryMetrics = { sales_qty: 120, order_count: 90, complaint_count: 0 }
 const salesTrends: TrendPoint[] = [
-  { bucket: '2026-03-02', sales_qty: 70, complaint_count: 0 },
-  { bucket: '2026-03-09', sales_qty: 50, complaint_count: 0 },
+  { bucket: '2026-03-02', sales_qty: 70, order_count: 50, complaint_count: 0 },
+  { bucket: '2026-03-09', sales_qty: 50, order_count: 40, complaint_count: 0 },
 ]
 
 function createTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'bikanban-p3-'))
 }
 
-async function testSqliteBigQueryCacheRepository() {
+async function testSqliteShopifyBiCacheRepository() {
   const tmpDir = createTempDir()
   const sqlitePath = path.join(tmpDir, 'issues.sqlite')
-  const repository = new SqliteMirrorRepository(sqlitePath)
-  repository.replaceBigQueryCacheWindow({
+  const repository = new SqliteShopifyBiCacheRepository(sqlitePath)
+  repository.replaceWindow({
     dateFrom: '2026-03-01',
     dateTo: '2026-03-31',
+    orders: [
+      {
+        order_id: 'gid://shopify/Order/1',
+        order_no: 'LC1',
+        shop_domain: 'shop.example',
+        processed_date: '2026-03-02',
+        primary_product_type: 'Apparel',
+        first_published_at_in_order: '2026-02-01',
+        is_regular_order: true,
+        is_gift_card_order: false,
+        gmv_usd: 10,
+        revenue_usd: 10,
+        net_revenue_usd: 10,
+      },
+      {
+        order_id: 'gid://shopify/Order/2',
+        order_no: 'LC2',
+        shop_domain: 'shop.example',
+        processed_date: '2026-03-03',
+        primary_product_type: 'Apparel',
+        first_published_at_in_order: '2026-02-01',
+        is_regular_order: true,
+        is_gift_card_order: false,
+        gmv_usd: 20,
+        revenue_usd: 20,
+        net_revenue_usd: 20,
+      },
+      {
+        order_id: 'gid://shopify/Order/3',
+        order_no: 'LC3',
+        shop_domain: 'shop.example',
+        processed_date: '2026-03-09',
+        primary_product_type: 'Apparel',
+        first_published_at_in_order: '2026-02-01',
+        is_regular_order: true,
+        is_gift_card_order: false,
+        gmv_usd: 30,
+        revenue_usd: 30,
+        net_revenue_usd: 30,
+      },
+    ],
     orderLines: [
       {
+        order_id: 'gid://shopify/Order/1',
         order_no: 'LC1',
-        processed_date: '2026-03-02',
+        line_key: 'LC1-1',
         sku: 'SKU-1',
         skc: 'SKC-1',
         spu: 'SPU-1',
+        product_id: null,
+        variant_id: null,
         quantity: 1,
+        discounted_total_usd: 10,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
       },
       {
+        order_id: 'gid://shopify/Order/2',
         order_no: 'LC2',
-        processed_date: '2026-03-03',
+        line_key: 'LC2-1',
         sku: 'SKU-2',
         skc: 'SKC-2',
         spu: 'SPU-2',
-        quantity: 1,
+        product_id: null,
+        variant_id: null,
+        quantity: 2,
+        discounted_total_usd: 20,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
       },
       {
+        order_id: 'gid://shopify/Order/3',
         order_no: 'LC3',
-        processed_date: '2026-03-09',
+        line_key: 'LC3-1',
         sku: 'SKU-3',
         skc: 'SKC-3',
         spu: 'SPU-3',
+        product_id: null,
+        variant_id: null,
         quantity: 1,
+        discounted_total_usd: 15,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
       },
       {
+        order_id: 'gid://shopify/Order/3',
         order_no: 'LC3',
-        processed_date: '2026-03-09',
+        line_key: 'LC3-2',
         sku: 'SKU-4',
         skc: 'SKC-4',
         spu: 'SPU-4',
+        product_id: null,
+        variant_id: null,
         quantity: 1,
+        discounted_total_usd: 15,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
       },
     ],
     refundEvents: [
-      { order_no: 'LC1', sku: 'SKU-1', refund_date: '2026-03-11' },
-      { order_no: 'LC3', sku: 'SKU-4', refund_date: '2026-03-12' },
-      { order_no: 'LC3', sku: 'SKU-3', refund_date: '2026-03-13' },
+      {
+        refund_id: 'refund-1',
+        order_id: 'gid://shopify/Order/1',
+        order_no: 'LC1',
+        sku: 'SKU-1',
+        refund_date: '2026-03-11',
+        refund_quantity: 1,
+        refund_subtotal_usd: 10,
+      },
+      {
+        refund_id: 'refund-2',
+        order_id: 'gid://shopify/Order/3',
+        order_no: 'LC3',
+        sku: 'SKU-4',
+        refund_date: '2026-03-12',
+        refund_quantity: 1,
+        refund_subtotal_usd: 15,
+      },
+      {
+        refund_id: 'refund-3',
+        order_id: 'gid://shopify/Order/3',
+        order_no: 'LC3',
+        sku: 'SKU-3',
+        refund_date: '2026-03-13',
+        refund_quantity: 1,
+        refund_subtotal_usd: 15,
+      },
     ],
   })
-  repository.close()
-
-  const cache = new SqliteP3BigQueryCacheRepository(sqlitePath)
+  const cache = repository
   const summary = await cache.fetchSummary(baseFilters)
-  assert.equal(summary.sales_qty, 3)
+  assert.equal(summary.sales_qty, 4)
 
   const skuSummary = await cache.fetchSummary({ ...baseFilters, sku: 'SKU-4' })
   assert.equal(skuSummary.sales_qty, 1)
@@ -162,8 +253,8 @@ async function testSqliteBigQueryCacheRepository() {
 
   const trends = await cache.fetchTrends(baseFilters)
   assert.deepEqual(trends, [
-    { bucket: '2026-03-02', sales_qty: 2, complaint_count: 0 },
-    { bucket: '2026-03-09', sales_qty: 1, complaint_count: 0 },
+    { bucket: '2026-03-02', sales_qty: 2, order_count: 2, complaint_count: 0 },
+    { bucket: '2026-03-09', sales_qty: 2, order_count: 1, complaint_count: 0 },
   ])
 
   const productSales = await cache.fetchProductSales(baseFilters)
@@ -188,16 +279,53 @@ async function testSqliteBigQueryCacheRepository() {
   assert.equal(enriched.issues[1]?.order_date, '2026-03-09')
   assert.equal(enriched.issues[1]?.refund_date, '2026-03-12')
   assert.equal(enriched.issues[1]?.order_line_contexts.length, 2)
+
+  const refundDateFilters: P3Filters = {
+    ...baseFilters,
+    date_basis: 'refund_date',
+  }
+  const refundDateSummary = await cache.fetchSummary(refundDateFilters)
+  assert.equal(refundDateSummary.sales_qty, 4)
+
+  const refundDateTrends = await cache.fetchTrends(refundDateFilters)
+  assert.deepEqual(refundDateTrends, [
+    { bucket: '2026-03-02', sales_qty: 2, order_count: 2, complaint_count: 0 },
+    { bucket: '2026-03-09', sales_qty: 2, order_count: 1, complaint_count: 0 },
+  ])
+
+  const refundDateProductSales = await cache.fetchProductSales(refundDateFilters)
+  assert.deepEqual(
+    refundDateProductSales.sort((left, right) => left.skc.localeCompare(right.skc)),
+    [
+      { spu: 'SPU-1', skc: 'SKC-1', sales_qty: 1 },
+      { spu: 'SPU-2', skc: 'SKC-2', sales_qty: 1 },
+      { spu: 'SPU-3', skc: 'SKC-3', sales_qty: 1 },
+      { spu: 'SPU-4', skc: 'SKC-4', sales_qty: 1 },
+    ],
+  )
+
+  const refundDateDashboard = computeDashboard(
+    refundDateFilters,
+    refundDateSummary,
+    refundDateTrends,
+    filterIssues(enriched.issues, refundDateFilters),
+    [],
+    false,
+  )
+  assert.equal(refundDateDashboard.summary.sales_qty, 4)
+
+  cache.close()
 }
 
 async function run() {
-  await testSqliteBigQueryCacheRepository()
+  await testSqliteShopifyBiCacheRepository()
   const filtered = filterIssues(issues, baseFilters)
   const result = computeDashboard(baseFilters, salesSummary, salesTrends, filtered, [], false)
   const payload = buildDashboardPayload(baseFilters, result)
 
   assert.deepEqual(payload.summary, {
     sales_qty: 120,
+    order_count: 90,
     complaint_count: 3,
     complaint_rate: 0.025,
   })
@@ -205,6 +333,8 @@ async function run() {
     { major_issue_type: 'product', label: '产品问题', count: 1, ratio: 0.333333 },
     { major_issue_type: 'warehouse', label: '仓库问题', count: 1, ratio: 0.333333 },
     { major_issue_type: 'logistics', label: '物流问题', count: 1, ratio: 0.333333 },
+    { major_issue_type: 'refund', label: '退款/客户原因', count: 0, ratio: 0 },
+    { major_issue_type: 'other', label: '其他', count: 0, ratio: 0 },
   ])
   assert.deepEqual(payload.trends.sales_qty, [
     { bucket: '2026-03-02', value: 70 },

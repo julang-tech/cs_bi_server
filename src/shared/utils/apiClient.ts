@@ -1,4 +1,6 @@
-function buildQuery(params) {
+type QueryValue = string | number | boolean | null | undefined | string[]
+
+export function buildQuery(params: Record<string, QueryValue>): string {
   const search = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
     if (Array.isArray(value)) {
@@ -16,24 +18,15 @@ function buildQuery(params) {
   return search.toString()
 }
 
-async function request(path, params, signal) {
+export async function request<T>(
+  path: string,
+  params: Record<string, QueryValue>,
+  signal?: AbortSignal,
+): Promise<T> {
   const query = buildQuery(params)
   const response = await fetch(query ? `${path}?${query}` : path, { signal })
   if (!response.ok) {
     throw new Error(`请求失败：${response.status} ${response.statusText}`)
   }
-  return response.json()
+  return response.json() as Promise<T>
 }
-
-export function fetchRefundOverview(filters, signal) {
-  return request('/api/bi/p2/refund-dashboard/overview', filters, signal)
-}
-
-export function fetchRefundSpuTable(filters, signal) {
-  return request('/api/bi/p2/refund-dashboard/spu-table', filters, signal)
-}
-
-export function fetchRefundSpuSkcOptions(filters, signal) {
-  return request('/api/bi/p2/refund-dashboard/spu-skc-options', filters, signal)
-}
-
