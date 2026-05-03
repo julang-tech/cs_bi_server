@@ -7,10 +7,12 @@ import {
 
 describe('metric definitions', () => {
   it('documents global data readiness and currency rules', () => {
-    expect(getMetricDefinition('global.data_ready_cutoff')?.detail).toContain('03:00')
-    expect(getMetricDefinition('global.current_period')?.short).toContain('本周/本月至今')
+    expect(getMetricDefinition('global.data_ready_cutoff')?.detail).toContain('凌晨 3 点')
+    expect(getMetricDefinition('global.realtime_cutoff')?.detail).toContain('实时')
     expect(getMetricDefinition('global.current_period')?.detail).toContain('上上周')
-    expect(getMetricDefinition('global.currency_usd')?.detail).toContain('USD')
+    expect(getMetricDefinition('global.currency_usd')?.detail).toMatch(/美元|USD/)
+    expect(getMetricDefinition('global.history_alignment')?.short).toContain('周一')
+    expect(getMetricDefinition('global.agent_filter')?.short).toContain('客服')
   })
 
   it('documents refund and complaint rate formulas', () => {
@@ -21,15 +23,15 @@ describe('metric definitions', () => {
   })
 
   it('provides short descriptions for KPI tooltips', () => {
-    expect(getMetricDescription('p2.gmv')).toContain('GMV')
+    expect(getMetricDefinition('p2.gmv')?.name).toBe('GMV')
     expect(getMetricDescription('p3.complaint_rate')).toContain('客诉率')
   })
 
   it('documents P1 dashboard v2 SLA and backlog metrics', () => {
     expect(getMetricDefinition('p1.first_response_timeout_count')).toBeUndefined()
-    expect(getMetricDefinition('p1.late_reply_count')?.short).toContain('已回复')
-    expect(getMetricDefinition('p1.unreplied_count')?.detail).toContain('无法归属到具体坐席')
-    expect(getMetricDefinition('p1.avg_unreplied_wait_hours')?.short).toContain('平均已等待')
+    expect(getMetricDefinition('p1.late_reply_count')?.short).toContain('回复')
+    expect(getMetricDefinition('p1.unreplied_count')?.detail).toContain('无法归属到坐席')
+    expect(getMetricDefinition('p1.avg_unreplied_wait_hours')?.short).toContain('已经等了')
   })
 
   it('uses current table display copy in metric documentation', () => {
@@ -38,9 +40,12 @@ describe('metric definitions', () => {
     expect(getMetricDefinition('p1.agent_hourly_reply_span')?.name).toBe('每小时回信均值')
     expect(getMetricDefinition('p1.agent_hourly_reply_schedule')).toBeUndefined()
     expect(getMetricDefinition('p2.product_refund_table')?.short).toContain('Top50')
-    expect(getMetricDefinition('p2.product_refund_table')?.short).toContain('每页展示 10 行')
+    expect(getMetricDefinition('p2.product_refund_table')?.short).toMatch(/每页\s*10\s*行/)
     expect(getMetricDefinition('p3.product_ranking')?.short).toContain('Top50')
-    expect(getMetricDefinition('p3.product_ranking')?.short).toContain('每页展示 10 行')
+    expect(getMetricDefinition('p3.product_ranking')?.short).toMatch(/每页\s*10\s*行/)
+    expect(getMetricDefinition('p3.date_basis')?.short).toContain('客诉登记时间')
+    expect(getMetricDefinition('p3.issue_refund_count')?.name).toContain('退款')
+    expect(getMetricDefinition('p1.agent_qa_reply_counts')?.short).toContain('优秀')
   })
 
   it('does not duplicate definition ids', () => {
