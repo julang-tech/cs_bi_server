@@ -14,6 +14,8 @@ describe('P3 overview KPI composition', () => {
     expect(cardsSource).toContain("label: '销量'")
     expect(cardsSource).toContain("label: '客诉量'")
     expect(cardsSource).toContain("label: '客诉率'")
+    expect(cardsSource).toContain("polarity: 'positive'")
+    expect(cardsSource).toContain("polarity: 'negative'")
     expect(cardsSource).not.toContain('产品问题客诉量')
     expect(cardsSource).not.toContain('物流问题客诉量')
     expect(cardsSource).not.toContain('仓库问题客诉量')

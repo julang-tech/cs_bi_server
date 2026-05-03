@@ -15,6 +15,8 @@ describe('P1 overview KPI composition', () => {
     expect(cardsSource).toContain("label: '回邮数'")
     expect(cardsSource).toContain("label: '平均会话排队时长'")
     expect(cardsSource).toContain("label: '已回复但延迟'")
+    expect(cardsSource).toContain("polarity: 'neutral'")
+    expect(cardsSource).toContain("polarity: 'negative'")
     expect(cardsSource).toContain('late_reply_count')
     expect(cardsSource).not.toContain('unreplied_count')
     expect(cardsSource).not.toContain('avg_unreplied_wait_hours')

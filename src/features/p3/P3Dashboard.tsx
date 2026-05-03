@@ -8,6 +8,7 @@ import { useDashboardData } from '../../shared/hooks/useDashboardData'
 import { fetchDashboard, fetchDrilldownOptions, fetchProductRanking } from '../../api/p3'
 import { formatInteger, formatPercent } from '../../shared/utils/format'
 import { buildFocusTrend, formatFocusBucketLabel } from '../../shared/utils/focusTrend'
+import { buildDirectionalDelta, type DeltaMode, type MetricPolarity } from '../../shared/utils/delta'
 import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
   getCurrentPeriodLabel, getPreviousPeriodLabel,
@@ -16,19 +17,6 @@ import { getMetricDescription } from '../../shared/metricDefinitions'
 import { IssueStructure } from './IssueStructure'
 import { ProductComplaintRanking } from './ProductComplaintRanking'
 import type { Grain, P3Dashboard as P3DashboardData, P3IssueShareItem, P3ProductRankingRow } from '../../api/types'
-
-function buildDelta(current: number | null | undefined, previous: number | null | undefined, mode: 'percent' | 'pp') {
-  if (previous === null || previous === undefined) return { tone: 'muted' as const, text: '-' }
-  if (mode === 'pp') {
-    const diff = (current ?? 0) - (previous ?? 0)
-    if (diff === 0) return { tone: 'neutral' as const, text: '0.00pp' }
-    return { tone: diff > 0 ? 'up' as const : 'down' as const, text: `${diff > 0 ? '↑' : '↓'} ${Math.abs(diff * 100).toFixed(2)}pp` }
-  }
-  if (!previous) return { tone: 'muted' as const, text: '-' }
-  const ratio = ((current ?? 0) - previous) / previous
-  if (ratio === 0) return { tone: 'neutral' as const, text: '0.0%' }
-  return { tone: ratio > 0 ? 'up' as const : 'down' as const, text: `${ratio > 0 ? '↑' : '↓'} ${Math.abs(ratio * 100).toFixed(1)}%` }
-}
 
 export default function P3Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
@@ -91,7 +79,7 @@ export default function P3Dashboard() {
       currentValue: current?.summary.sales_qty,
       previousValue: previous?.summary.sales_qty,
       historyTrend: history?.trends.sales_qty ?? [],
-      formatter: formatInteger, deltaMode: 'percent' as const, isRate: false,
+      formatter: formatInteger, deltaMode: 'percent' as DeltaMode, polarity: 'positive' as MetricPolarity, isRate: false,
     },
     {
       key: 'order_count', label: '订单量', sparkline: true,
@@ -99,7 +87,7 @@ export default function P3Dashboard() {
       currentValue: current?.summary.order_count,
       previousValue: previous?.summary.order_count,
       historyTrend: history?.trends.order_count ?? [],
-      formatter: formatInteger, deltaMode: 'percent' as const, isRate: false,
+      formatter: formatInteger, deltaMode: 'percent' as DeltaMode, polarity: 'positive' as MetricPolarity, isRate: false,
     },
     {
       key: 'complaint_count', label: '客诉量', sparkline: true,
@@ -107,7 +95,7 @@ export default function P3Dashboard() {
       currentValue: current?.summary.complaint_count,
       previousValue: previous?.summary.complaint_count,
       historyTrend: history?.trends.complaint_count ?? [],
-      formatter: formatInteger, deltaMode: 'percent' as const, isRate: false,
+      formatter: formatInteger, deltaMode: 'percent' as DeltaMode, polarity: 'negative' as MetricPolarity, isRate: false,
     },
     {
       key: 'complaint_rate', label: '客诉率', sparkline: true,
@@ -115,7 +103,7 @@ export default function P3Dashboard() {
       currentValue: current?.summary.complaint_rate,
       previousValue: previous?.summary.complaint_rate,
       historyTrend: history?.trends.complaint_rate ?? [],
-      formatter: (n: number) => formatPercent(n, 2), deltaMode: 'pp' as const, isRate: true,
+      formatter: (n: number) => formatPercent(n, 2), deltaMode: 'pp' as DeltaMode, polarity: 'negative' as MetricPolarity, isRate: true,
     },
   ]
 
@@ -200,7 +188,12 @@ export default function P3Dashboard() {
                 label={c.label}
                 description={c.description}
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
-                delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
+                delta={loading ? undefined : buildDirectionalDelta(
+                  c.currentValue,
+                  c.previousValue,
+                  c.deltaMode,
+                  c.polarity,
+                )}
                 secondaryLabel={previousPeriodLabel}
                 secondaryValue={secondaryValue}
                 metricKey={c.key}
