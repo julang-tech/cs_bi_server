@@ -1,7 +1,7 @@
 export const GRAINS = ['day', 'week', 'month'] as const
 export type Grain = (typeof GRAINS)[number]
 
-export const DATE_BASES = ['order_date', 'refund_date'] as const
+export const DATE_BASES = ['record_date', 'order_date', 'refund_date'] as const
 export type DateBasis = (typeof DATE_BASES)[number]
 
 export const MAJOR_ISSUE_TYPES = ['product', 'warehouse', 'logistics', 'refund', 'other'] as const
@@ -39,12 +39,14 @@ export type DrilldownFilters = P3Filters & {
 
 export type SummaryMetrics = {
   sales_qty: number
+  order_count: number
   complaint_count: number
 }
 
 export type TrendPoint = {
   bucket: string
   sales_qty: number
+  order_count: number
   complaint_count: number
 }
 
@@ -136,6 +138,7 @@ export type DashboardResponse = {
   }
   trends: {
     sales_qty: Array<{ bucket: string; value: number }>
+    order_count: Array<{ bucket: string; value: number }>
     complaint_count: Array<{ bucket: string; value: number }>
     complaint_rate: Array<{ bucket: string; value: number }>
   }

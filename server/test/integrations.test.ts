@@ -202,8 +202,8 @@ async function testBigQuerySalesRepository() {
 
   assert.equal(summary.sales_qty, 5)
   assert.deepEqual(trends, [
-    { bucket: '2026-03-10', sales_qty: 2, complaint_count: 0 },
-    { bucket: '2026-03-11', sales_qty: 3, complaint_count: 0 },
+    { bucket: '2026-03-10', sales_qty: 2, order_count: 2, complaint_count: 0 },
+    { bucket: '2026-03-11', sales_qty: 3, order_count: 3, complaint_count: 0 },
   ])
   assert.deepEqual(productSales, [
     { spu: 'SPU-1', skc: 'SKC-1', sales_qty: 2 },

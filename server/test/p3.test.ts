@@ -88,10 +88,10 @@ const issues: StandardIssueRecord[] = [
   },
 ]
 
-const salesSummary: SummaryMetrics = { sales_qty: 120, complaint_count: 0 }
+const salesSummary: SummaryMetrics = { sales_qty: 120, order_count: 90, complaint_count: 0 }
 const salesTrends: TrendPoint[] = [
-  { bucket: '2026-03-02', sales_qty: 70, complaint_count: 0 },
-  { bucket: '2026-03-09', sales_qty: 50, complaint_count: 0 },
+  { bucket: '2026-03-02', sales_qty: 70, order_count: 50, complaint_count: 0 },
+  { bucket: '2026-03-09', sales_qty: 50, order_count: 40, complaint_count: 0 },
 ]
 
 function createTempDir() {
@@ -240,7 +240,7 @@ async function testSqliteShopifyBiCacheRepository() {
   })
   const cache = repository
   const summary = await cache.fetchSummary(baseFilters)
-  assert.equal(summary.sales_qty, 3)
+  assert.equal(summary.sales_qty, 4)
 
   const skuSummary = await cache.fetchSummary({ ...baseFilters, sku: 'SKU-4' })
   assert.equal(skuSummary.sales_qty, 1)
@@ -253,8 +253,8 @@ async function testSqliteShopifyBiCacheRepository() {
 
   const trends = await cache.fetchTrends(baseFilters)
   assert.deepEqual(trends, [
-    { bucket: '2026-03-02', sales_qty: 2, complaint_count: 0 },
-    { bucket: '2026-03-09', sales_qty: 1, complaint_count: 0 },
+    { bucket: '2026-03-02', sales_qty: 2, order_count: 2, complaint_count: 0 },
+    { bucket: '2026-03-09', sales_qty: 2, order_count: 1, complaint_count: 0 },
   ])
 
   const productSales = await cache.fetchProductSales(baseFilters)
@@ -285,12 +285,12 @@ async function testSqliteShopifyBiCacheRepository() {
     date_basis: 'refund_date',
   }
   const refundDateSummary = await cache.fetchSummary(refundDateFilters)
-  assert.equal(refundDateSummary.sales_qty, 3)
+  assert.equal(refundDateSummary.sales_qty, 4)
 
   const refundDateTrends = await cache.fetchTrends(refundDateFilters)
   assert.deepEqual(refundDateTrends, [
-    { bucket: '2026-03-02', sales_qty: 2, complaint_count: 0 },
-    { bucket: '2026-03-09', sales_qty: 1, complaint_count: 0 },
+    { bucket: '2026-03-02', sales_qty: 2, order_count: 2, complaint_count: 0 },
+    { bucket: '2026-03-09', sales_qty: 2, order_count: 1, complaint_count: 0 },
   ])
 
   const refundDateProductSales = await cache.fetchProductSales(refundDateFilters)
@@ -312,7 +312,7 @@ async function testSqliteShopifyBiCacheRepository() {
     [],
     false,
   )
-  assert.equal(refundDateDashboard.summary.sales_qty, 3)
+  assert.equal(refundDateDashboard.summary.sales_qty, 4)
 
   cache.close()
 }
@@ -325,6 +325,7 @@ async function run() {
 
   assert.deepEqual(payload.summary, {
     sales_qty: 120,
+    order_count: 90,
     complaint_count: 3,
     complaint_rate: 0.025,
   })

@@ -381,8 +381,10 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
       return cached
     }
 
+    const rows = this.listP3SalesRows(filters)
     const result = {
-      sales_qty: uniqueOrderCount(this.listP3SalesRows(filters)),
+      sales_qty: rows.length,
+      order_count: new Set(rows.map((row) => row.order_no)).size,
       complaint_count: 0,
     }
     return this.summaryCache.set(cacheKey, result)
@@ -395,17 +397,21 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
       return cached
     }
 
-    const buckets = new Map<string, Set<string>>()
+    const buckets = new Map<string, { sales_qty: number; orders: Set<string> }>()
     for (const row of this.listP3SalesRows(filters)) {
       const bucket = bucketDate(row.event_date, filters.grain)
-      buckets.set(bucket, (buckets.get(bucket) ?? new Set()).add(row.order_no))
+      const entry = buckets.get(bucket) ?? { sales_qty: 0, orders: new Set<string>() }
+      entry.sales_qty += 1
+      entry.orders.add(row.order_no)
+      buckets.set(bucket, entry)
     }
 
     const result = [...buckets.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([bucket, orderNos]) => ({
+      .map(([bucket, entry]) => ({
         bucket,
-        sales_qty: orderNos.size,
+        sales_qty: entry.sales_qty,
+        order_count: entry.orders.size,
         complaint_count: 0,
       }))
     return this.trendCache.set(cacheKey, result)
@@ -418,24 +424,21 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
       return cached
     }
 
-    const grouped = new Map<string, { spu: string; skc: string; orderNos: Set<string> }>()
+    const grouped = new Map<string, { spu: string; skc: string; sales_qty: number }>()
     for (const row of this.listP3SalesRows(filters)) {
       if (!row.spu || !row.skc) {
         continue
       }
       const key = `${row.spu}\u0000${row.skc}`
-      grouped.set(
-        key,
-        grouped.get(key) ?? { spu: row.spu, skc: row.skc, orderNos: new Set<string>() },
-      )
-      grouped.get(key)?.orderNos.add(row.order_no)
+      const existing = grouped.get(key)
+      if (existing) {
+        existing.sales_qty += 1
+      } else {
+        grouped.set(key, { spu: row.spu, skc: row.skc, sales_qty: 1 })
+      }
     }
 
-    const result = [...grouped.values()].map((item) => ({
-      spu: item.spu,
-      skc: item.skc,
-      sales_qty: item.orderNos.size,
-    }))
+    const result = [...grouped.values()]
     return this.productSalesCache.set(cacheKey, result)
   }
 
@@ -1049,6 +1052,9 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
         FROM shopify_bi_orders o
         JOIN shopify_bi_order_lines li ON li.order_id = o.order_id
         WHERE o.processed_date BETWEEN @date_from AND @date_to
+          AND li.is_insurance_item = 0
+          AND li.is_price_adjustment = 0
+          AND li.is_shipping_cost = 0
           AND ${productFilter}
         ORDER BY o.processed_date ASC, o.order_no ASC
       `)
@@ -1091,6 +1097,9 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
         FROM shopify_bi_order_lines li
         JOIN shopify_bi_orders o ON o.order_id = li.order_id
         WHERE li.order_no IN (${placeholders})
+          AND li.is_insurance_item = 0
+          AND li.is_price_adjustment = 0
+          AND li.is_shipping_cost = 0
         ORDER BY o.processed_date ASC, li.order_no ASC, li.line_key ASC
       `)
       .all(...orderNos) as P3OrderLineRow[]

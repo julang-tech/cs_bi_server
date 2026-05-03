@@ -708,10 +708,14 @@ export class SqliteP3BigQueryCacheRepository implements SalesRepository, OrderEn
       return cached
     }
 
-    const result = this.withRepository((repository) => ({
-      sales_qty: uniqueOrderCount(repository.listOrderLines(filters)),
-      complaint_count: 0,
-    }))
+    const result = this.withRepository((repository) => {
+      const orderNo = uniqueOrderCount(repository.listOrderLines(filters))
+      return {
+        sales_qty: orderNo,
+        order_count: orderNo,
+        complaint_count: 0,
+      }
+    })
     return this.summaryCache.set(cacheKey, result)
   }
 
@@ -733,6 +737,7 @@ export class SqliteP3BigQueryCacheRepository implements SalesRepository, OrderEn
         .map(([bucket, orderNos]) => ({
           bucket,
           sales_qty: orderNos.size,
+          order_count: orderNos.size,
           complaint_count: 0,
         }))
     })

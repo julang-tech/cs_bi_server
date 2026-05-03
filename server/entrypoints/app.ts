@@ -25,7 +25,7 @@ const filterSchema = z.object({
   date_from: z.string(),
   date_to: z.string(),
   grain: z.enum(['day', 'week', 'month']).default('week'),
-  date_basis: z.enum(['order_date', 'refund_date']).default('order_date'),
+  date_basis: z.enum(['record_date', 'order_date', 'refund_date']).default('record_date'),
   sku: z.string().optional(),
   skc: z.string().optional(),
   spu: z.string().optional(),
