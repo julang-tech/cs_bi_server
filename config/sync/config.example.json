@@ -53,7 +53,10 @@
     "sqlite_path": "./data/issues.sqlite",
     "refresh_interval_minutes": 120,
     "daily_full_refresh_time": "03:30",
-    "daily_full_refresh_timezone_offset_minutes": 480
+    "daily_full_refresh_timezone_offset_minutes": 480,
+    "source_window_days": 2,
+    "cache_tail_days": 7,
+    "refresh_caches_on_startup": true
   },
   "shopify": {
     "sites": {

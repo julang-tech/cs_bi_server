@@ -35,8 +35,13 @@ program
   .option('--date <date>', 'Only sync one date')
   .option('--from <date>', 'Start date')
   .option('--to <date>', 'End date')
+  .option('--full', 'Full 400-day BigQuery cache refresh (default: 7-day tail)')
+  .option('--cache-tail-days <days>', 'Trailing window for BigQuery cache refresh', '7')
   .action(async (options) => {
-    const result = await service.sync(options)
+    const cacheTailDays = options.full
+      ? undefined
+      : Number.parseInt(options.cacheTailDays, 10)
+    const result = await service.sync({ ...options, cacheTailDays })
     if (!result.sqlite.ok || !result.bigquery_cache.ok) {
       process.exitCode = 1
     }

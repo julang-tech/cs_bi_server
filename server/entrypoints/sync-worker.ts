@@ -15,7 +15,7 @@ type WorkerService = {
     updated: number
     failed: number
   }>
-  syncTargetToSqlite: (options: { config: string; refreshBigQueryCache?: boolean }) => Promise<{
+  syncTargetToSqlite: (options: { config: string; refreshBigQueryCache?: boolean; cacheTailDays?: number }) => Promise<{
     created: number
     updated: number
     failed: number
@@ -42,7 +42,7 @@ type WorkerService = {
       failed: number
     }
   }>
-  syncShopifyBiCacheIfDue?: (options: { config: string }) => Promise<{
+  syncShopifyBiCacheIfDue?: (options: { config: string; cacheTailDays?: number }) => Promise<{
     enabled: boolean
     ok: boolean
     skipped?: boolean
@@ -55,6 +55,8 @@ type SyncWorkerTrigger = 'startup' | 'interval' | 'daily-full-refresh'
 const DEFAULT_DAILY_FULL_REFRESH_TIME = '03:30'
 const DEFAULT_BUSINESS_TIMEZONE_OFFSET_MINUTES = 8 * 60
 const DEFAULT_SOURCE_WINDOW_DAYS = 2
+const DEFAULT_CACHE_TAIL_DAYS = 7
+const DEFAULT_REFRESH_CACHES_ON_STARTUP = true
 
 export function buildSourceWindow(options: {
   now: Date
@@ -118,6 +120,8 @@ export function createSyncWorker(options: {
   dailyFullRefreshTime?: string
   timezoneOffsetMinutes?: number
   sourceWindowDays?: number
+  cacheTailDays?: number
+  refreshCachesOnStartup?: boolean
 }) {
   const config = loadSyncConfig(options.configPath)
   const service = options.service ?? new SyncService()
@@ -138,6 +142,14 @@ export function createSyncWorker(options: {
     options.sourceWindowDays ??
     config.runtime.source_window_days ??
     DEFAULT_SOURCE_WINDOW_DAYS
+  const cacheTailDays =
+    options.cacheTailDays ??
+    config.runtime.cache_tail_days ??
+    DEFAULT_CACHE_TAIL_DAYS
+  const refreshCachesOnStartup =
+    options.refreshCachesOnStartup ??
+    config.runtime.refresh_caches_on_startup ??
+    DEFAULT_REFRESH_CACHES_ON_STARTUP
   let interval: NodeJS.Timeout | null = null
   let dailyTimeout: NodeJS.Timeout | null = null
   let running = false
@@ -179,13 +191,24 @@ export function createSyncWorker(options: {
         )
       }
 
-      // Step 2: target → SQLite mirror.
+      // Step 2: target → SQLite mirror. BigQuery / Shopify BI caches refresh
+      // only the trailing window (default 7 days) — daily 03:30 just runs the
+      // same incremental refresh, not a full 400-day re-pull. Full backfills
+      // happen via scripts/full-sync.sh on demand. Startup may skip the cache
+      // refresh entirely when refresh_caches_on_startup=false (e.g. right
+      // after SCP'ing a fresh SQLite snapshot).
+      const refreshBigQueryCache =
+        trigger === 'startup' ? refreshCachesOnStartup : trigger !== 'interval'
       const result = await service.syncTargetToSqlite({
         config: options.configPath,
-        refreshBigQueryCache: trigger !== 'interval',
+        refreshBigQueryCache,
+        cacheTailDays,
       })
       const shopifyBiCache = service.syncShopifyBiCacheIfDue
-        ? await service.syncShopifyBiCacheIfDue({ config: options.configPath })
+        ? await service.syncShopifyBiCacheIfDue({
+            config: options.configPath,
+            cacheTailDays,
+          })
         : undefined
       if (shopifyBiCache?.enabled) {
         logger.info(

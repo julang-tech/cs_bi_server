@@ -56,11 +56,11 @@ async function testWorkerRunsImmediately() {
   assert.match(s2tOptions.to ?? '', ISO_DATE_RE)
   assert.deepEqual(calls[1], {
     name: 'syncTargetToSqlite',
-    options: { config: 'config/sync/config.example.json', refreshBigQueryCache: true },
+    options: { config: 'config/sync/config.example.json', refreshBigQueryCache: true, cacheTailDays: 7 },
   })
   assert.deepEqual(calls[2], {
     name: 'syncShopifyBiCacheIfDue',
-    options: { config: 'config/sync/config.example.json' },
+    options: { config: 'config/sync/config.example.json', cacheTailDays: 7 },
   })
 }
 
@@ -124,11 +124,11 @@ async function testWorkerIntervalSplitsFeishuMirrorFromShopifyBiDueCheck() {
   assert.match(intervalOptions.to ?? '', ISO_DATE_RE)
   assert.deepEqual(calls[1], {
     name: 'syncTargetToSqlite',
-    options: { config: 'config/sync/config.example.json', refreshBigQueryCache: false },
+    options: { config: 'config/sync/config.example.json', refreshBigQueryCache: false, cacheTailDays: 7 },
   })
   assert.deepEqual(calls[2], {
     name: 'syncShopifyBiCacheIfDue',
-    options: { config: 'config/sync/config.example.json' },
+    options: { config: 'config/sync/config.example.json', cacheTailDays: 7 },
   })
 }
 
@@ -177,11 +177,11 @@ async function testWorkerDailyFullRefreshForcesBigQueryCache() {
     },
     {
       name: 'syncTargetToSqlite',
-      options: { config: 'config/sync/config.example.json', refreshBigQueryCache: true },
+      options: { config: 'config/sync/config.example.json', refreshBigQueryCache: true, cacheTailDays: 7 },
     },
     {
       name: 'syncShopifyBiCacheIfDue',
-      options: { config: 'config/sync/config.example.json' },
+      options: { config: 'config/sync/config.example.json', cacheTailDays: 7 },
     },
   ])
 }

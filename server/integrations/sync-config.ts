@@ -57,6 +57,8 @@ const rawSyncConfigSchema = z
       daily_full_refresh_time: z.string().regex(/^\d{2}:\d{2}$/).optional(),
       daily_full_refresh_timezone_offset_minutes: z.number().int().optional(),
       source_window_days: z.number().int().min(0).optional(),
+      cache_tail_days: z.number().int().positive().optional(),
+      refresh_caches_on_startup: z.boolean().optional(),
     }),
     shopify: z.object({
       sites: z.object({
@@ -151,6 +153,8 @@ export function loadP3RuntimeConfig(configPath: string) {
       dailyFullRefreshTimezoneOffsetMinutes:
         config.runtime.daily_full_refresh_timezone_offset_minutes ?? 480,
       sourceWindowDays: config.runtime.source_window_days ?? 2,
+      cacheTailDays: config.runtime.cache_tail_days ?? 7,
+      refreshCachesOnStartup: config.runtime.refresh_caches_on_startup ?? true,
     },
     shopify: config.shopify,
     bigquery: config.bigquery,

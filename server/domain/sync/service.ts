@@ -52,6 +52,10 @@ export type SyncCommandOptions = {
   from?: string
   to?: string
   refreshBigQueryCache?: boolean
+  // When set, BigQuery / Shopify BI cache refresh only re-pulls the trailing N
+  // days (replace-by-window). When undefined, falls back to the full 400-day
+  // backfill window — only meant for explicit one-off full re-syncs.
+  cacheTailDays?: number
 }
 
 export type SyncCsvOptions = {
@@ -158,6 +162,7 @@ const SHOPIFY_BACKFILL_FIELDS = [
 ] as const
 
 const BIGQUERY_CACHE_WINDOW_DAYS = 400
+const DEFAULT_CACHE_TAIL_DAYS = 7
 
 function ensureParentDir(filePath: string) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -190,10 +195,11 @@ function formatDateUtc(date: Date) {
   return date.toISOString().slice(0, 10)
 }
 
-function resolveBigQueryCacheWindow(now = new Date()) {
+function resolveBigQueryCacheWindow(now = new Date(), tailDays?: number) {
   const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const span = tailDays ?? BIGQUERY_CACHE_WINDOW_DAYS
   const start = new Date(end)
-  start.setUTCDate(start.getUTCDate() - BIGQUERY_CACHE_WINDOW_DAYS)
+  start.setUTCDate(start.getUTCDate() - span)
   return {
     dateFrom: formatDateUtc(start),
     dateTo: formatDateUtc(end),
@@ -1216,9 +1222,10 @@ export class SyncService {
     )
     let failed = sqlite.ok ? 0 : 1
     const refreshBigQueryCache = options.refreshBigQueryCache ?? true
-    const { dateFrom, dateTo } = resolveBigQueryCacheWindow()
+    const cacheTailDays = options.cacheTailDays
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow(new Date(), cacheTailDays)
     const bigqueryCache = refreshBigQueryCache
-      ? await this.syncBigQueryCache(config, sqlitePath, logger)
+      ? await this.syncBigQueryCache(config, sqlitePath, logger, { tailDays: cacheTailDays })
       : {
           enabled: false,
           ok: true,
@@ -1232,7 +1239,7 @@ export class SyncService {
       failed += 1
     }
     const shopifyBiCache = refreshBigQueryCache
-      ? await this.syncShopifyBiCache(config, sqlitePath, logger)
+      ? await this.syncShopifyBiCache(config, sqlitePath, logger, { tailDays: cacheTailDays })
       : {
           enabled: false,
           ok: true,
@@ -1270,11 +1277,12 @@ export class SyncService {
     }
   }
 
-  async syncShopifyBiCacheIfDue(options: { config: string }) {
+  async syncShopifyBiCacheIfDue(options: { config: string; cacheTailDays?: number }) {
     const config = loadSyncConfig(options.config)
     const sqlitePath = resolveRuntimePath(options.config, config.runtime.sqlite_path)
     const logger = createLogger(resolveRuntimePath(options.config, config.runtime.log_path))
-    const { dateFrom, dateTo } = resolveBigQueryCacheWindow()
+    const tailDays = options.cacheTailDays ?? DEFAULT_CACHE_TAIL_DAYS
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow(new Date(), tailDays)
     let repository: SqliteShopifyBiCacheRepository | null = null
     try {
       repository = new SqliteShopifyBiCacheRepository(sqlitePath)
@@ -1311,7 +1319,7 @@ export class SyncService {
       repository?.close()
     }
 
-    const result = await this.syncShopifyBiCache(config, sqlitePath, logger)
+    const result = await this.syncShopifyBiCache(config, sqlitePath, logger, { tailDays })
     return {
       ...result,
       skipped: false,
@@ -1322,8 +1330,9 @@ export class SyncService {
     config: SyncConfig,
     sqlitePath: string,
     logger: SyncLogger,
+    options?: { tailDays?: number },
   ): Promise<SyncBigQueryCacheSummary> {
-    const { dateFrom, dateTo } = resolveBigQueryCacheWindow()
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow(new Date(), options?.tailDays)
     const client = this.createBigQueryClient(config, logger)
     if (!client) {
       logger.warn('BigQuery cache sync skipped: credentials not found.')
@@ -1404,8 +1413,9 @@ export class SyncService {
     config: SyncConfig,
     sqlitePath: string,
     logger: SyncLogger,
+    options?: { tailDays?: number },
   ): Promise<SyncShopifyBiCacheSummary> {
-    const { dateFrom, dateTo } = resolveBigQueryCacheWindow()
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow(new Date(), options?.tailDays)
     const client = this.createBigQueryClient(config, logger)
     if (!client) {
       logger.warn('Shopify BI cache sync skipped: credentials not found.')
