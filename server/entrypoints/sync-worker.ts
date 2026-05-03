@@ -9,6 +9,12 @@ type WorkerLogger = {
 }
 
 type WorkerService = {
+  syncSourceToTarget: (options: { config: string; from?: string; to?: string }) => Promise<{
+    scanned: number
+    created: number
+    updated: number
+    failed: number
+  }>
   syncTargetToSqlite: (options: { config: string; refreshBigQueryCache?: boolean }) => Promise<{
     created: number
     updated: number
@@ -48,6 +54,24 @@ type SyncWorkerTrigger = 'startup' | 'interval' | 'daily-full-refresh'
 
 const DEFAULT_DAILY_FULL_REFRESH_TIME = '03:30'
 const DEFAULT_BUSINESS_TIMEZONE_OFFSET_MINUTES = 8 * 60
+const DEFAULT_SOURCE_WINDOW_DAYS = 2
+
+export function buildSourceWindow(options: {
+  now: Date
+  days: number
+  timezoneOffsetMinutes?: number
+}): { from: string; to: string } | null {
+  if (options.days <= 0) {
+    return null
+  }
+  const offsetMs = (options.timezoneOffsetMinutes ?? DEFAULT_BUSINESS_TIMEZONE_OFFSET_MINUTES) * 60 * 1000
+  const businessNow = new Date(options.now.getTime() + offsetMs)
+  const formatDate = (d: Date) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+  const to = formatDate(businessNow)
+  const fromDate = new Date(businessNow.getTime() - (options.days - 1) * 24 * 60 * 60 * 1000)
+  return { from: formatDate(fromDate), to }
+}
 
 export function millisecondsUntilNextDailyRun(options: {
   now: Date
@@ -93,6 +117,7 @@ export function createSyncWorker(options: {
   intervalMs?: number
   dailyFullRefreshTime?: string
   timezoneOffsetMinutes?: number
+  sourceWindowDays?: number
 }) {
   const config = loadSyncConfig(options.configPath)
   const service = options.service ?? new SyncService()
@@ -109,6 +134,10 @@ export function createSyncWorker(options: {
     options.timezoneOffsetMinutes ??
     config.runtime.daily_full_refresh_timezone_offset_minutes ??
     DEFAULT_BUSINESS_TIMEZONE_OFFSET_MINUTES
+  const sourceWindowDays =
+    options.sourceWindowDays ??
+    config.runtime.source_window_days ??
+    DEFAULT_SOURCE_WINDOW_DAYS
   let interval: NodeJS.Timeout | null = null
   let dailyTimeout: NodeJS.Timeout | null = null
   let running = false
@@ -122,6 +151,35 @@ export function createSyncWorker(options: {
     running = true
     logger.info(`Sync worker ${trigger} run started.`)
     try {
+      // Step 1: source → target. Daily full refresh runs without date filter;
+      // interval/startup ticks use a rolling window (default last 2 days) to
+      // pick up late edits without re-scanning the whole source. syncResults
+      // is idempotent (state file maps source_record_id → target id), so
+      // overlapping windows just upsert.
+      const sourceWindow =
+        trigger === 'daily-full-refresh'
+          ? null
+          : buildSourceWindow({
+              now: new Date(),
+              days: sourceWindowDays,
+              timezoneOffsetMinutes,
+            })
+      try {
+        const sourceResult = await service.syncSourceToTarget({
+          config: options.configPath,
+          from: sourceWindow?.from,
+          to: sourceWindow?.to,
+        })
+        logger.info(
+          `Source-to-target finished (window=${sourceWindow ? `${sourceWindow.from}..${sourceWindow.to}` : 'full'}): scanned=${sourceResult.scanned}, created=${sourceResult.created}, updated=${sourceResult.updated}, failed=${sourceResult.failed}.`,
+        )
+      } catch (error) {
+        logger.error(
+          `Source-to-target sync failed (continuing to target-to-sqlite): ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+
+      // Step 2: target → SQLite mirror.
       const result = await service.syncTargetToSqlite({
         config: options.configPath,
         refreshBigQueryCache: trigger !== 'interval',
