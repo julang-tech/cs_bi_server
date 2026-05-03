@@ -87,6 +87,12 @@ function hasActiveSqliteMirrorRows(sqlitePath: string) {
   }
 }
 
+type P3Logger = {
+  info?: (message: string) => void
+  warn?: (message: string) => void
+  error?: (message: string) => void
+}
+
 export class P3Service {
   private readonly dashboardCache = new TtlCache<DashboardResponse>(300_000)
   private readonly drilldownOptionsCache = new TtlCache<DrilldownOptionsResponse>(300_000)
@@ -193,7 +199,7 @@ export class P3Service {
   }
 }
 
-export function createP3Service(repoRoot: string, syncConfigPath: string) {
+export function createP3Service(repoRoot: string, syncConfigPath: string, logger?: P3Logger) {
   let salesRepository: SalesRepository = new SampleSalesRepository(repoRoot)
   let issueProvider: IssueProvider = new FixtureIssueProvider(repoRoot)
   let enrichmentRepository: OrderEnrichmentRepository = new SampleOrderEnrichmentRepository()
@@ -212,14 +218,14 @@ export function createP3Service(repoRoot: string, syncConfigPath: string) {
 
   if (runtimeConfig) {
     const hasSqliteMirrorRows = hasActiveSqliteMirrorRows(runtimeConfig.runtime.sqlitePath)
-    const sqliteCache = new SqliteShopifyBiCacheRepository(runtimeConfig.runtime.sqlitePath)
+    const sqliteCache = new SqliteShopifyBiCacheRepository(runtimeConfig.runtime.sqlitePath, logger)
     salesRepository = sqliteCache
     enrichmentRepository = sqliteCache
     sourceModes.push('sqlite shopify bi cache')
 
     try {
       if (hasSqliteMirrorRows) {
-        issueProvider = new SqliteIssueProvider(repoRoot, runtimeConfig.runtime.sqlitePath)
+        issueProvider = new SqliteIssueProvider(repoRoot, runtimeConfig.runtime.sqlitePath, logger)
         sourceModes.unshift('sqlite mirrored target records')
       } else {
         issueProvider = new FeishuIssueProvider(repoRoot, {

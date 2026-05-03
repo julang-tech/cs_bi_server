@@ -113,6 +113,10 @@ GOOGLE_APPLICATION_CREDENTIALS=config/gcp/julang-dev-database-876c2efba122.json
 - `sync:worker` 是长期运行进程，启动后会立即执行一轮 `sync:run`，之后按 `runtime.refresh_interval_minutes` 轮询，默认 `120` 分钟；它还会按 `runtime.daily_full_refresh_time` 在业务时区固定做一次强刷新，默认北京时间 `03:30`；它不写飞书目标表。
 - `/api/bi/cache-status` 可查看 SQLite 文件是否存在、最近成功缓存覆盖区间、表内最大订单/退款日期和行数，方便判断看板是否读到了过期缓存。
 
+## Logging
+
+服务端日志说明见 [docs/server-logging.md](docs/server-logging.md)。App API 使用 Fastify JSON stdout 日志；sync / worker 同时写 stdout 和 `runtime.log_path`。
+
 ## Migration Note
 
 - Python 实现已完成 Node 重写并从当前工作区移除。

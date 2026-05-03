@@ -14,8 +14,17 @@ import type {
   TrendPoint,
 } from '../domain/p3/models.js'
 
+type ShopifyBiCacheLogger = {
+  warn?: (message: string) => void
+}
+
 function ensureParentDir(filePath: string) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
+}
+
+function formatSampleOrderNos(orderNos: string[]) {
+  const sample = orderNos.slice(0, 20).join(',')
+  return orderNos.length > 20 ? `${sample},...` : sample
 }
 
 export type ShopifyBiOrder = {
@@ -195,7 +204,10 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
   private readonly productSalesCache = new TtlCache<ProductSalesPoint[]>(300_000)
   private readonly db: DatabaseSync
 
-  constructor(private readonly dbPath: string) {
+  constructor(
+    private readonly dbPath: string,
+    private readonly logger?: ShopifyBiCacheLogger,
+  ) {
     ensureParentDir(dbPath)
     this.db = new DatabaseSync(dbPath)
     this.ensureSchema()
@@ -499,15 +511,14 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
     }
 
     const notes: string[] = []
+    const missingOrderNos: string[] = []
     const enriched = issues.map((issue) => {
       const lineItems = lineByOrder.get(issue.order_no) ?? []
       const matchedLine = this.matchP3LineItem(issue, lineItems)
       const refundContext = refundsByOrder.get(issue.order_no)
 
       if (!lineItems.length) {
-        notes.push(
-          `Missing SQLite Shopify BI cache order enrichment for ${issue.order_no}; fell back to record_date when available.`,
-        )
+        missingOrderNos.push(issue.order_no)
       }
 
       return {
@@ -519,6 +530,11 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
         spu: matchedLine?.spu ?? issue.spu ?? null,
       }
     })
+    if (missingOrderNos.length) {
+      this.logger?.warn?.(
+        `P3 Shopify BI cache order enrichment missing ${missingOrderNos.length}/${issues.length} order contexts; fell back to record_date where available. sample_order_nos=${formatSampleOrderNos(missingOrderNos)}`,
+      )
+    }
 
     return { issues: enriched, notes }
   }
