@@ -347,7 +347,7 @@ async function enrichResultsWithShopify(
 
   const orderCache = new Map<string, Awaited<ReturnType<ShopifyLikeClient['fetchOrder']>>>()
   const orderNoList = [...uniqueOrderNos]
-  const SHOPIFY_CONCURRENCY = 8
+  const SHOPIFY_CONCURRENCY = 24
   logger.info(
     `Pre-fetching ${orderNoList.length} unique Shopify orders with concurrency=${SHOPIFY_CONCURRENCY}.`,
   )
