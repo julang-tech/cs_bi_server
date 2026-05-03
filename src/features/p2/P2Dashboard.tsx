@@ -8,6 +8,7 @@ import { useDashboardData } from '../../shared/hooks/useDashboardData'
 import { fetchRefundOverview } from '../../api/p2'
 import { formatInteger, formatMoney, formatPercent } from '../../shared/utils/format'
 import { buildFocusTrend, formatFocusBucketLabel } from '../../shared/utils/focusTrend'
+import { buildDirectionalDelta, type DeltaMode, type MetricPolarity } from '../../shared/utils/delta'
 import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
   getCurrentPeriodLabel, getPreviousPeriodLabel,
@@ -23,29 +24,6 @@ const STORE_OPTIONS = [
 ]
 
 type CardKey = keyof P2OverviewCards
-
-function buildDelta(
-  current: number | null | undefined,
-  previous: number | null | undefined,
-  mode: 'percent' | 'pp',
-) {
-  if (previous === null || previous === undefined) return { tone: 'muted' as const, text: '-' }
-  if (mode === 'pp') {
-    const diff = (current ?? 0) - (previous ?? 0)
-    if (diff === 0) return { tone: 'neutral' as const, text: '0.00pp' }
-    return {
-      tone: diff > 0 ? ('up' as const) : ('down' as const),
-      text: `${diff > 0 ? '↑' : '↓'} ${Math.abs(diff * 100).toFixed(2)}pp`,
-    }
-  }
-  if (!previous) return { tone: 'muted' as const, text: '-' }
-  const ratio = ((current ?? 0) - previous) / previous
-  if (ratio === 0) return { tone: 'neutral' as const, text: '0.0%' }
-  return {
-    tone: ratio > 0 ? ('up' as const) : ('down' as const),
-    text: `${ratio > 0 ? '↑' : '↓'} ${Math.abs(ratio * 100).toFixed(1)}%`,
-  }
-}
 
 export default function P2Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
@@ -79,18 +57,19 @@ export default function P2Dashboard() {
     label: string
     sparkline: boolean
     formatter: (n: number) => string
-    deltaMode: 'percent' | 'pp'
+    deltaMode: DeltaMode
+    polarity: MetricPolarity
     isRate: boolean
     description: string
   }> = [
-    { key: 'order_count', label: '订单数', sparkline: true, formatter: formatInteger, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.order_count') },
-    { key: 'sales_qty', label: '销量', sparkline: false, formatter: formatInteger, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.sales_qty') },
-    { key: 'refund_order_count', label: '退款订单数', sparkline: false, formatter: formatInteger, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.refund_order_count') },
-    { key: 'refund_amount', label: '退款金额', sparkline: true, formatter: formatMoney, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.refund_amount') },
-    { key: 'gmv', label: 'GMV', sparkline: true, formatter: formatMoney, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.gmv') },
-    { key: 'net_received_amount', label: '净实付金额', sparkline: false, formatter: formatMoney, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.net_received_amount') },
-    { key: 'net_revenue_amount', label: '净 GMV', sparkline: false, formatter: formatMoney, deltaMode: 'percent', isRate: false, description: getMetricDescription('p2.net_revenue_amount') },
-    { key: 'refund_amount_ratio', label: '退款金额占比', sparkline: true, formatter: formatPercent1, deltaMode: 'pp', isRate: true, description: getMetricDescription('p2.refund_amount_ratio') },
+    { key: 'order_count', label: '订单数', sparkline: true, formatter: formatInteger, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.order_count') },
+    { key: 'sales_qty', label: '销量', sparkline: false, formatter: formatInteger, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.sales_qty') },
+    { key: 'refund_order_count', label: '退款订单数', sparkline: false, formatter: formatInteger, deltaMode: 'percent', polarity: 'negative', isRate: false, description: getMetricDescription('p2.refund_order_count') },
+    { key: 'refund_amount', label: '退款金额', sparkline: true, formatter: formatMoney, deltaMode: 'percent', polarity: 'negative', isRate: false, description: getMetricDescription('p2.refund_amount') },
+    { key: 'gmv', label: 'GMV', sparkline: true, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.gmv') },
+    { key: 'net_received_amount', label: '净实付金额', sparkline: false, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.net_received_amount') },
+    { key: 'net_revenue_amount', label: '净 GMV', sparkline: false, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.net_revenue_amount') },
+    { key: 'refund_amount_ratio', label: '退款金额占比', sparkline: true, formatter: formatPercent1, deltaMode: 'pp', polarity: 'negative', isRate: true, description: getMetricDescription('p2.refund_amount_ratio') },
   ]
 
   const enrichedCards = cards.map((c) => {
@@ -170,7 +149,12 @@ export default function P2Dashboard() {
                 label={c.label}
                 description={c.description}
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
-                delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
+                delta={loading ? undefined : buildDirectionalDelta(
+                  c.currentValue,
+                  c.previousValue,
+                  c.deltaMode,
+                  c.polarity,
+                )}
                 secondaryLabel={previousPeriodLabel}
                 secondaryValue={secondaryValue}
                 metricKey={c.key}

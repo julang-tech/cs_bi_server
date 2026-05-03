@@ -8,6 +8,7 @@ import { useDashboardData } from '../../shared/hooks/useDashboardData'
 import { fetchP1BacklogMails, fetchP1Dashboard, markP1BacklogMailNeedsReply } from '../../api/p1'
 import { formatHours, formatInteger } from '../../shared/utils/format'
 import { buildFocusTrend, formatFocusBucketLabel } from '../../shared/utils/focusTrend'
+import { buildDirectionalDelta, type DeltaMode, type MetricPolarity } from '../../shared/utils/delta'
 import {
   getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange, getPeriodCount,
   getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel, getRealtimePresetHistoryRange,
@@ -32,29 +33,6 @@ function formatBacklogNote(note: string) {
     return '当前积压邮件暂不支持按客服过滤。'
   }
   return note
-}
-
-function buildDelta(
-  current: number | null | undefined,
-  previous: number | null | undefined,
-  mode: 'percent' | 'pp',
-) {
-  if (previous === null || previous === undefined) return { tone: 'muted' as const, text: '-' }
-  if (mode === 'pp') {
-    const diff = (current ?? 0) - (previous ?? 0)
-    if (diff === 0) return { tone: 'neutral' as const, text: '0.00pp' }
-    return {
-      tone: diff > 0 ? 'up' as const : 'down' as const,
-      text: `${diff > 0 ? '↑' : '↓'} ${Math.abs(diff * 100).toFixed(2)}pp`,
-    }
-  }
-  if (!previous) return { tone: 'muted' as const, text: '-' }
-  const ratio = ((current ?? 0) - previous) / previous
-  if (ratio === 0) return { tone: 'neutral' as const, text: '0.0%' }
-  return {
-    tone: ratio > 0 ? 'up' as const : 'down' as const,
-    text: `${ratio > 0 ? '↑' : '↓'} ${Math.abs(ratio * 100).toFixed(1)}%`,
-  }
 }
 
 export default function P1Dashboard() {
@@ -152,7 +130,8 @@ export default function P1Dashboard() {
       previousValue: previous?.summary.inbound_email_count,
       historyTrend: (history?.trends.inbound_email_count ?? []) as TrendPoint[],
       formatter: formatInteger,
-      deltaMode: 'percent' as const,
+      deltaMode: 'percent' as DeltaMode,
+      polarity: 'neutral' as MetricPolarity,
       isRate: false,
     },
     {
@@ -164,7 +143,8 @@ export default function P1Dashboard() {
       previousValue: previous?.summary.outbound_email_count,
       historyTrend: (history?.trends.outbound_email_count ?? []) as TrendPoint[],
       formatter: formatInteger,
-      deltaMode: 'percent' as const,
+      deltaMode: 'percent' as DeltaMode,
+      polarity: 'neutral' as MetricPolarity,
       isRate: false,
     },
     {
@@ -176,7 +156,8 @@ export default function P1Dashboard() {
       previousValue: previous?.summary.avg_queue_hours,
       historyTrend: (history?.trends.avg_queue_hours ?? []) as TrendPoint[],
       formatter: (n: number) => formatHours(n, 1),
-      deltaMode: 'percent' as const,
+      deltaMode: 'percent' as DeltaMode,
+      polarity: 'negative' as MetricPolarity,
       isRate: false,
     },
     {
@@ -188,7 +169,8 @@ export default function P1Dashboard() {
       previousValue: previous?.summary.late_reply_count,
       historyTrend: (history?.trends.late_reply_count ?? []) as TrendPoint[],
       formatter: formatInteger,
-      deltaMode: 'percent' as const,
+      deltaMode: 'percent' as DeltaMode,
+      polarity: 'negative' as MetricPolarity,
       isRate: false,
     },
   ]
@@ -281,7 +263,12 @@ export default function P1Dashboard() {
                 label={c.label}
                 description={c.description}
                 value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
-                delta={loading ? undefined : buildDelta(c.currentValue, c.previousValue, c.deltaMode)}
+                delta={loading ? undefined : buildDirectionalDelta(
+                  c.currentValue,
+                  c.previousValue,
+                  c.deltaMode,
+                  c.polarity,
+                )}
                 secondaryLabel={previousPeriodLabel}
                 secondaryValue={secondaryValue}
                 metricKey={c.key}

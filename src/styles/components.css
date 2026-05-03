@@ -579,31 +579,37 @@
   justify-content: center;
   align-self: flex-end;
   min-width: 76px;
-  padding: 3px 9px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
   border-radius: 999px;
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: 800;
   white-space: nowrap;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
 }
 
 .kpi-card__delta--up {
-  color: var(--tone-up);
-  background: rgba(11, 110, 79, 0.1);
+  color: #075b41;
+  border-color: rgba(11, 110, 79, 0.38);
+  background: #cfe9df;
 }
 
 .kpi-card__delta--down {
-  color: var(--tone-down);
-  background: rgba(182, 92, 104, 0.12);
+  color: #a63f4e;
+  border-color: rgba(182, 92, 104, 0.42);
+  background: #f3cbd1;
 }
 
 .kpi-card__delta--neutral {
-  color: var(--tone-neutral);
-  background: rgba(100, 117, 107, 0.12);
+  color: #4f5d57;
+  border-color: rgba(100, 117, 107, 0.32);
+  background: #e4e9e5;
 }
 
 .kpi-card__delta--muted {
   color: var(--tone-muted);
-  background: rgba(84, 101, 90, 0.08);
+  border-color: rgba(84, 101, 90, 0.22);
+  background: #edf1ee;
 }
 
 .kpi-card__value {
