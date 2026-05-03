@@ -759,10 +759,17 @@ export function mergeRecordsByOrderAndSku(
 
   const groups = new Map<string, SourceTaggedRecord[]>()
   const order: string[] = []
+  // Records missing 客诉SKU stay distinct: collapsing them by order_no alone
+  // would silently drop separate complaints (e.g. logistics rows without a
+  // resolved Shopify SKU). Give each such record a unique synthetic key so
+  // the merge loop falls through to the single-record path.
+  let unmergeableCounter = 0
   for (const tagged of records) {
     const orderNo = stringify(tagged.record['订单号'])
     const sku = stringify(tagged.record['客诉SKU'])
-    const key = `${orderNo}\u0000${sku}`
+    const key = sku
+      ? `${orderNo}\u0000${sku}`
+      : `\u0000__nosku__\u0000${unmergeableCounter++}`
     if (!groups.has(key)) {
       groups.set(key, [])
       order.push(key)

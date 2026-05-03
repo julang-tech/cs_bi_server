@@ -2471,6 +2471,26 @@ function testMergeComplaintTypeNonRefundLogWins() {
   assert.match(String(m['待跟进客诉备注']), / \| /)
 }
 
+function testMergeKeepsRecordsWithEmptySkuDistinct() {
+  // Two records with the same order_no but no 客诉SKU must remain distinct —
+  // collapsing them by order_no alone would silently drop a complaint.
+  const merged = mergeRecordsByOrderAndSku([
+    {
+      sourceName: '物流问题',
+      transformerKind: 'logistics_issue',
+      record: { 订单号: 'LC800', 客诉类型: '物流问题-超期', 待跟进客诉备注: '快递卡海关' },
+    },
+    {
+      sourceName: '物流问题',
+      transformerKind: 'logistics_issue',
+      record: { 订单号: 'LC800', 客诉类型: '物流问题-丢件', 待跟进客诉备注: '客户没收到' },
+    },
+  ])
+  assert.equal(merged.length, 2)
+  assert.equal(merged[0]['客诉类型'], '物流问题-超期')
+  assert.equal(merged[1]['客诉类型'], '物流问题-丢件')
+}
+
 async function run() {
   testTransformBasicFields()
   testTransformSplitsMultiSkuRows()
@@ -2488,6 +2508,7 @@ async function run() {
   testMergeNoOverlapPassThrough()
   testMergeMultiSelectUnion()
   testMergeComplaintTypeNonRefundLogWins()
+  testMergeKeepsRecordsWithEmptySkuDistinct()
   testDateFilters()
   testTimestampDateFilter()
   testDateFilterRejectsMixedModes()
