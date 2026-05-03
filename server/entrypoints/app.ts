@@ -85,15 +85,19 @@ export async function buildApp(overrides?: {
   p1Service?: P1DashboardService
 }) {
   const env = loadEnv()
+  const app = Fastify({ logger: true })
   const p1Service =
     overrides?.p1Service ??
     createP1Service({
       baseUrl: env.p1ApiBaseUrl,
       apiKey: env.p1ApiKey,
     })
-  const service = overrides?.service ?? createP3Service(env.repoRoot, env.syncConfigPath)
+  const service = overrides?.service ?? createP3Service(env.repoRoot, env.syncConfigPath, {
+    info: (message) => app.log.info(message),
+    warn: (message) => app.log.warn(message),
+    error: (message) => app.log.error(message),
+  })
   const p2Service = createP2Service()
-  const app = Fastify({ logger: true })
 
   app.addHook('onClose', async () => {
     p2Service.close()
@@ -116,9 +120,14 @@ export async function buildApp(overrides?: {
       return await p1Service.getDashboard(parsed.data)
     } catch (error) {
       if (error instanceof P1ConfigError) {
+        request.log.warn({ err: error }, 'P1 dashboard service is not configured.')
         return reply.status(503).send({ detail: error.message })
       }
       if (error instanceof P1UpstreamError) {
+        request.log.warn(
+          { err: error, upstream_status: error.statusCode },
+          'P1 dashboard upstream request failed.',
+        )
         return reply.status(502).send({ detail: error.message })
       }
       throw error
@@ -138,9 +147,14 @@ export async function buildApp(overrides?: {
       return await p1Service.getBacklogMails(parsed.data)
     } catch (error) {
       if (error instanceof P1ConfigError) {
+        request.log.warn({ err: error }, 'P1 backlog mail list service is not configured.')
         return reply.status(503).send({ detail: error.message })
       }
       if (error instanceof P1UpstreamError) {
+        request.log.warn(
+          { err: error, upstream_status: error.statusCode },
+          'P1 backlog mail list upstream request failed.',
+        )
         return reply.status(error.statusCode).send({ detail: error.message })
       }
       throw error
@@ -169,9 +183,14 @@ export async function buildApp(overrides?: {
       )
     } catch (error) {
       if (error instanceof P1ConfigError) {
+        request.log.warn({ err: error }, 'P1 backlog mail marking service is not configured.')
         return reply.status(503).send({ detail: error.message })
       }
       if (error instanceof P1UpstreamError) {
+        request.log.warn(
+          { err: error, upstream_status: error.statusCode, mail_id: mailId },
+          'P1 backlog mail marking upstream request failed.',
+        )
         return reply.status(error.statusCode).send({ detail: error.message })
       }
       throw error

@@ -21,6 +21,11 @@ type SqliteLogger = {
   error?: (message: string) => void
 }
 
+function formatSampleOrderNos(orderNos: string[]) {
+  const sample = orderNos.slice(0, 20).join(',')
+  return orderNos.length > 20 ? `${sample},...` : sample
+}
+
 export type SqliteMirrorRecord = {
   record_id: string
   source_record_id: string
@@ -849,15 +854,14 @@ export class SqliteP3BigQueryCacheRepository implements SalesRepository, OrderEn
       }
 
       const notes: string[] = []
+      const missingOrderNos: string[] = []
       const enriched = issues.map((issue) => {
         const lineItems = lineByOrder.get(issue.order_no) ?? []
         const matchedLine = this.matchLineItem(issue, lineItems)
         const refundContext = refundsByOrder.get(issue.order_no)
 
         if (!lineItems.length) {
-          notes.push(
-            `Missing SQLite BigQuery cache order enrichment for ${issue.order_no}; fell back to record_date when available.`,
-          )
+          missingOrderNos.push(issue.order_no)
         }
 
         return {
@@ -870,6 +874,11 @@ export class SqliteP3BigQueryCacheRepository implements SalesRepository, OrderEn
         }
       })
 
+      if (missingOrderNos.length) {
+        this.logger?.warn?.(
+          `P3 SQLite BigQuery cache order enrichment missing ${missingOrderNos.length}/${issues.length} order contexts; fell back to record_date where available. sample_order_nos=${formatSampleOrderNos(missingOrderNos)}`,
+        )
+      }
       this.logger?.info?.(`Enriched ${enriched.length} P3 issues from SQLite BigQuery cache.`)
       return { issues: enriched, notes }
     })

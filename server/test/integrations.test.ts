@@ -68,10 +68,13 @@ async function testBigQueryOrderEnrichmentRepository() {
 }
 
 async function testBigQueryOrderEnrichmentRepositoryFallbackKeepsIssue() {
+  const warnings: string[] = []
   const repository = new BigQueryOrderEnrichmentRepository({
     async query() {
       return [[]]
     },
+  }, {
+    warn: (message) => warnings.push(message),
   })
 
   const result = await repository.enrichIssues([
@@ -99,7 +102,9 @@ async function testBigQueryOrderEnrichmentRepositoryFallbackKeepsIssue() {
   assert.equal(result.issues.length, 1)
   assert.equal(result.issues[0]?.order_no, 'LC404')
   assert.equal(result.issues[0]?.order_date, '2026-04-20')
-  assert.match(result.notes[0] ?? '', /Missing order enrichment/)
+  assert.equal(result.notes.length, 0)
+  assert.match(warnings[0] ?? '', /P3 BigQuery order enrichment missing 1\/1 order contexts/)
+  assert.match(warnings[0] ?? '', /sample_order_nos=LC404/)
 }
 
 async function testBigQueryOrderEnrichmentRepositoryUsesSkuRefundDate() {

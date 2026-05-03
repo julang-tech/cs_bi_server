@@ -95,6 +95,15 @@ type RefundContextRow = {
   refund_date_by_sku: Map<string, string>
 }
 
+type BigQueryLogger = {
+  warn?: (message: string) => void
+}
+
+function formatSampleOrderNos(orderNos: string[]) {
+  const sample = orderNos.slice(0, 20).join(',')
+  return orderNos.length > 20 ? `${sample},...` : sample
+}
+
 function extractRows(result: unknown): BigQueryRows {
   if (!Array.isArray(result)) {
     return []
@@ -293,7 +302,10 @@ export class BigQueryOrderEnrichmentRepository implements OrderEnrichmentReposit
   private readonly orderCache = new TtlCache<Record<string, OrderContextRow>>(600_000)
   private readonly refundCache = new TtlCache<Record<string, RefundContextRow>>(600_000)
 
-  constructor(private readonly client: BigQueryLike) {}
+  constructor(
+    private readonly client: BigQueryLike,
+    private readonly logger?: BigQueryLogger,
+  ) {}
 
   async enrichIssues(issues: StandardIssueRecord[]) {
     const orderNos = [...new Set(issues.map((issue) => issue.order_no).filter(Boolean))].sort()
@@ -308,15 +320,14 @@ export class BigQueryOrderEnrichmentRepository implements OrderEnrichmentReposit
 
     const notes: string[] = []
     const enriched: StandardIssueRecord[] = []
+    const missingOrderNos: string[] = []
 
     for (const issue of issues) {
       const orderContext = orderContexts[issue.order_no]
       const refundContext = refundContexts[issue.order_no]
 
       if (!orderContext) {
-        notes.push(
-          `Missing order enrichment for ${issue.order_no}; fell back to record_date when available.`,
-        )
+        missingOrderNos.push(issue.order_no)
         enriched.push({
           ...issue,
           order_date: issue.order_date ?? issue.record_date ?? null,
@@ -335,6 +346,12 @@ export class BigQueryOrderEnrichmentRepository implements OrderEnrichmentReposit
         skc: matchedLine?.skc ?? issue.skc ?? null,
         spu: matchedLine?.spu ?? issue.spu ?? null,
       })
+    }
+
+    if (missingOrderNos.length) {
+      this.logger?.warn?.(
+        `P3 BigQuery order enrichment missing ${missingOrderNos.length}/${issues.length} order contexts; fell back to record_date where available. sample_order_nos=${formatSampleOrderNos(missingOrderNos)}`,
+      )
     }
 
     return { issues: enriched, notes }
