@@ -3,6 +3,18 @@ export type P1Filters = {
   date_to: string
   grain: 'day' | 'week' | 'month'
   agent_name: string
+  tz_offset_minutes?: number
+}
+
+export type P1BacklogMailFilters = {
+  date_from?: string
+  date_to?: string
+  grain?: 'day' | 'week' | 'month'
+  agent_name?: string
+  tz_offset_minutes: number
+  limit?: number
+  cursor?: string
+  needs_reply?: boolean
 }
 
 type FetchLike = (
@@ -30,6 +42,9 @@ function normalizeDashboardPayload(payload: unknown) {
       unreplied_email_count: 0,
       avg_queue_hours: 0,
       first_response_timeout_count: 0,
+      late_reply_count: 0,
+      unreplied_count: 0,
+      avg_unreplied_wait_hours: 0,
       ...summary,
     },
   }
@@ -37,6 +52,12 @@ function normalizeDashboardPayload(payload: unknown) {
 
 export type P1DashboardService = {
   getDashboard(filters: P1Filters): Promise<unknown>
+  getBacklogMails?: (filters: P1BacklogMailFilters) => Promise<unknown>
+  markBacklogMailNeedsReply?: (
+    mailId: number,
+    needsReply: boolean,
+    options?: { reason?: string; operator?: string },
+  ) => Promise<unknown>
 }
 
 export class P1ConfigError extends Error {
@@ -72,6 +93,41 @@ export class P1Service implements P1DashboardService {
   }
 
   async getDashboard(filters: P1Filters) {
+    const response = await this.requestUpstream('/api/bi/p1/dashboard', filters)
+    return normalizeDashboardPayload(await response.json())
+  }
+
+  async getBacklogMails(filters: P1BacklogMailFilters) {
+    const response = await this.requestUpstream('/api/bi/p1/backlog-mails', filters)
+    return response.json()
+  }
+
+  async markBacklogMailNeedsReply(
+    mailId: number,
+    needsReply: boolean,
+    options: { reason?: string; operator?: string } = {},
+  ) {
+    const response = await this.requestUpstream(
+      `/api/bi/p1/backlog-mails/${encodeURIComponent(String(mailId))}/needs-reply`,
+      {},
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          needs_reply: needsReply,
+          reason: options.reason,
+          operator: options.operator ?? 'dashboard',
+        }),
+      },
+    )
+    return response.json()
+  }
+
+  private async requestUpstream(
+    pathname: string,
+    params: Record<string, unknown>,
+    init: RequestInit = {},
+  ) {
     if (!this.baseUrl) {
       throw new P1ConfigError('P1_API_BASE_URL is not configured.')
     }
@@ -79,24 +135,26 @@ export class P1Service implements P1DashboardService {
       throw new P1ConfigError('P1_API_KEY or CLOUD_ACCESS_KEY is not configured.')
     }
 
-    const url = new URL('/api/bi/p1/dashboard', this.baseUrl)
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value !== '') {
-        url.searchParams.set(key, value)
+    const url = new URL(pathname, this.baseUrl)
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== '' && value !== undefined && value !== null) {
+        url.searchParams.set(key, String(value))
       }
     })
 
+    const headers = new Headers(init.headers)
+    headers.set('x-api-key', this.apiKey)
+
     const response = await this.fetchImpl(url, {
-      headers: {
-        'x-api-key': this.apiKey,
-      },
+      ...init,
+      headers,
     })
 
     if (!response.ok) {
       throw new P1UpstreamError(response.status, response.statusText)
     }
 
-    return normalizeDashboardPayload(await response.json())
+    return response
   }
 }
 

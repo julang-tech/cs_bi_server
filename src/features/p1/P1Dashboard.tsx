@@ -1,11 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { DashboardShell } from '../../shared/components/DashboardShell'
 import { FilterBar } from '../../shared/components/FilterBar'
 import { FocusLineChart, type FocusMetricSpec, type FocusMetricSummary } from '../../shared/components/FocusLineChart'
 import { KpiCard } from '../../shared/components/KpiCard'
 import { KpiSection } from '../../shared/components/KpiSection'
 import { useDashboardData } from '../../shared/hooks/useDashboardData'
-import { fetchP1Dashboard } from '../../api/p1'
+import { fetchP1BacklogMails, fetchP1Dashboard, markP1BacklogMailNeedsReply } from '../../api/p1'
 import { formatHours, formatInteger } from '../../shared/utils/format'
 import { buildFocusTrend, formatFocusBucketLabel } from '../../shared/utils/focusTrend'
 import {
@@ -14,7 +14,8 @@ import {
 } from '../../shared/utils/datePeriod'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { WorkloadAnalysis } from './WorkloadAnalysis'
-import type { Grain, P1Dashboard as P1DashboardData, TrendPoint } from '../../api/types'
+import { sortBacklogMailsByWaitDesc } from './backlogMails'
+import type { Grain, P1BacklogMail, P1Dashboard as P1DashboardData, TrendPoint } from '../../api/types'
 
 const AGENT_OPTIONS = [
   { value: '', label: '全部客服' },
@@ -25,6 +26,13 @@ const AGENT_OPTIONS = [
   { value: 'Mia', label: 'Mia' },
   { value: 'Jovie', label: 'Jovie' },
 ]
+
+function formatBacklogNote(note: string) {
+  if (note === 'agent_filter_unsupported') {
+    return '当前积压邮件暂不支持按客服过滤。'
+  }
+  return note
+}
 
 function buildDelta(
   current: number | null | undefined,
@@ -55,6 +63,13 @@ export default function P1Dashboard() {
   const [agentName, setAgentName] = useState<string>('')
   const [historyRange, setHistoryRange] = useState(() => getRealtimeDefaultHistoryRange('day', today))
   const [activeMetricKey, setActiveMetricKey] = useState('inbound_email_count')
+  const [backlogModalOpen, setBacklogModalOpen] = useState(false)
+  const [backlogMails, setBacklogMails] = useState<P1BacklogMail[]>([])
+  const [backlogLoading, setBacklogLoading] = useState(false)
+  const [backlogError, setBacklogError] = useState<string | null>(null)
+  const [backlogNotes, setBacklogNotes] = useState<string[]>([])
+  const [expandedMailId, setExpandedMailId] = useState<number | null>(null)
+  const [markingMailId, setMarkingMailId] = useState<number | null>(null)
 
   const currentPeriod = useMemo(() => getRealtimeCurrentPeriod(grain, today), [grain, today])
   const previousPeriod = useMemo(() => getRealtimePreviousPeriod(grain, today), [grain, today])
@@ -74,6 +89,52 @@ export default function P1Dashboard() {
     historyRange,
     fetcher: (filters, signal) => fetchP1Dashboard(filters as never, signal),
   })
+
+  async function loadBacklogMails(signal?: AbortSignal) {
+    setBacklogLoading(true)
+    setBacklogError(null)
+    try {
+      const result = await fetchP1BacklogMails({
+        date_from: currentPeriod.date_from,
+        date_to: currentPeriod.date_to,
+        grain,
+        agent_name: agentName,
+        limit: 100,
+      }, signal)
+      const sortedItems = sortBacklogMailsByWaitDesc(result.items)
+      setBacklogMails(sortedItems)
+      setBacklogNotes(result.meta?.notes ?? [])
+      setExpandedMailId((currentId) =>
+        currentId && sortedItems.some((item) => item.mail_id === currentId) ? currentId : null,
+      )
+    } catch (err) {
+      if (signal?.aborted) return
+      setBacklogNotes([])
+      setBacklogError(err instanceof Error ? err.message : '积压邮件列表加载失败')
+    } finally {
+      if (!signal?.aborted) setBacklogLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (!backlogModalOpen) return
+    const controller = new AbortController()
+    void loadBacklogMails(controller.signal)
+    return () => controller.abort()
+  }, [backlogModalOpen, currentPeriod.date_from, currentPeriod.date_to, grain, agentName])
+
+  async function markMail(mailId: number, needsReply: boolean) {
+    setMarkingMailId(mailId)
+    setBacklogError(null)
+    try {
+      await markP1BacklogMailNeedsReply(mailId, needsReply)
+      await loadBacklogMails()
+    } catch (err) {
+      setBacklogError(err instanceof Error ? err.message : '标记失败')
+    } finally {
+      setMarkingMailId(null)
+    }
+  }
 
   const visibleP1Note = current?.meta?.notes?.find(
     (note) => !note.includes('工时表暂未接入'),
@@ -168,6 +229,7 @@ export default function P1Dashboard() {
   }
 
   return (
+    <>
     <DashboardShell
       filterBar={
         <FilterBar
@@ -229,10 +291,15 @@ export default function P1Dashboard() {
               />
             )
           })}
-          <article className="p1-backlog-snapshot" aria-label="当前积压快照">
+          <button
+            type="button"
+            className="p1-backlog-snapshot"
+            aria-label="查看当前积压邮件"
+            onClick={() => setBacklogModalOpen(true)}
+          >
             <div className="p1-backlog-snapshot__header">
               <h3>当前积压</h3>
-              <span>实时快照</span>
+              <span>待 review &gt;</span>
             </div>
             <dl className="p1-backlog-snapshot__items">
               <div>
@@ -244,7 +311,7 @@ export default function P1Dashboard() {
                 <dd>{backlogSnapshot.avgUnrepliedWait}</dd>
               </div>
             </dl>
-          </article>
+          </button>
         </KpiSection>
       }
       focusChart={loading ? null : (
@@ -263,5 +330,91 @@ export default function P1Dashboard() {
         />
       }
     />
+    {backlogModalOpen ? (
+      <div className="p1-backlog-modal" role="dialog" aria-modal="true" aria-label="当前积压邮件列表">
+        <div className="p1-backlog-modal__backdrop" onClick={() => setBacklogModalOpen(false)} />
+        <section className="p1-backlog-modal__panel">
+          <header className="p1-backlog-modal__header">
+            <div>
+              <h2>当前积压邮件</h2>
+              <span>{backlogMails.length} 项</span>
+            </div>
+            <button type="button" onClick={() => setBacklogModalOpen(false)}>关闭</button>
+          </header>
+          {backlogError ? <div className="status-banner status-banner--error">{backlogError}</div> : null}
+          {!backlogError && backlogNotes.length > 0 ? (
+            <div className="status-banner status-banner--info">
+              {backlogNotes.map(formatBacklogNote).join('；')}
+            </div>
+          ) : null}
+          <div className="p1-backlog-modal__body">
+            {backlogLoading ? (
+              <div className="p1-backlog-modal__empty">加载中...</div>
+            ) : backlogMails.length === 0 ? (
+              <div className="p1-backlog-modal__empty">暂无当前积压邮件</div>
+            ) : (
+              <div className="p1-backlog-list">
+                {backlogMails.map((mail) => {
+                  const expanded = expandedMailId === mail.mail_id
+                  const title = mail.subject || mail.preview || `#${mail.mail_id}`
+                  return (
+                    <article key={mail.mail_id} className="p1-backlog-list__item">
+                      <button
+                        type="button"
+                        className="p1-backlog-list__summary"
+                        aria-expanded={expanded}
+                        onClick={() => setExpandedMailId(expanded ? null : mail.mail_id)}
+                      >
+                        <span>
+                          <strong>{title}</strong>
+                          <small>{mail.from_name || mail.from_email || '未知发件人'}</small>
+                        </span>
+                        <em>{formatHours(mail.wait_hours, 1)}</em>
+                      </button>
+                      {expanded ? (
+                        <div className="p1-backlog-list__detail">
+                          <div className="p1-backlog-list__meta">
+                            <span>收到时间 {mail.received_at}</span>
+                            <span>{mail.needs_reply === false ? '不需回复' : '仍需回复'}</span>
+                            <span>{mail.is_manually_reviewed ? '人工已确认' : '尚未人工确认'}</span>
+                          </div>
+                          <div className="p1-backlog-list__translations">
+                            <section>
+                              <h4>原文</h4>
+                              <p>{mail.body?.original || mail.preview || '--'}</p>
+                            </section>
+                            <section>
+                              <h4>中文</h4>
+                              <p>{mail.body?.zh || '--'}</p>
+                            </section>
+                          </div>
+                          <div className="p1-backlog-list__actions">
+                            <button
+                              type="button"
+                              disabled={markingMailId === mail.mail_id}
+                              onClick={() => void markMail(mail.mail_id, true)}
+                            >
+                              标记仍需回复
+                            </button>
+                            <button
+                              type="button"
+                              disabled={markingMailId === mail.mail_id}
+                              onClick={() => void markMail(mail.mail_id, false)}
+                            >
+                              标记不需回复
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    ) : null}
+    </>
   )
 }
