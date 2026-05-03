@@ -58,6 +58,28 @@ function renderChart(onActiveKeyChange = vi.fn(), nextMetrics = metrics) {
   return onActiveKeyChange
 }
 
+function renderChartWithBucketFormatter() {
+  host = document.createElement('div')
+  document.body.appendChild(host)
+  root = createRoot(host)
+  act(() => {
+    root?.render(
+      <FocusLineChart
+        metrics={[
+          {
+            key: 'sales',
+            label: '销量',
+            formatter: (n) => String(n),
+            history: [{ bucket: '2026-05-01', value: 10 }],
+            current: [],
+          },
+        ]}
+        bucketFormatter={(bucket) => `bucket:${bucket}`}
+      />,
+    )
+  })
+}
+
 afterEach(() => {
   act(() => {
     root?.unmount()
@@ -115,5 +137,11 @@ describe('FocusLineChart controlled active metric', () => {
     ])
 
     expect(document.body.textContent).not.toContain('进行中')
+  })
+
+  it('formats rendered bucket labels through the supplied formatter', () => {
+    renderChartWithBucketFormatter()
+
+    expect(document.body.textContent).toContain('bucket:2026-05-01')
   })
 })

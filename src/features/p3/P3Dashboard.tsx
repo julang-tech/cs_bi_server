@@ -7,6 +7,7 @@ import { KpiSection } from '../../shared/components/KpiSection'
 import { useDashboardData } from '../../shared/hooks/useDashboardData'
 import { fetchDashboard, fetchDrilldownOptions, fetchProductRanking } from '../../api/p3'
 import { formatInteger, formatPercent } from '../../shared/utils/format'
+import { buildFocusTrend, formatFocusBucketLabel } from '../../shared/utils/focusTrend'
 import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
   getCurrentPeriodLabel, getPreviousPeriodLabel,
@@ -29,19 +30,9 @@ function buildDelta(current: number | null | undefined, previous: number | null 
   return { tone: ratio > 0 ? 'up' as const : 'down' as const, text: `${ratio > 0 ? '↑' : '↓'} ${Math.abs(ratio * 100).toFixed(1)}%` }
 }
 
-function currentTrendPoint(
-  current: P3DashboardData | null,
-  currentPeriod: { date_to: string },
-  historyRange: { date_to: string },
-  value: number | undefined,
-) {
-  if (!current || currentPeriod.date_to <= historyRange.date_to) return []
-  return [{ bucket: currentPeriod.date_to, value: value ?? 0 }]
-}
-
 export default function P3Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
-  const [dateBasis, setDateBasis] = useState<'order_date' | 'refund_date'>('order_date')
+  const [dateBasis, setDateBasis] = useState<'record_date' | 'order_date' | 'refund_date'>('record_date')
   const [historyRange, setHistoryRange] = useState(() => getDefaultHistoryRange('day'))
   const [activeMetricKey, setActiveMetricKey] = useState('complaint_rate')
 
@@ -95,17 +86,19 @@ export default function P3Dashboard() {
 
   const cards = [
     {
-      key: 'sales_qty', label: '订单数', sparkline: true,
+      key: 'sales_qty', label: '销量', sparkline: true,
       description: getMetricDescription('p3.sales_qty'),
       currentValue: current?.summary.sales_qty,
       previousValue: previous?.summary.sales_qty,
       historyTrend: history?.trends.sales_qty ?? [],
-      currentTrend: currentTrendPoint(
-        current,
-        currentPeriod,
-        historyRange,
-        current?.summary.sales_qty,
-      ),
+      formatter: formatInteger, deltaMode: 'percent' as const, isRate: false,
+    },
+    {
+      key: 'order_count', label: '订单量', sparkline: true,
+      description: getMetricDescription('p3.order_count'),
+      currentValue: current?.summary.order_count,
+      previousValue: previous?.summary.order_count,
+      historyTrend: history?.trends.order_count ?? [],
       formatter: formatInteger, deltaMode: 'percent' as const, isRate: false,
     },
     {
@@ -114,12 +107,6 @@ export default function P3Dashboard() {
       currentValue: current?.summary.complaint_count,
       previousValue: previous?.summary.complaint_count,
       historyTrend: history?.trends.complaint_count ?? [],
-      currentTrend: currentTrendPoint(
-        current,
-        currentPeriod,
-        historyRange,
-        current?.summary.complaint_count,
-      ),
       formatter: formatInteger, deltaMode: 'percent' as const, isRate: false,
     },
     {
@@ -128,23 +115,20 @@ export default function P3Dashboard() {
       currentValue: current?.summary.complaint_rate,
       previousValue: previous?.summary.complaint_rate,
       historyTrend: history?.trends.complaint_rate ?? [],
-      currentTrend: currentTrendPoint(
-        current,
-        currentPeriod,
-        historyRange,
-        current?.summary.complaint_rate,
-      ),
       formatter: (n: number) => formatPercent(n, 2), deltaMode: 'pp' as const, isRate: true,
     },
   ]
 
-  const focusMetrics: FocusMetricSpec[] = cards.map((c) => ({
-    key: c.key,
-    label: c.label,
-    formatter: c.formatter,
-    history: c.historyTrend,
-    current: c.currentTrend,
-  }))
+  const focusMetrics: FocusMetricSpec[] = cards.map((c) => {
+    const trend = buildFocusTrend(c.historyTrend, grain, currentPeriod, c.currentValue)
+    return {
+      key: c.key,
+      label: c.label,
+      formatter: c.formatter,
+      history: trend.history,
+      current: trend.current,
+    }
+  })
 
   // Build per-metric summary for the focus chart from the visible range only.
   const rangeLabel = grain === 'day' ? `近 ${periodCount} 天`
@@ -182,18 +166,15 @@ export default function P3Dashboard() {
           extras={
             <div className="filter-bar__group">
               <span className="filter-bar__label">时间口径</span>
-              <div className="segmented-control">
-                {[
-                  { value: 'order_date' as const, label: '订单时间' },
-                  { value: 'refund_date' as const, label: '退款时间' },
-                ].map((opt) => (
-                  <button key={opt.value} type="button"
-                    className={`segment-button ${dateBasis === opt.value ? 'segment-button--active' : ''}`}
-                    onClick={() => setDateBasis(opt.value)}>
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+              <select
+                className="select-control"
+                value={dateBasis}
+                onChange={(e) => setDateBasis(e.target.value as typeof dateBasis)}
+              >
+                <option value="record_date">客诉登记时间</option>
+                <option value="order_date">订单时间</option>
+                <option value="refund_date">退款时间</option>
+              </select>
             </div>
           }
         />
@@ -236,6 +217,7 @@ export default function P3Dashboard() {
           metrics={focusMetrics}
           activeKey={activeMetricKey}
           onActiveKeyChange={setActiveMetricKey}
+          bucketFormatter={(bucket) => formatFocusBucketLabel(bucket, grain)}
           summaryByKey={summaryByKey}
         />
       )}

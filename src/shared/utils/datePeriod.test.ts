@@ -3,6 +3,8 @@ import {
   formatDateInput, parseDateInput, shiftDate,
   getDataReadyDate, getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange,
   getCurrentPeriodLabel, getPreviousPeriodLabel,
+  getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange,
+  getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel, getRealtimePresetHistoryRange,
   getPresetHistoryRange,
   alignHistoryRangeToGrain, isHistoryRangeValid,
   getPeriodCount, getPeriodLengthDays,
@@ -133,6 +135,57 @@ describe('getPreviousPeriod', () => {
     expect(getPreviousPeriod('month', firstOfMonthWithNoCurrentMonthData)).toEqual({
       date_from: '2026-03-01', date_to: '2026-03-31',
     })
+  })
+})
+
+describe('MailDB realtime periods', () => {
+  it('uses today directly for current day/week/month periods', () => {
+    const realtimeToday = new Date(2026, 4, 2, 12)
+
+    expect(getRealtimeCurrentPeriod('day', realtimeToday)).toEqual({
+      date_from: '2026-05-02', date_to: '2026-05-02',
+    })
+    expect(getRealtimeCurrentPeriod('week', realtimeToday)).toEqual({
+      date_from: '2026-04-27', date_to: '2026-05-02',
+    })
+    expect(getRealtimeCurrentPeriod('month', realtimeToday)).toEqual({
+      date_from: '2026-05-01', date_to: '2026-05-02',
+    })
+  })
+
+  it('builds previous periods from the realtime current period', () => {
+    const realtimeToday = new Date(2026, 4, 2, 12)
+
+    expect(getRealtimePreviousPeriod('day', realtimeToday)).toEqual({
+      date_from: '2026-05-01', date_to: '2026-05-01',
+    })
+    expect(getRealtimePreviousPeriod('week', realtimeToday)).toEqual({
+      date_from: '2026-04-20', date_to: '2026-04-26',
+    })
+    expect(getRealtimePreviousPeriod('month', realtimeToday)).toEqual({
+      date_from: '2026-04-01', date_to: '2026-04-30',
+    })
+  })
+
+  it('builds realtime history ranges and labels through today', () => {
+    const realtimeToday = new Date(2026, 4, 2, 12)
+
+    expect(getRealtimeDefaultHistoryRange('day', realtimeToday)).toEqual({
+      date_from: '2026-04-03', date_to: '2026-05-02',
+    })
+    expect(getRealtimeDefaultHistoryRange('week', realtimeToday).date_to).toBe('2026-05-02')
+    expect(getRealtimeDefaultHistoryRange('month', realtimeToday).date_to).toBe('2026-05-02')
+    expect(getRealtimePresetHistoryRange(7, realtimeToday)).toEqual({
+      date_from: '2026-04-26', date_to: '2026-05-02',
+    })
+    expect(getRealtimePresetHistoryRange('week_to_date', realtimeToday)).toEqual({
+      date_from: '2026-04-27', date_to: '2026-05-02',
+    })
+    expect(getRealtimePresetHistoryRange('month_to_date', realtimeToday)).toEqual({
+      date_from: '2026-05-01', date_to: '2026-05-02',
+    })
+    expect(getRealtimeCurrentPeriodLabel('day')).toBe('今日')
+    expect(getRealtimePreviousPeriodLabel('day')).toBe('昨日')
   })
 })
 

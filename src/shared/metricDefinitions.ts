@@ -101,10 +101,22 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
             detail: '数值越高代表客户等待越久，应结合来邮量和坐席产能一起判断。',
           },
           {
-            id: 'p1.first_response_timeout_count',
-            name: '首次响应超时次数',
-            short: '首次响应超过服务目标的会话次数。',
-            detail: '用于识别响应 SLA 风险。该指标下降通常代表响应及时性改善。',
+            id: 'p1.late_reply_count',
+            name: '已回复但延迟',
+            short: '已回复但首次回复超过 24 小时的邮件数。',
+            detail: '属于历史 SLA 违反视图，用于回看已经处理完成但响应不及时的邮件规模。',
+          },
+          {
+            id: 'p1.unreplied_count',
+            name: '当前挤压未回',
+            short: '当前仍未回复、已超过 24 小时且在最近 3 天内的邮件数。',
+            detail: '属于当下操作快照，用于识别需要立即处理的客服积压，不参与趋势图和同比。按客服筛选时，未回邮件无法归属到具体坐席，后端会返回 0 并在 meta.notes 中说明。',
+          },
+          {
+            id: 'p1.avg_unreplied_wait_hours',
+            name: '当前挤压平均等待',
+            short: '当前挤压未回邮件的平均已等待小时数。',
+            detail: '按当前扫描时间计算未回复邮件从来信到现在的平均等待时长；同一批未回邮件会随时间推移自然增加。该指标是快照值，不参与趋势图和同比。',
           },
         ],
       },
@@ -118,10 +130,10 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
             detail: '前端优先使用上游返回的 reply_span_hours；没有该字段时按总回邮数和内部回邮效率字段反推。',
           },
           {
-            id: 'p1.agent_hourly_reply_schedule',
-            name: '每小时回邮数均值（工时表）',
-            short: '按排班工时估算每小时回邮数。',
-            detail: '适合做坐席间效率对比，前提是工时表数据完整准确。',
+            id: 'p1.agent_hourly_reply_span',
+            name: '每小时回信均值',
+            short: '按首封到末封的实际回信时长，估算每小时回信数。',
+            detail: '反映坐席在实际投入回信的时间段内的产出效率，不受排班/休息时段影响。',
           },
         ],
       },
@@ -232,25 +244,32 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
         items: [
           {
             id: 'p3.sales_qty',
-            name: '订单数',
-            short: '当前页面展示为订单数，底层字段名为 sales_qty。',
+            name: '销量',
+            short: '统计周期内售出的 SKU 行数（每订单内同一 SKU 算 1 行）。',
             detail:
-              '这里存在待确认口径：如果后端 sales_qty 代表销量，页面应改为“销量”；如果要展示订单数，应补充真正 order_count 字段。',
+              '已剔除 Insure01/Insure02/SHIPPINGCOST/PRICE ADJUSTMENT 等非商品行。与客诉量同口径（按 SKU 行数），便于直接相除得到客诉率。',
+          },
+          {
+            id: 'p3.order_count',
+            name: '订单量',
+            short: '统计周期内的去重订单数（同一订单计 1）。',
+            detail:
+              '与销量不同：销量按 SKU 行数（一单多 SKU 会计多行），订单量按订单去重。同样剔除纯保险/运费/价差订单。',
           },
           {
             id: 'p3.complaint_count',
             name: '客诉量',
-            short: '统计周期内进入客诉分类的记录数量。',
+            short: '统计周期内进入客诉分类的 SKU 行数。',
             detail:
-              '用于衡量整体问题规模，可按订单时间或退款时间口径切换。',
+              '同一订单同一 SKU 内若出现在多个源表（退款登记/补发/瑕疵反馈等），合并为 1 行。可按客诉登记时间/订单时间/退款时间口径切换。',
           },
           {
             id: 'p3.complaint_rate',
             name: '客诉率',
-            short: '客诉量 / 销量。',
+            short: '客诉量 / 销量，分子分母均按 SKU 行数计算。',
             formula: '客诉率 = 客诉量 / 销量',
             detail:
-              '用于衡量客诉相对销售规模的压力。分母字段当前来自 summary.sales_qty，后续需跟随 P3 分母口径确认。',
+              '分子分母均按 SKU 行数计算，已剔除特殊 SKU（保险/运费/价差行）。',
           },
           {
             id: 'p3.issue_product_count',

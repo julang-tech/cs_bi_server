@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  alignHistoryRangeToGrain, isHistoryRangeValid,
+  alignHistoryRangeToGrain,
   formatDateInput, getDataReadyDate, getPresetHistoryRange,
   parseDateInput, shiftDate,
 } from '../utils/datePeriod'
@@ -46,6 +46,8 @@ interface FilterBarProps {
   onGrainChange: (next: Grain) => void
   historyRange: PeriodWindow
   onHistoryRangeChange: (next: PeriodWindow) => void
+  maxDate?: Date
+  presetRangeBuilder?: (value: number | 'week_to_date' | 'month_to_date') => PeriodWindow
   storeOptions?: Array<{ value: string; label: string }>
   store?: string
   onStoreChange?: (next: string) => void
@@ -55,6 +57,8 @@ interface FilterBarProps {
 export function FilterBar({
   grain, onGrainChange,
   historyRange, onHistoryRangeChange,
+  maxDate: maxDateOverride,
+  presetRangeBuilder = getPresetHistoryRange,
   storeOptions, store, onStoreChange,
   extras,
 }: FilterBarProps) {
@@ -65,7 +69,7 @@ export function FilterBar({
   const [visibleMonth, setVisibleMonth] = useState(() =>
     shiftMonth(monthStart(parseDateInput(historyRange.date_to)), -1),
   )
-  const maxDate = useMemo(() => getDataReadyDate(), [])
+  const maxDate = useMemo(() => maxDateOverride ?? getDataReadyDate(), [maxDateOverride])
   const maxDateText = formatDateInput(maxDate)
 
   useEffect(() => {
@@ -95,7 +99,7 @@ export function FilterBar({
   function applyRange(range: PeriodWindow, options: { alignToGrain?: boolean } = {}) {
     const next = options.alignToGrain === false ? range : alignHistoryRangeToGrain(range, grain)
     if (next.date_from > next.date_to) return
-    if (!isHistoryRangeValid(next, grain)) return
+    if (next.date_to > maxDateText) return
     onHistoryRangeChange(next)
     setDraftRange(next)
     setPickerOpen(false)
@@ -120,7 +124,7 @@ export function FilterBar({
   }
 
   function applyPreset(value: number | 'week_to_date' | 'month_to_date') {
-    applyRange(getPresetHistoryRange(value), { alignToGrain: false })
+    applyRange(presetRangeBuilder(value), { alignToGrain: false })
   }
 
   function renderMonth(month: Date) {

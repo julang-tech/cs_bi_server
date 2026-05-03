@@ -138,6 +138,53 @@ export function getPreviousPeriodLabel(grain: Grain): string {
   return '上月'
 }
 
+export function getRealtimeCurrentPeriod(grain: Grain, today: Date = new Date()): PeriodWindow {
+  if (grain === 'day') {
+    const current = formatDateInput(today)
+    return { date_from: current, date_to: current }
+  }
+  if (grain === 'week') {
+    return {
+      date_from: formatDateInput(startOfWeek(today)),
+      date_to: formatDateInput(today),
+    }
+  }
+  return {
+    date_from: formatDateInput(startOfMonth(today)),
+    date_to: formatDateInput(today),
+  }
+}
+
+export function getRealtimePreviousPeriod(grain: Grain, today: Date = new Date()): PeriodWindow {
+  const current = getRealtimeCurrentPeriod(grain, today)
+  const currentStart = parseDateInput(current.date_from)
+  if (grain === 'day') {
+    const day = shiftDate(currentStart, -1)
+    return { date_from: formatDateInput(day), date_to: formatDateInput(day) }
+  }
+  if (grain === 'week') {
+    const end = shiftDate(currentStart, -1)
+    return { date_from: formatDateInput(shiftDate(end, -6)), date_to: formatDateInput(end) }
+  }
+  const previousMonth = new Date(currentStart.getFullYear(), currentStart.getMonth() - 1, 1)
+  return {
+    date_from: formatDateInput(startOfMonth(previousMonth)),
+    date_to: formatDateInput(endOfMonth(previousMonth)),
+  }
+}
+
+export function getRealtimeCurrentPeriodLabel(grain: Grain): string {
+  if (grain === 'day') return '今日'
+  if (grain === 'week') return '本周至今'
+  return '本月至今'
+}
+
+export function getRealtimePreviousPeriodLabel(grain: Grain): string {
+  if (grain === 'day') return '昨日'
+  if (grain === 'week') return '上周'
+  return '上月'
+}
+
 // Default history range = complete BI buckets up to the latest ready period.
 export function getDefaultHistoryRange(grain: Grain, today: Date = new Date()): PeriodWindow {
   const readyDate = getDataReadyDate(today)
@@ -162,6 +209,27 @@ export function getDefaultHistoryRange(grain: Grain, today: Date = new Date()): 
   return { date_from: formatDateInput(startMonth), date_to: currentMonth.date_to }
 }
 
+export function getRealtimeDefaultHistoryRange(grain: Grain, today: Date = new Date()): PeriodWindow {
+  if (grain === 'day') {
+    return {
+      date_from: formatDateInput(shiftDate(today, -29)),
+      date_to: formatDateInput(today),
+    }
+  }
+  if (grain === 'week') {
+    const currentWeek = getRealtimeCurrentPeriod('week', today)
+    const end = parseDateInput(currentWeek.date_to)
+    return {
+      date_from: formatDateInput(shiftDate(shiftMonthClamped(end, -2), 1)),
+      date_to: currentWeek.date_to,
+    }
+  }
+  const currentMonth = getRealtimeCurrentPeriod('month', today)
+  const monthStart = parseDateInput(currentMonth.date_from)
+  const startMonth = new Date(monthStart.getFullYear(), monthStart.getMonth() - 2, 1)
+  return { date_from: formatDateInput(startMonth), date_to: currentMonth.date_to }
+}
+
 export function getPresetHistoryRange(
   preset: number | 'week_to_date' | 'month_to_date',
   today: Date = new Date(),
@@ -176,6 +244,22 @@ export function getPresetHistoryRange(
   return {
     date_from: formatDateInput(shiftDate(end, -(preset - 1))),
     date_to: formatDateInput(end),
+  }
+}
+
+export function getRealtimePresetHistoryRange(
+  preset: number | 'week_to_date' | 'month_to_date',
+  today: Date = new Date(),
+): PeriodWindow {
+  if (preset === 'week_to_date') {
+    return { date_from: formatDateInput(startOfWeek(today)), date_to: formatDateInput(today) }
+  }
+  if (preset === 'month_to_date') {
+    return { date_from: formatDateInput(startOfMonth(today)), date_to: formatDateInput(today) }
+  }
+  return {
+    date_from: formatDateInput(shiftDate(today, -(preset - 1))),
+    date_to: formatDateInput(today),
   }
 }
 

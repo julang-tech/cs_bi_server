@@ -25,10 +25,18 @@ describe('metric definitions', () => {
     expect(getMetricDescription('p3.complaint_rate')).toContain('客诉率')
   })
 
+  it('documents P1 dashboard v2 SLA and backlog metrics', () => {
+    expect(getMetricDefinition('p1.first_response_timeout_count')).toBeUndefined()
+    expect(getMetricDefinition('p1.late_reply_count')?.short).toContain('已回复')
+    expect(getMetricDefinition('p1.unreplied_count')?.detail).toContain('无法归属到具体坐席')
+    expect(getMetricDefinition('p1.avg_unreplied_wait_hours')?.short).toContain('平均已等待')
+  })
+
   it('uses current table display copy in metric documentation', () => {
     expect(getMetricDefinition('global.history_range')?.name).toBe('时间范围')
     expect(getMetricDefinition('p1.agent_reply_span_hours')?.name).toBe('回信时长')
-    expect(getMetricDefinition('p1.agent_hourly_reply_span')).toBeUndefined()
+    expect(getMetricDefinition('p1.agent_hourly_reply_span')?.name).toBe('每小时回信均值')
+    expect(getMetricDefinition('p1.agent_hourly_reply_schedule')).toBeUndefined()
     expect(getMetricDefinition('p2.product_refund_table')?.short).toContain('Top50')
     expect(getMetricDefinition('p2.product_refund_table')?.short).toContain('每页展示 10 行')
     expect(getMetricDefinition('p3.product_ranking')?.short).toContain('Top50')

@@ -7,6 +7,7 @@ import { KpiSection } from '../../shared/components/KpiSection'
 import { useDashboardData } from '../../shared/hooks/useDashboardData'
 import { fetchRefundOverview } from '../../api/p2'
 import { formatInteger, formatMoney, formatPercent } from '../../shared/utils/format'
+import { buildFocusTrend, formatFocusBucketLabel } from '../../shared/utils/focusTrend'
 import {
   getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
   getCurrentPeriodLabel, getPreviousPeriodLabel,
@@ -44,16 +45,6 @@ function buildDelta(
     tone: ratio > 0 ? ('up' as const) : ('down' as const),
     text: `${ratio > 0 ? '↑' : '↓'} ${Math.abs(ratio * 100).toFixed(1)}%`,
   }
-}
-
-function currentTrendPoint(
-  current: P2Overview | null,
-  currentPeriod: { date_to: string },
-  historyRange: { date_to: string },
-  key: CardKey,
-): TrendPoint[] {
-  if (!current || currentPeriod.date_to <= historyRange.date_to) return []
-  return [{ bucket: currentPeriod.date_to, value: current.cards[key] ?? 0 }]
 }
 
 export default function P2Dashboard() {
@@ -106,17 +97,19 @@ export default function P2Dashboard() {
     const currentValue = current?.cards[c.key]
     const previousValue = previous?.cards[c.key]
     const historyTrend: TrendPoint[] = history?.trends?.[c.key] ?? []
-    const currentTrend = currentTrendPoint(current, currentPeriod, historyRange, c.key)
-    return { ...c, currentValue, previousValue, historyTrend, currentTrend }
+    return { ...c, currentValue, previousValue, historyTrend }
   })
 
-  const focusMetrics: FocusMetricSpec[] = enrichedCards.map((c) => ({
-    key: c.key,
-    label: c.label,
-    formatter: c.formatter,
-    history: c.historyTrend,
-    current: c.currentTrend,
-  }))
+  const focusMetrics: FocusMetricSpec[] = enrichedCards.map((c) => {
+    const trend = buildFocusTrend(c.historyTrend, grain, currentPeriod, c.currentValue)
+    return {
+      key: c.key,
+      label: c.label,
+      formatter: c.formatter,
+      history: trend.history,
+      current: trend.current,
+    }
+  })
 
   // Per-metric summary line for focus chart
   const rangeLabel = grain === 'day' ? `近 ${periodCount} 天`
@@ -194,6 +187,7 @@ export default function P2Dashboard() {
           metrics={focusMetrics}
           activeKey={activeMetricKey}
           onActiveKeyChange={(next) => setActiveMetricKey(next as CardKey)}
+          bucketFormatter={(bucket) => formatFocusBucketLabel(bucket, grain)}
           summaryByKey={summaryByKey}
         />
       )}

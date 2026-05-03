@@ -11,7 +11,7 @@ describe('P3 overview KPI composition', () => {
       source.indexOf('  const focusMetrics: FocusMetricSpec[]'),
     )
 
-    expect(cardsSource).toContain("label: '订单数'")
+    expect(cardsSource).toContain("label: '销量'")
     expect(cardsSource).toContain("label: '客诉量'")
     expect(cardsSource).toContain("label: '客诉率'")
     expect(cardsSource).not.toContain('产品问题客诉量')

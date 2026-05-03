@@ -39,6 +39,7 @@ interface FocusLineChartProps {
   activeKey?: string
   onActiveKeyChange?: (next: string) => void
   ariaLabel?: string
+  bucketFormatter?: (bucket: string) => string
   // Optional summary line shown between the tabs and the plot. Map keyed by
   // metric.key so the summary updates when the active tab changes.
   summaryByKey?: Record<string, FocusMetricSummary | undefined>
@@ -103,9 +104,11 @@ function CustomTooltip({
   label,
   formatter,
   metricLabel,
+  bucketFormatter,
 }: TooltipProps<number, string> & {
   formatter: (n: number) => string
   metricLabel: string
+  bucketFormatter: (bucket: string) => string
 }) {
   if (!active || !payload?.length) return null
   // payload[0].payload contains the original row.
@@ -113,7 +116,7 @@ function CustomTooltip({
   return (
     <div className="focus-chart__tooltip">
       <span className="focus-chart__tooltip-label">
-        {row.bucket || label}
+        {bucketFormatter(row.bucket || String(label ?? ''))}
         {row.isCurrent ? ' · 进行中' : ''}
       </span>
       <strong className="focus-chart__tooltip-value">
@@ -129,6 +132,7 @@ export function FocusLineChart({
   activeKey,
   onActiveKeyChange,
   ariaLabel,
+  bucketFormatter = (bucket) => bucket,
   summaryByKey,
 }: FocusLineChartProps) {
   const [internalActiveKey, setInternalActiveKey] = useState<string>(defaultKey ?? metrics[0]?.key ?? '')
@@ -154,7 +158,7 @@ export function FocusLineChart({
   // Show only first / last X-axis tick labels.
   const firstBucket = data[0]?.bucket
   const lastBucket = data[data.length - 1]?.bucket
-  const xTickFormatter = (v: string) => (v === firstBucket || v === lastBucket ? v : '')
+  const xTickFormatter = (v: string) => (v === firstBucket || v === lastBucket ? bucketFormatter(v) : '')
 
   // Highlight the latest (rightmost) point with a larger filled dot. Recharts'
   // `dot` prop accepts a function so we can render conditionally per-point.
@@ -292,7 +296,11 @@ export function FocusLineChart({
             <Tooltip
               cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
               content={
-                <CustomTooltip formatter={active.formatter} metricLabel={active.label} />
+                <CustomTooltip
+                  formatter={active.formatter}
+                  metricLabel={active.label}
+                  bucketFormatter={bucketFormatter}
+                />
               }
             />
             {historyMean !== null ? (

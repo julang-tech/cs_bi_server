@@ -71,12 +71,13 @@ describe('WorkloadAnalysis table rows', () => {
     expect(buildWorkloadTableRows([])).toEqual([])
   })
 
-  it('shows reply duration without exposing the first-to-last hourly average column', () => {
+  it('shows reply duration alongside the span-based hourly average column', () => {
     renderWorkloadAnalysis()
 
     expect(host?.textContent).toContain('回信时长')
-    expect(host?.textContent).not.toContain('首末封时间跨度')
-    expect(host?.textContent).not.toContain('每小时回邮数均值（首末封）')
-    expect(host?.textContent).toContain('每小时回邮数均值（工时表）')
+    expect(host?.textContent).toContain('每小时回信均值')
+    expect(host?.textContent).not.toContain('每小时回邮数均值（工时表）')
+    expect(host?.textContent).not.toContain('首末封')
+    expect(host?.textContent).not.toContain('首尾封')
   })
 })

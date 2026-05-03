@@ -11,6 +11,7 @@ export interface TrendPoint {
 }
 
 export interface DashboardMeta {
+  version?: string
   partial_data?: boolean
   notes?: string[]
 }
@@ -24,9 +25,9 @@ export interface P1Summary {
   inbound_email_count: number
   outbound_email_count: number
   avg_queue_hours: number
-  first_response_timeout_count: number
-  first_email_count: number
-  unreplied_email_count: number
+  late_reply_count: number
+  unreplied_count: number
+  avg_unreplied_wait_hours: number
 }
 export interface P1AgentRow {
   agent_name: string
@@ -50,10 +51,8 @@ export interface P1Dashboard {
   trends: {
     inbound_email_count: TrendPoint[]
     outbound_email_count: TrendPoint[]
-    first_response_timeout_count: TrendPoint[]
-    avg_queue_hours?: TrendPoint[]
-    first_email_count?: TrendPoint[]
-    unreplied_email_count?: TrendPoint[]
+    avg_queue_hours: TrendPoint[]
+    late_reply_count: TrendPoint[]
   }
   agent_workload: P1AgentRow[]
   agent_workload_trends: P1AgentTrendRow[]
@@ -118,13 +117,14 @@ export interface P2SpuRow {
 export type MajorIssueType = 'product' | 'logistics' | 'warehouse' | 'refund' | 'other'
 export interface P3Filters extends PeriodWindow {
   grain: Grain
-  date_basis: 'order_date' | 'refund_date'
+  date_basis: 'record_date' | 'order_date' | 'refund_date'
   spu?: string
   skc?: string
   sku?: string
 }
 export interface P3Summary {
   sales_qty: number
+  order_count: number
   complaint_count: number
   complaint_rate: number
 }
@@ -140,6 +140,7 @@ export interface P3Dashboard {
   summary: P3Summary
   trends: {
     sales_qty: TrendPoint[]
+    order_count: TrendPoint[]
     complaint_count: TrendPoint[]
     complaint_rate: TrendPoint[]
     issue_product_count?: TrendPoint[]

@@ -97,4 +97,29 @@ describe('FilterBar date range picker', () => {
       date_to: '2026-04-30',
     })
   })
+
+  it('can use a caller-provided realtime max date and preset range', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 4, 2, 12))
+    const { onHistoryRangeChange } = renderFilterBar({
+      maxDate: new Date(2026, 4, 2, 12),
+      presetRangeBuilder: () => ({ date_from: '2026-04-26', date_to: '2026-05-02' }),
+    })
+
+    const trigger = document.querySelector<HTMLButtonElement>('.date-range-trigger')
+    act(() => {
+      trigger?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.range-presets button'))
+      .find((item) => item.textContent === '近 7 天')
+
+    act(() => {
+      button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(onHistoryRangeChange).toHaveBeenCalledWith({
+      date_from: '2026-04-26',
+      date_to: '2026-05-02',
+    })
+  })
 })

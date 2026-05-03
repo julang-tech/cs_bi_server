@@ -1,5 +1,9 @@
 import type { Grain, PeriodWindow, TrendPoint } from '../../api/types'
 
+type FocusTrendOptions = {
+  currentDayIsIncomplete?: boolean
+}
+
 function parseDateInput(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
   if (!match) return null
@@ -35,8 +39,12 @@ function endOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth() + 1, 0)
 }
 
-function isIncompleteCurrentPeriod(grain: Grain, currentPeriod: PeriodWindow): boolean {
-  if (grain === 'day') return false
+function isIncompleteCurrentPeriod(
+  grain: Grain,
+  currentPeriod: PeriodWindow,
+  options: FocusTrendOptions = {},
+): boolean {
+  if (grain === 'day') return Boolean(options.currentDayIsIncomplete)
   const start = parseDateInput(currentPeriod.date_from)
   if (!start) return false
   const expectedEnd = grain === 'week' ? endOfWeek(start) : endOfMonth(start)
@@ -60,8 +68,9 @@ export function splitFocusTrend(
   items: TrendPoint[],
   grain: Grain,
   currentPeriod: PeriodWindow,
+  options: FocusTrendOptions = {},
 ): { history: TrendPoint[]; current: TrendPoint[] } {
-  if (!isIncompleteCurrentPeriod(grain, currentPeriod) || items.length === 0) {
+  if (!isIncompleteCurrentPeriod(grain, currentPeriod, options) || items.length === 0) {
     return { history: items, current: [] }
   }
 
@@ -74,6 +83,24 @@ export function splitFocusTrend(
     history: items.slice(0, -1),
     current: [last],
   }
+}
+
+export function buildFocusTrend(
+  history: TrendPoint[],
+  grain: Grain,
+  currentPeriod: PeriodWindow,
+  currentValue?: number | null,
+  options: FocusTrendOptions = {},
+): { history: TrendPoint[]; current: TrendPoint[] } {
+  const items = [...history]
+  const last = items[items.length - 1]
+  const lastIsCurrentBucket = last ? currentBucketCandidates(grain, currentPeriod).has(last.bucket) : false
+
+  if (!lastIsCurrentBucket && currentValue !== null && currentValue !== undefined) {
+    items.push({ bucket: currentPeriod.date_to, value: currentValue })
+  }
+
+  return splitFocusTrend(items, grain, currentPeriod, options)
 }
 
 export function formatFocusBucketLabel(bucket: string, grain: Grain): string {

@@ -90,9 +90,9 @@ export function WorkloadAnalysis({ workloadRows, loading }: WorkloadAnalysisProp
       render: (row: WorkloadTableRow) => formatNullableHours(row.reply_span_hours),
     },
     {
-      key: 'avg_outbound_emails_per_hour_by_schedule',
-      label: '每小时回邮数均值（工时表）',
-      render: (row: WorkloadTableRow) => formatDecimal(row.avg_outbound_emails_per_hour_by_schedule),
+      key: 'avg_outbound_emails_per_hour_by_span',
+      label: '每小时回信均值',
+      render: (row: WorkloadTableRow) => formatDecimal(row.avg_outbound_emails_per_hour_by_span),
     },
     {
       key: 'qa_reply_counts',

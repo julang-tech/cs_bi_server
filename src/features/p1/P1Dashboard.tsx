@@ -7,9 +7,10 @@ import { KpiSection } from '../../shared/components/KpiSection'
 import { useDashboardData } from '../../shared/hooks/useDashboardData'
 import { fetchP1Dashboard } from '../../api/p1'
 import { formatHours, formatInteger } from '../../shared/utils/format'
+import { buildFocusTrend, formatFocusBucketLabel } from '../../shared/utils/focusTrend'
 import {
-  getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
-  getCurrentPeriodLabel, getPreviousPeriodLabel,
+  getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange, getPeriodCount,
+  getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel, getRealtimePresetHistoryRange,
 } from '../../shared/utils/datePeriod'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { WorkloadAnalysis } from './WorkloadAnalysis'
@@ -24,16 +25,6 @@ const AGENT_OPTIONS = [
   { value: 'Mia', label: 'Mia' },
   { value: 'Jovie', label: 'Jovie' },
 ]
-
-function currentTrendPoint(
-  current: P1DashboardData | null,
-  currentPeriod: { date_to: string },
-  historyRange: { date_to: string },
-  value: number | undefined,
-): TrendPoint[] {
-  if (!current || currentPeriod.date_to <= historyRange.date_to) return []
-  return [{ bucket: currentPeriod.date_to, value: value ?? 0 }]
-}
 
 function buildDelta(
   current: number | null | undefined,
@@ -59,18 +50,19 @@ function buildDelta(
 }
 
 export default function P1Dashboard() {
+  const today = useMemo(() => new Date(), [])
   const [grain, setGrain] = useState<Grain>('day')
   const [agentName, setAgentName] = useState<string>('')
-  const [historyRange, setHistoryRange] = useState(() => getDefaultHistoryRange('day'))
+  const [historyRange, setHistoryRange] = useState(() => getRealtimeDefaultHistoryRange('day', today))
   const [activeMetricKey, setActiveMetricKey] = useState('inbound_email_count')
 
-  const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
-  const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
-  const previousPeriodLabel = useMemo(() => getPreviousPeriodLabel(grain), [grain])
+  const currentPeriod = useMemo(() => getRealtimeCurrentPeriod(grain, today), [grain, today])
+  const previousPeriod = useMemo(() => getRealtimePreviousPeriod(grain, today), [grain, today])
+  const previousPeriodLabel = useMemo(() => getRealtimePreviousPeriodLabel(grain), [grain])
 
   function handleGrainChange(next: Grain) {
     setGrain(next)
-    setHistoryRange(getDefaultHistoryRange(next))
+    setHistoryRange(getRealtimeDefaultHistoryRange(next, today))
   }
 
   const baseFilters = { grain, agent_name: agentName } as const
@@ -98,12 +90,6 @@ export default function P1Dashboard() {
       currentValue: current?.summary.inbound_email_count,
       previousValue: previous?.summary.inbound_email_count,
       historyTrend: (history?.trends.inbound_email_count ?? []) as TrendPoint[],
-      currentTrend: currentTrendPoint(
-        current,
-        currentPeriod,
-        historyRange,
-        current?.summary.inbound_email_count,
-      ),
       formatter: formatInteger,
       deltaMode: 'percent' as const,
       isRate: false,
@@ -116,12 +102,6 @@ export default function P1Dashboard() {
       currentValue: current?.summary.outbound_email_count,
       previousValue: previous?.summary.outbound_email_count,
       historyTrend: (history?.trends.outbound_email_count ?? []) as TrendPoint[],
-      currentTrend: currentTrendPoint(
-        current,
-        currentPeriod,
-        historyRange,
-        current?.summary.outbound_email_count,
-      ),
       formatter: formatInteger,
       deltaMode: 'percent' as const,
       isRate: false,
@@ -134,43 +114,41 @@ export default function P1Dashboard() {
       currentValue: current?.summary.avg_queue_hours,
       previousValue: previous?.summary.avg_queue_hours,
       historyTrend: (history?.trends.avg_queue_hours ?? []) as TrendPoint[],
-      currentTrend: currentTrendPoint(
-        current,
-        currentPeriod,
-        historyRange,
-        current?.summary.avg_queue_hours,
-      ),
       formatter: (n: number) => formatHours(n, 1),
       deltaMode: 'percent' as const,
       isRate: false,
     },
     {
-      key: 'first_response_timeout_count',
-      label: '首次响应超时次数',
-      description: getMetricDescription('p1.first_response_timeout_count'),
+      key: 'late_reply_count',
+      label: '已回复但延迟',
+      description: getMetricDescription('p1.late_reply_count'),
       sparkline: true,
-      currentValue: current?.summary.first_response_timeout_count,
-      previousValue: previous?.summary.first_response_timeout_count,
-      historyTrend: (history?.trends.first_response_timeout_count ?? []) as TrendPoint[],
-      currentTrend: currentTrendPoint(
-        current,
-        currentPeriod,
-        historyRange,
-        current?.summary.first_response_timeout_count,
-      ),
+      currentValue: current?.summary.late_reply_count,
+      previousValue: previous?.summary.late_reply_count,
+      historyTrend: (history?.trends.late_reply_count ?? []) as TrendPoint[],
       formatter: formatInteger,
       deltaMode: 'percent' as const,
       isRate: false,
     },
   ]
 
-  const focusMetrics: FocusMetricSpec[] = cards.map((c) => ({
-    key: c.key,
-    label: c.label,
-    formatter: c.formatter,
-    history: c.historyTrend,
-    current: c.currentTrend,
-  }))
+  const backlogSnapshot = {
+    unrepliedCount: loading ? '--' : formatInteger(current?.summary.unreplied_count ?? 0),
+    avgUnrepliedWait: loading ? '--' : formatHours(current?.summary.avg_unreplied_wait_hours ?? 0, 1),
+  }
+
+  const focusMetrics: FocusMetricSpec[] = cards.map((c) => {
+    const trend = buildFocusTrend(c.historyTrend, grain, currentPeriod, c.currentValue, {
+      currentDayIsIncomplete: true,
+    })
+    return {
+      key: c.key,
+      label: c.label,
+      formatter: c.formatter,
+      history: trend.history,
+      current: trend.current,
+    }
+  })
 
   // Per-metric summary line for focus chart
   const rangeLabel = grain === 'day' ? `近 ${periodCount} 天`
@@ -197,6 +175,8 @@ export default function P1Dashboard() {
           onGrainChange={handleGrainChange}
           historyRange={historyRange}
           onHistoryRangeChange={setHistoryRange}
+          maxDate={today}
+          presetRangeBuilder={(value) => getRealtimePresetHistoryRange(value, today)}
           extras={
             <div className="filter-bar__group">
               <span className="filter-bar__label">客服姓名</span>
@@ -222,7 +202,12 @@ export default function P1Dashboard() {
         ) : null
       }
       currentPeriodSection={
-        <KpiSection title={getCurrentPeriodLabel(grain)} subtitle={`数据截至 ${currentPeriod.date_to}`} variant="current">
+        <KpiSection
+          title={getRealtimeCurrentPeriodLabel(grain)}
+          subtitle={`数据截至 ${currentPeriod.date_to}`}
+          variant="current"
+          className="kpi-section--p1-current"
+        >
           {cards.map((c) => {
             const secondaryValue = loading || c.previousValue === undefined || c.previousValue === null
               ? '--'
@@ -244,6 +229,22 @@ export default function P1Dashboard() {
               />
             )
           })}
+          <article className="p1-backlog-snapshot" aria-label="当前积压快照">
+            <div className="p1-backlog-snapshot__header">
+              <h3>当前积压</h3>
+              <span>实时快照</span>
+            </div>
+            <dl className="p1-backlog-snapshot__items">
+              <div>
+                <dt>当前积压未回</dt>
+                <dd>{backlogSnapshot.unrepliedCount}</dd>
+              </div>
+              <div>
+                <dt>当前积压平均等待</dt>
+                <dd>{backlogSnapshot.avgUnrepliedWait}</dd>
+              </div>
+            </dl>
+          </article>
         </KpiSection>
       }
       focusChart={loading ? null : (
@@ -251,6 +252,7 @@ export default function P1Dashboard() {
           metrics={focusMetrics}
           activeKey={activeMetricKey}
           onActiveKeyChange={setActiveMetricKey}
+          bucketFormatter={(bucket) => formatFocusBucketLabel(bucket, grain)}
           summaryByKey={summaryByKey}
         />
       )}
