@@ -34,6 +34,9 @@ describe('P1 overview KPI composition', () => {
     expect(source).toContain('markP1BacklogMailNeedsReply')
     expect(source).toContain('p1-backlog-modal')
     expect(source).toContain('待 review')
+    expect(source).toContain('customer_email')
+    expect(source).toContain('客户邮箱')
+    expect(source).toContain('发件邮箱')
     expect(source).toContain('is_manually_reviewed')
     expect(source).not.toContain('body?.en')
 

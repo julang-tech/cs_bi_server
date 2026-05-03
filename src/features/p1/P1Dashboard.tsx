@@ -35,6 +35,16 @@ function formatBacklogNote(note: string) {
   return note
 }
 
+function formatBacklogSender(mail: P1BacklogMail) {
+  const email = mail.customer_email || mail.from_email
+  if (mail.from_name && email) return `${mail.from_name} · ${email}`
+  return mail.from_name || email || '未知客户'
+}
+
+function shouldShowEnvelopeEmail(mail: P1BacklogMail) {
+  return Boolean(mail.from_email && mail.customer_email && mail.from_email !== mail.customer_email)
+}
+
 export default function P1Dashboard() {
   const today = useMemo(() => new Date(), [])
   const [grain, setGrain] = useState<Grain>('day')
@@ -354,7 +364,7 @@ export default function P1Dashboard() {
                       >
                         <span>
                           <strong>{title}</strong>
-                          <small>{mail.from_name || mail.from_email || '未知发件人'}</small>
+                          <small>{formatBacklogSender(mail)}</small>
                         </span>
                         <em>{formatHours(mail.wait_hours, 1)}</em>
                       </button>
@@ -362,6 +372,10 @@ export default function P1Dashboard() {
                         <div className="p1-backlog-list__detail">
                           <div className="p1-backlog-list__meta">
                             <span>收到时间 {mail.received_at}</span>
+                            <span>客户邮箱 {mail.customer_email || mail.from_email || '--'}</span>
+                            {shouldShowEnvelopeEmail(mail) ? (
+                              <span>发件邮箱 {mail.from_email}</span>
+                            ) : null}
                             <span>{mail.needs_reply === false ? '不需回复' : '仍需回复'}</span>
                             <span>{mail.is_manually_reviewed ? '人工已确认' : '尚未人工确认'}</span>
                           </div>
