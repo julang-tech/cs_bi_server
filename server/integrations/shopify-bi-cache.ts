@@ -81,6 +81,7 @@ export type ShopifyBiCacheRun = {
   ok: boolean
   started_at: string
   finished_at: string | null
+  data_as_of?: string | null
   error?: string | null
 }
 
@@ -232,6 +233,7 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
     refundEvents: ShopifyBiRefundEvent[]
     startedAt?: string
     finishedAt?: string
+    dataAsOf?: string | null
   }): ShopifyBiCacheSyncStats {
     const startedAt = input.startedAt ?? new Date().toISOString()
     const finishedAt = input.finishedAt ?? new Date().toISOString()
@@ -307,8 +309,8 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
     `)
     const insertRun = this.db.prepare(`
       INSERT INTO shopify_bi_cache_runs (
-        scope, date_from, date_to, ok, started_at, finished_at, error
-      ) VALUES ('shopify_bi_v2', ?, ?, 1, ?, ?, NULL)
+        scope, date_from, date_to, ok, started_at, finished_at, data_as_of, error
+      ) VALUES ('shopify_bi_v2', ?, ?, 1, ?, ?, ?, NULL)
     `)
 
     this.db.exec('BEGIN')
@@ -379,7 +381,7 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
         })
       }
 
-      insertRun.run(input.dateFrom, input.dateTo, startedAt, finishedAt)
+      insertRun.run(input.dateFrom, input.dateTo, startedAt, finishedAt, input.dataAsOf ?? null)
       this.db.exec('COMMIT')
     } catch (error) {
       this.db.exec('ROLLBACK')
@@ -677,6 +679,24 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
       `)
       .get(dateFrom, dateTo) as { generation: string } | undefined
     return String(row?.generation ?? '')
+  }
+
+  getDataAsOf(dateFrom: string, dateTo: string) {
+    const row = this.db
+      .prepare(`
+        SELECT data_as_of
+        FROM shopify_bi_cache_runs
+        WHERE scope = 'shopify_bi_v2'
+          AND ok = 1
+          AND date_from <= ?
+          AND date_to >= ?
+          AND data_as_of IS NOT NULL
+          AND TRIM(data_as_of) != ''
+        ORDER BY finished_at DESC, id DESC
+        LIMIT 1
+      `)
+      .get(dateFrom, dateTo) as { data_as_of: string | null } | undefined
+    return row?.data_as_of ?? null
   }
 
   queryP2Overview(filters: ShopifyBiP2OverviewFilters) {
@@ -1411,10 +1431,22 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
         ok INTEGER NOT NULL,
         started_at TEXT NOT NULL,
         finished_at TEXT,
+        data_as_of TEXT,
         error TEXT
       );
     `)
+    this.ensureCacheRunsDataAsOfColumn()
     this.ensureCacheRunsScopeIndex()
+  }
+
+  private ensureCacheRunsDataAsOfColumn() {
+    const columns = this.db
+      .prepare("PRAGMA table_info('shopify_bi_cache_runs')")
+      .all()
+      .map((row) => String((row as { name: unknown }).name))
+    if (!columns.includes('data_as_of')) {
+      this.db.exec('ALTER TABLE shopify_bi_cache_runs ADD COLUMN data_as_of TEXT;')
+    }
   }
 
   private ensureCacheRunsScopeIndex() {

@@ -96,13 +96,15 @@ function seedCacheDatabase(sqlitePath: string) {
       ok INTEGER NOT NULL,
       started_at TEXT NOT NULL,
       finished_at TEXT,
+      data_as_of TEXT,
       error TEXT
     );
     INSERT INTO shopify_bi_cache_runs (
-      scope, date_from, date_to, ok, started_at, finished_at, error
+      scope, date_from, date_to, ok, started_at, finished_at, data_as_of, error
     ) VALUES (
       'shopify_bi_v2', '2025-03-28', '2026-05-02', 1,
-      '2026-05-02T05:00:00.000Z', '2026-05-02T05:08:00.000Z', NULL
+      '2026-05-02T05:00:00.000Z', '2026-05-02T05:08:00.000Z',
+      '2026-05-02T04:55:00.000Z', NULL
     );
   `)
   db.close()
@@ -129,6 +131,7 @@ async function run() {
   })
   assert.equal(payload.shopify_bi_cache.max_order_date, '2026-05-01')
   assert.equal(payload.shopify_bi_cache.max_refund_date, '2026-05-01')
+  assert.equal(payload.shopify_bi_cache.data_as_of, '2026-05-02T04:55:00.000Z')
   assert.equal(payload.shopify_bi_cache.orders_count, 2)
   assert.equal(payload.shopify_bi_cache.refund_events_count, 1)
 
