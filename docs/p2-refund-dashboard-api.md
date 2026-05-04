@@ -56,6 +56,7 @@
     "partial_data": false,
     "source_mode": "sqlite_shopify_bi_cache",
     "cache_generation": "2026-05-01T12:00:00.000Z",
+    "data_as_of": "2026-05-04T06:00:00.000Z",
     "notes": [
       "Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping; refund_amount is now refund-flow (events in window) not cohort (orders in window). See lintico-data-warehouse/shopify_data_sync/docs/decisions/0007-dwd-align-with-cs-bi-finance.md"
     ]
@@ -108,6 +109,7 @@
     "partial_data": false,
     "source_mode": "sqlite_shopify_bi_cache",
     "cache_generation": "2026-05-01T12:00:00.000Z",
+    "data_as_of": "2026-05-04T06:00:00.000Z",
     "notes": []
   }
 }
@@ -132,7 +134,7 @@
 
 ### 4.1 运行时取数路径
 
-P2 正常服务路径优先读取本地 SQLite Shopify BI cache。该 cache 由 `sync:worker` 按日期覆盖窗口刷新；BigQuery 是 cache refresh 的上游来源，不再是 SQLite 覆盖范围存在时的常规 P2 在线服务路径。
+P2 正常服务路径优先读取本地 SQLite Shopify BI cache。该 cache 由 `sync:worker` 按日期覆盖窗口刷新；上游 Shopify DWD marts 目前是小时级更新，因此 worker 的普通轮询会刷新尾部窗口并写入 `data_as_of`。BigQuery 是 cache refresh 的上游来源，不再是 SQLite 覆盖范围存在时的常规 P2 在线服务路径。
 
 当请求日期范围未被 SQLite cache 覆盖，或 SQLite cache 暂不可用时，P2 会回退到 BigQuery 查询并在响应元数据中标记来源。
 
@@ -144,6 +146,7 @@ P2 正常服务路径优先读取本地 SQLite Shopify BI cache。该 cache 由 
 
 - `meta.source_mode`: `sqlite_shopify_bi_cache` 表示请求日期范围已被 SQLite cache 覆盖并由 cache 返回；`bigquery_fallback` 表示 cache 覆盖缺失或 cache 不可用，本次响应由 BigQuery 返回。
 - `meta.cache_generation`: SQLite 响应包含该字段，表示覆盖当前请求日期范围的最近一次成功 cache refresh 时间戳。
+- `meta.data_as_of`: SQLite 响应包含该字段时，表示当前 cache 覆盖范围对应的上游 Shopify DWD 数据水位。前端展示为小时级“数据截至”。
 - `meta.partial_data`: 存在局部失败或凭证缺失等降级时为 `true`。
 - `meta.notes`: 包含 ADR-0007 指标口径说明，以及 cache 不可用、BigQuery 凭证缺失等 fallback 说明。
 
@@ -190,6 +193,8 @@ P2 正常服务路径优先读取本地 SQLite Shopify BI cache。该 cache 由 
 ## 7. 关键交互与展示规则
 
 - 时间筛选组件：`粒度 + 开始 + 结束` 合并
+- 默认当前周期：按日为今天，按周为本周至今，按月为本月至今；最后一个未完整 bucket 用虚线/当前段样式展示。
+- 当前周期标题下方优先展示 `meta.data_as_of` 格式化后的小时级“数据截至”，缺失时回退到当前周期结束日期。
 - 商品表默认折叠
 - 折叠态 SKC 列显示该 SPU 下“退款金额最高”的 SKC
 - 点击行可展开，支持多行同时展开
