@@ -48,7 +48,7 @@ async function testWorkerRunsImmediately() {
   worker.start()
   await sleep(30)
   worker.stop()
-  assert.equal(calls.length, 3)
+  assert.equal(calls.length, 2)
   assert.equal(calls[0].name, 'syncSourceToTarget')
   const s2tOptions = calls[0].options as { config: string; from?: string; to?: string }
   assert.equal(s2tOptions.config, 'config/sync/config.example.json')
@@ -57,10 +57,6 @@ async function testWorkerRunsImmediately() {
   assert.deepEqual(calls[1], {
     name: 'syncTargetToSqlite',
     options: { config: 'config/sync/config.example.json', refreshBigQueryCache: true, cacheTailDays: 7 },
-  })
-  assert.deepEqual(calls[2], {
-    name: 'syncShopifyBiCacheIfDue',
-    options: { config: 'config/sync/config.example.json', cacheTailDays: 7 },
   })
 }
 
@@ -178,10 +174,6 @@ async function testWorkerDailyFullRefreshForcesBigQueryCache() {
     {
       name: 'syncTargetToSqlite',
       options: { config: 'config/sync/config.example.json', refreshBigQueryCache: true, cacheTailDays: 7 },
-    },
-    {
-      name: 'syncShopifyBiCacheIfDue',
-      options: { config: 'config/sync/config.example.json', cacheTailDays: 7 },
     },
   ])
 }

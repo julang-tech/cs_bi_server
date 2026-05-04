@@ -204,7 +204,7 @@ export function createSyncWorker(options: {
         refreshBigQueryCache,
         cacheTailDays,
       })
-      const shopifyBiCache = service.syncShopifyBiCacheIfDue
+      const shopifyBiCache = trigger === 'interval' && service.syncShopifyBiCacheIfDue
         ? await service.syncShopifyBiCacheIfDue({
             config: options.configPath,
             cacheTailDays,

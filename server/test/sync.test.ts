@@ -1525,7 +1525,7 @@ async function testSyncRefreshesBigQueryCache() {
   assert.equal(result.bigquery_cache.ok, true)
   assert.equal(result.bigquery_cache.order_lines_upserted, 1)
   assert.equal(result.bigquery_cache.refund_events_upserted, 1)
-  assert.equal(queryCount, 5)
+  assert.equal(queryCount, 6)
 
   const cache = new SqliteP3BigQueryCacheRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
   const summary = await cache.fetchSummary({
@@ -1634,6 +1634,9 @@ async function testSyncRefreshesShopifyBiV2Cache() {
     createBigQueryClient: () => ({
       async query(options: unknown) {
         const query = String((options as { query?: string }).query ?? '')
+        if (query.includes('MAX(_dbt_updated_at)')) {
+          return [[{ data_as_of: '2026-05-04T06:00:00.000Z' }]]
+        }
         if (query.includes('int_line_items_classified')) {
           const usesParsedSkuSpu =
             query.includes('parsed_skc AS skc') && query.includes('parsed_spu AS spu')
@@ -1699,6 +1702,10 @@ async function testSyncRefreshesShopifyBiV2Cache() {
   assert.equal(shopifyBiCache?.orders_upserted, 1)
   assert.equal(shopifyBiCache?.order_lines_upserted, 1)
   assert.equal(shopifyBiCache?.refund_events_upserted, 1)
+  assert.equal(
+    (shopifyBiCache as { data_as_of?: string | null } | undefined)?.data_as_of,
+    '2026-05-04T06:00:00.000Z',
+  )
 
   const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
   const cache = new SqliteShopifyBiCacheRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
@@ -1769,7 +1776,7 @@ async function testSyncTargetToSqliteCanSkipBigQueryCacheRefreshes() {
   assert.equal(result.shopify_bi_cache.ok, true)
 }
 
-async function testSyncShopifyBiCacheIfDueSkipsWhenWindowCovered() {
+async function testSyncShopifyBiCacheIfDueRefreshesWhenWindowCovered() {
   const tmpDir = createTempDir()
   const configPath = createConfig(tmpDir)
   const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
@@ -1818,10 +1825,10 @@ async function testSyncShopifyBiCacheIfDueSkipsWhenWindowCovered() {
 
   const result = await service.syncShopifyBiCacheIfDue({ config: configPath })
 
-  assert.equal(bigQueryCalls, 0)
+  assert.equal(bigQueryCalls, 4)
   assert.equal(result.enabled, true)
   assert.equal(result.ok, true)
-  assert.equal(result.skipped, true)
+  assert.equal(result.skipped, false)
   assert.equal(result.failed, 0)
 }
 
@@ -1957,7 +1964,7 @@ async function testSyncShopifyBiCacheIfDueRefreshesWhenWindowMissing() {
 
   const result = await service.syncShopifyBiCacheIfDue({ config: configPath })
 
-  assert.equal(bigQueryCalls, 3)
+  assert.equal(bigQueryCalls, 4)
   assert.equal(result.enabled, true)
   assert.equal(result.ok, true)
   assert.equal(result.skipped, false)
@@ -3197,7 +3204,7 @@ async function run() {
   await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
   await testSyncRefreshesShopifyBiV2Cache()
   await testSyncTargetToSqliteCanSkipBigQueryCacheRefreshes()
-  await testSyncShopifyBiCacheIfDueSkipsWhenWindowCovered()
+  await testSyncShopifyBiCacheIfDueRefreshesWhenWindowCovered()
   await testSyncShopifyBiCacheIfDueReturnsFailureWhenCoverageCheckFails()
   await testSyncShopifyBiCacheIfDueRefreshesWhenWindowMissing()
   await testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders()

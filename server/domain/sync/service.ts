@@ -129,6 +129,7 @@ type SyncShopifyBiCacheSummary = {
   order_lines_upserted: number
   refund_events_upserted: number
   failed: number
+  data_as_of?: string | null
   skipped?: boolean
   error?: string
 }
@@ -269,6 +270,24 @@ function normalizeBoolean(value: unknown) {
   }
   const text = String(value ?? '').trim().toLowerCase()
   return ['1', 'true', 't', 'yes', 'y'].includes(text)
+}
+
+function normalizeIsoTimestamp(value: unknown) {
+  if (value == null) {
+    return null
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString()
+  }
+  if (typeof value === 'object' && 'value' in value) {
+    return normalizeIsoTimestamp((value as { value: unknown }).value)
+  }
+  const text = String(value).trim()
+  if (!text) {
+    return null
+  }
+  const parsed = new Date(text)
+  return Number.isNaN(parsed.getTime()) ? text : parsed.toISOString()
 }
 
 function stableSyntheticId(parts: unknown[]) {
@@ -1849,43 +1868,6 @@ export class SyncService {
     const sqlitePath = resolveRuntimePath(options.config, config.runtime.sqlite_path)
     const logger = createLogger(resolveRuntimePath(options.config, config.runtime.log_path))
     const tailDays = options.cacheTailDays ?? DEFAULT_CACHE_TAIL_DAYS
-    const { dateFrom, dateTo } = resolveBigQueryCacheWindow(new Date(), tailDays)
-    let repository: SqliteShopifyBiCacheRepository | null = null
-    try {
-      repository = new SqliteShopifyBiCacheRepository(sqlitePath)
-      if (repository.hasCoverage(dateFrom, dateTo)) {
-        logger.info(`Shopify BI cache skipped: existing coverage for ${dateFrom} to ${dateTo}.`)
-        return {
-          enabled: true,
-          ok: true,
-          date_from: dateFrom,
-          date_to: dateTo,
-          orders_upserted: 0,
-          order_lines_upserted: 0,
-          refund_events_upserted: 0,
-          failed: 0,
-          skipped: true,
-        }
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      logger.error(`Shopify BI cache due-check failed: ${message}`)
-      return {
-        enabled: true,
-        ok: false,
-        date_from: dateFrom,
-        date_to: dateTo,
-        orders_upserted: 0,
-        order_lines_upserted: 0,
-        refund_events_upserted: 0,
-        failed: 1,
-        skipped: false,
-        error: message,
-      }
-    } finally {
-      repository?.close()
-    }
-
     const result = await this.syncShopifyBiCache(config, sqlitePath, logger, { tailDays })
     return {
       ...result,
@@ -2002,6 +1984,16 @@ export class SyncService {
     let repository: SqliteShopifyBiCacheRepository | null = null
     try {
       logger.info(`Starting Shopify BI cache sync for ${dateFrom} to ${dateTo}.`)
+      let dataAsOf: string | null = null
+      try {
+        dataAsOf = await this.fetchShopifyBiDataAsOf(client)
+      } catch (error) {
+        logger.warn(
+          `Shopify BI cache freshness query failed; continuing without data_as_of: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
       const [orders, orderLines, refundEvents] = await Promise.all([
         this.fetchShopifyBiOrders(client, dateFrom, dateTo),
         this.fetchShopifyBiOrderLines(client, dateFrom, dateTo),
@@ -2016,9 +2008,10 @@ export class SyncService {
         refundEvents,
         startedAt,
         finishedAt: new Date().toISOString(),
+        dataAsOf,
       })
       logger.info(
-        `Shopify BI cache synced to ${sqlitePath}: orders=${stats.orders_upserted}, order_lines=${stats.order_lines_upserted}, refund_events=${stats.refund_events_upserted}.`,
+        `Shopify BI cache synced to ${sqlitePath}: orders=${stats.orders_upserted}, order_lines=${stats.order_lines_upserted}, refund_events=${stats.refund_events_upserted}, data_as_of=${dataAsOf ?? 'null'}.`,
       )
       return {
         enabled: true,
@@ -2026,6 +2019,7 @@ export class SyncService {
         date_from: dateFrom,
         date_to: dateTo,
         ...stats,
+        data_as_of: dataAsOf,
         failed: 0,
       }
     } catch (error) {
@@ -2039,12 +2033,31 @@ export class SyncService {
         orders_upserted: 0,
         order_lines_upserted: 0,
         refund_events_upserted: 0,
+        data_as_of: null,
         failed: 1,
         error: message,
       }
     } finally {
       repository?.close()
     }
+  }
+
+  private async fetchShopifyBiDataAsOf(client: BigQueryLike): Promise<string | null> {
+    const rows = extractRows(await client.query({
+      query: `
+SELECT
+  FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%E3SZ', MIN(data_as_of)) AS data_as_of
+FROM (
+  SELECT MAX(_dbt_updated_at) AS data_as_of
+  FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\`
+  UNION ALL
+  SELECT MAX(_dbt_updated_at) AS data_as_of
+  FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\`
+)
+WHERE data_as_of IS NOT NULL
+      `,
+    }))
+    return normalizeIsoTimestamp(rows[0]?.data_as_of)
   }
 
   private async fetchShopifyBiOrders(
