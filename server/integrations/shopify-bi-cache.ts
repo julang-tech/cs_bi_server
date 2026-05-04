@@ -67,6 +67,13 @@ export type ShopifyBiRefundEvent = {
   refund_subtotal_usd: number
 }
 
+export type ShopifyBiSyncFinancials = {
+  orderAmountUsd: number | null
+  skuAmountUsd: number | null
+  skuRefundAmountUsd: number | null
+  orderRefundAmountUsd: number | null
+}
+
 export type ShopifyBiCacheRun = {
   scope: 'shopify_bi_v2'
   date_from: string
@@ -568,6 +575,80 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
       result.push(sku)
     }
     return result
+  }
+
+  lookupSyncFinancials(orderNo: string, sku: string | null): ShopifyBiSyncFinancials | null {
+    const normalizedOrderNo = String(orderNo ?? '').trim()
+    if (!normalizedOrderNo) return null
+
+    const orderRow = this.db
+      .prepare(`
+        SELECT gmv_usd
+        FROM shopify_bi_orders
+        WHERE order_no = ?
+        ORDER BY processed_date DESC
+        LIMIT 1
+      `)
+      .get(normalizedOrderNo) as { gmv_usd: unknown } | undefined
+
+    const skuKey = normalizeSku(sku)
+    let skuAmountUsd: number | null = null
+    let skuRefundAmountUsd: number | null = null
+
+    if (skuKey) {
+      const skuAmountRow = this.db
+        .prepare(`
+          SELECT SUM(discounted_total_usd) AS amount
+          FROM shopify_bi_order_lines
+          WHERE order_no = ?
+            AND UPPER(TRIM(COALESCE(sku, ''))) = ?
+            AND is_insurance_item = 0
+            AND is_price_adjustment = 0
+            AND is_shipping_cost = 0
+        `)
+        .get(normalizedOrderNo, skuKey) as { amount: unknown } | undefined
+      skuAmountUsd = skuAmountRow?.amount == null ? null : Number(skuAmountRow.amount)
+
+      const skuRefundRow = this.db
+        .prepare(`
+          SELECT SUM(refund_subtotal_usd) AS amount
+          FROM shopify_bi_refund_events
+          WHERE order_no = ?
+            AND UPPER(TRIM(COALESCE(sku, ''))) = ?
+        `)
+        .get(normalizedOrderNo, skuKey) as { amount: unknown } | undefined
+      skuRefundAmountUsd = skuRefundRow?.amount == null ? null : Number(skuRefundRow.amount)
+    } else {
+      const singleLineRow = this.db
+        .prepare(`
+          SELECT COUNT(*) AS count, SUM(discounted_total_usd) AS amount
+          FROM shopify_bi_order_lines
+          WHERE order_no = ?
+            AND is_insurance_item = 0
+            AND is_price_adjustment = 0
+            AND is_shipping_cost = 0
+        `)
+        .get(normalizedOrderNo) as { count: unknown; amount: unknown } | undefined
+      if (Number(singleLineRow?.count ?? 0) === 1 && singleLineRow?.amount != null) {
+        skuAmountUsd = Number(singleLineRow.amount)
+      }
+    }
+
+    const orderRefundRow = this.db
+      .prepare(`
+        SELECT SUM(refund_subtotal_usd) AS amount
+        FROM shopify_bi_refund_events
+        WHERE order_no = ?
+      `)
+      .get(normalizedOrderNo) as { amount: unknown } | undefined
+
+    const financials: ShopifyBiSyncFinancials = {
+      orderAmountUsd: orderRow?.gmv_usd == null ? null : Number(orderRow.gmv_usd),
+      skuAmountUsd,
+      skuRefundAmountUsd,
+      orderRefundAmountUsd: orderRefundRow?.amount == null ? null : Number(orderRefundRow.amount),
+    }
+    return Object.values(financials).some((value) => value != null) ? financials : null
   }
 
   hasCoverage(dateFrom: string, dateTo: string) {

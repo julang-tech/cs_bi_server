@@ -446,6 +446,19 @@ export class FeishuTableClient {
     return ids
   }
 
+  async batchDeleteRecords(table: SyncConfig['target'], recordIds: string[]) {
+    if (recordIds.length === 0) return
+    const BATCH_SIZE = 500
+    for (let i = 0; i < recordIds.length; i += BATCH_SIZE) {
+      const chunk = recordIds.slice(i, i + BATCH_SIZE)
+      await this.request({
+        method: 'POST',
+        path: `/bitable/v1/apps/${table.app_token}/tables/${table.table_id}/records/batch_delete`,
+        payload: { records: chunk },
+      })
+    }
+  }
+
   async updateRecord(table: SyncConfig['target'], recordId: string, fields: Record<string, unknown>) {
     const response = await this.request({
       method: 'PUT',

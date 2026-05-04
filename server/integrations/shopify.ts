@@ -12,6 +12,20 @@ type ShopifyLineItem = {
   originalTotal: ShopifyMoney | null
 }
 
+type ShopifyTrackingInfo = {
+  company: string | null
+  number: string
+  url: string | null
+}
+
+export type ShopifyShipment = {
+  id: string | null
+  status: string | null
+  display_status: string | null
+  created_at: string | null
+  tracking: ShopifyTrackingInfo[]
+}
+
 export type ShopifyOrder = {
   id: string
   name: string
@@ -22,6 +36,7 @@ export type ShopifyOrder = {
   currency: string | null
   fulfillment_status: string | null
   tracking_numbers: string[]
+  shipments: ShopifyShipment[]
   shipped_at: string | null
   admin_order_url: string
   line_items: ShopifyLineItem[]
@@ -60,11 +75,15 @@ type ShopifyQueryResponse = {
             }>
           } | null
           fulfillments?: Array<{
+            id?: string | null
             trackingInfo?: Array<{
+              company?: string | null
               number?: string | null
+              url?: string | null
             }> | null
             createdAt?: string | null
             status?: string | null
+            displayStatus?: string | null
           }> | null
         } | null
       }>
@@ -121,11 +140,15 @@ query OrderByName($query: String!) {
           }
         }
         fulfillments(first: 20) {
+          id
           trackingInfo {
+            company
             number
+            url
           }
           createdAt
           status
+          displayStatus
         }
       }
     }
@@ -167,15 +190,6 @@ export function inferLogisticsStatusFromShopify(fulfillmentStatus: string | null
   const normalized = fulfillmentStatus.trim().toUpperCase()
   if (normalized === 'UNFULFILLED') {
     return '未发货'
-  }
-  if (normalized === 'PARTIALLY_FULFILLED') {
-    return '运输途中'
-  }
-  if (normalized === 'FULFILLED') {
-    return '运输途中'
-  }
-  if (normalized === 'IN_PROGRESS') {
-    return '运输途中'
   }
   if (normalized === 'ON_HOLD') {
     return '未知状态'
@@ -270,6 +284,20 @@ export class ShopifyClient implements ShopifyLikeClient {
           .filter(Boolean),
       ),
     ]
+    const shipments: ShopifyShipment[] = (node.fulfillments ?? []).map((fulfillment) => ({
+      id: fulfillment.id ?? null,
+      status: fulfillment.status ?? null,
+      display_status: fulfillment.displayStatus ?? null,
+      created_at: fulfillment.createdAt ?? null,
+      tracking:
+        fulfillment.trackingInfo
+          ?.map((tracking) => ({
+            company: tracking.company ?? null,
+            number: String(tracking.number ?? '').trim(),
+            url: tracking.url ?? null,
+          }))
+          .filter((tracking) => tracking.number) ?? [],
+    }))
 
     const shippedAt = firstNonEmpty((node.fulfillments ?? []).map((fulfillment) => fulfillment.createdAt ?? null))
     const orderId = node.id.split('/').pop() ?? node.id
@@ -284,6 +312,7 @@ export class ShopifyClient implements ShopifyLikeClient {
       currency: node.currentTotalPriceSet?.shopMoney?.currencyCode ?? null,
       fulfillment_status: node.displayFulfillmentStatus ?? null,
       tracking_numbers: trackingNumbers,
+      shipments,
       shipped_at: shippedAt,
       admin_order_url: `${toAdminBaseUrl(site.url)}/${orderId}`,
       line_items: lineItems,

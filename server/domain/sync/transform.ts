@@ -19,7 +19,7 @@ const REFUND_FLAG_MAP: Record<string, string> = {
 }
 
 const COMPLAINT_TYPE_MAP: Record<string, string> = {
-  产品问题: '货品瑕疵-其他',
+  产品问题: '客户原因-其他',
   '券/折扣问题': '客户原因-折扣码退款',
   缺货问题: '仓库-缺货',
   '订单异常/取消/修改订单': '客户原因-重复下单/下错单取消',
@@ -32,7 +32,6 @@ const COMPLAINT_TYPE_MAP: Record<string, string> = {
 const COMPLAINT_TYPE_FALLBACK = '客户原因-尺码不合适'
 
 const VIEW_HIT_MAP: Record<string, string> = {
-  产品问题: '1-3待跟进表-货品瑕疵',
   瑕疵问题: '1-3待跟进表-货品瑕疵',
   缺货问题: '1-2待跟进表-漏发、发错',
   错漏发: '1-2待跟进表-漏发、发错',
@@ -138,6 +137,25 @@ function stringifyMulti(value: unknown): string[] {
 
 function joinNonEmpty(parts: Array<string | undefined | null>, separator = ' | ') {
   return parts.map((part) => (part == null ? '' : String(part).trim())).filter(Boolean).join(separator)
+}
+
+function joinNoteWithSolution(description: string, solution: string) {
+  return joinNonEmpty([
+    description,
+    solution ? `协商方案：${solution}` : '',
+  ])
+}
+
+function mergeAttachments(...values: unknown[]) {
+  const attachments: unknown[] = []
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      attachments.push(...value.filter(Boolean))
+    } else if (value) {
+      attachments.push(value)
+    }
+  }
+  return attachments
 }
 
 function formatDateParts(year: number, month: number, day: number) {
@@ -269,8 +287,61 @@ function parseSkus(operationText: string) {
   }
   return operationText
     .split(/\r?\n/)
-    .map((line) => line.trim())
+    .flatMap((line) => line.split(/[，,；;]/))
+    .map((line) => line.trim().replace(/^(?:[-*]\s*|\d+[.、)]\s*)/, '').trim())
     .filter((line) => SKU_PATTERN.test(line))
+}
+
+function parseItemCount(text: string) {
+  const match = text.match(/(\d+)\s*件/)
+  return match ? Number(match[1]) : null
+}
+
+function isFullOrderText(text: string) {
+  return /(全退|全部|所有|整单|整包|全部商品|所有商品|all items|whole order|entire order)/i.test(text)
+}
+
+function resolveComplaintSkus(
+  orderNo: string,
+  explicitSkuText: string,
+  evidenceText: string,
+  context: TransformContext,
+) {
+  const explicitSkus = parseSkus(explicitSkuText)
+  if (explicitSkus.length) return explicitSkus
+
+  const evidenceSkus = parseSkus(evidenceText)
+  if (evidenceSkus.length) return evidenceSkus
+
+  const orderSkus = context.lookupOrderSkus?.(orderNo) ?? null
+  if (!orderSkus?.length) return []
+  if (orderSkus.length === 1) return orderSkus
+
+  const itemCount = parseItemCount(evidenceText)
+  if (itemCount === orderSkus.length || isFullOrderText(evidenceText)) {
+    return orderSkus
+  }
+  return []
+}
+
+function fanOutComplaintRecords(
+  orderNo: string,
+  baseRecord: Record<string, unknown>,
+  context: TransformContext,
+  options: {
+    explicitSkuText?: string
+    evidenceText?: string
+  },
+) {
+  return fanOutBySkus(
+    baseRecord,
+    resolveComplaintSkus(
+      orderNo,
+      options.explicitSkuText ?? '',
+      options.evidenceText ?? '',
+      context,
+    ),
+  )
 }
 
 function mapLogisticsStatus(value: unknown) {
@@ -313,6 +384,26 @@ function inferSolutionFromOperation(operationText: string) {
     return ['部分退款']
   }
   return ['退款跟进']
+}
+
+function mapManualReturnSolution(value: unknown) {
+  const raw = stringifyMulti(value)
+  const mapped = raw.flatMap((item) => {
+    if (item === '退货退款') return ['全额退款']
+    if (item === '代金券') return ['代金券']
+    if (item === '补发') return ['补发']
+    return []
+  })
+  return mapped.length ? [...new Set(mapped)] : ['全额退款']
+}
+
+function inferSolutionFromNegotiation(value: string, fallback: string[]) {
+  const text = value.trim()
+  if (!text) return fallback
+  if (/代金券|coupon|voucher|store\s*credit/i.test(text)) return ['代金券']
+  if (/补发|重发|resend|reissue|replacement/i.test(text)) return ['补发']
+  if (/退款|refund/i.test(text)) return ['全额退款']
+  return fallback
 }
 
 function inferRefundViewHit(refundReason: string, operationText: string) {
@@ -364,18 +455,18 @@ export function inferComplaintTypeFromText(text: string, hitView?: string): stri
       return '物流问题-丢包'
     }
     if (/(地址|address|改地址|wrong\s*address)/i.test(normalized)) {
-      return '物流问题-地址'
+      return '物流问题-派发错地址'
     }
     return '物流问题-其他'
   }
 
   if (hitView === VIEW_PRODUCT_DEFECT) {
-    if (/(缝线|开线|线头|stitch|seam)/i.test(normalized)) return '货品瑕疵-缝线'
-    if (/(扣子|button|拉链|zipper)/i.test(normalized)) return '货品瑕疵-扣子'
-    if (/(破洞|hole|tear|破损|破)/i.test(normalized)) return '货品瑕疵-破洞'
+    if (/(缝线|开线|线头|stitch|seam)/i.test(normalized)) return '货品瑕疵-缝线问题'
+    if (/(扣子|button|拉链|zipper)/i.test(normalized)) return '货品瑕疵-扣子问题'
+    if (/(破洞|hole|tear|破损|破)/i.test(normalized)) return '货品瑕疵-有破洞'
     if (/(色差|颜色不对|color\s*off|不一样的颜色|discolor)/i.test(normalized)) return '货品瑕疵-色差'
     if (/(尺码|size\s*wrong|too\s*(large|small|big|tight|loose)|码数)/i.test(normalized)) {
-      return '货品瑕疵-尺码'
+      return '货品瑕疵-尺码问题'
     }
     return '货品瑕疵-其他'
   }
@@ -458,7 +549,7 @@ function transformRefundLog(
 
   const refundReceipt = stringify(rawFields['是否收到退货/退货单据'])
   if (refundReceipt) {
-    baseRecord['退货单号'] = refundReceipt
+    baseRecord['是否收到退货/退货单据'] = refundReceipt
   }
 
   const creator = stringify(rawFields['创建人'])
@@ -466,8 +557,9 @@ function transformRefundLog(
     baseRecord['客服跟进人'] = creator
   }
 
-  const skus = parseSkus(operation)
-  const records = fanOutBySkus(baseRecord, skus)
+  const records = fanOutComplaintRecords(orderNo, baseRecord, context, {
+    evidenceText: operation,
+  })
   return { source_key: sourceKey, records, errors: [] }
 }
 
@@ -489,8 +581,10 @@ function transformReissue6Usd(
 
   const reasons = stringifyMulti(rawFields['客诉原因'])
   const reasonText = reasons.join(' | ')
+  const note = stringify(rawFields['备注'])
   const view = [VIEW_REISSUE]
-  const sku = stringify(rawFields['需补发SKU'])
+  const sku = stringify(rawFields['客诉SKU'])
+  const reissueSku = stringify(rawFields['需补发SKU'])
   const reissueOrderNo = stringify(rawFields['补发订单号'])
   const customer = stringify(rawFields['客户姓名'])
   const creator = stringify(rawFields['创建人'])
@@ -500,14 +594,21 @@ function transformReissue6Usd(
     订单号: orderNo,
     客诉类型: inferComplaintTypeFromText(reasonText),
     客诉方案: ['6美元补发'],
-    待跟进客诉备注: reasonText,
+    '具体金额/操作要求': reissueSku ? `需补发SKU：${reissueSku}` : '',
+    待跟进客诉备注: joinNonEmpty([reasonText, note]),
   }
-  if (sku) baseRecord['客诉SKU'] = sku
   if (reissueOrderNo) baseRecord['补发订单号'] = reissueOrderNo
   if (customer) baseRecord['客户姓名'] = customer
   if (creator) baseRecord['客服跟进人'] = creator
 
-  return { source_key: sourceKey, records: [baseRecord], errors: [] }
+  return {
+    source_key: sourceKey,
+    records: fanOutComplaintRecords(orderNo, baseRecord, context, {
+      explicitSkuText: sku,
+      evidenceText: reasonText,
+    }),
+    errors: [],
+  }
 }
 
 // ---------- 3. 手工退货 ----------
@@ -528,24 +629,32 @@ function transformManualReturn(
 
   const reasons = stringifyMulti(rawFields['客诉原因'])
   const measurements = stringify(rawFields['顾客三围信息'])
+  const rawNote = stringify(rawFields['备注'])
   const reasonText = reasons.join(' | ')
-  const note = joinNonEmpty([reasonText, measurements ? `三围：${measurements}` : ''], ' | ')
+  const note = joinNonEmpty([reasonText, measurements ? `三围：${measurements}` : '', rawNote], ' | ')
   const view = [VIEW_REFUND]
   const sku = stringify(rawFields['客诉SKU'])
   const creator = stringify(rawFields['创建人']) || stringify(rawFields['反馈人'])
+  const solution = mapManualReturnSolution(rawFields['方案'])
 
   const baseRecord: Record<string, unknown> = {
     ...buildBaseRecord(view),
     记录日期: recordDate,
     订单号: orderNo,
     客诉类型: inferComplaintTypeFromText(reasonText),
-    客诉方案: ['全额退款'],
+    客诉方案: solution,
     待跟进客诉备注: note,
   }
-  if (sku) baseRecord['客诉SKU'] = sku
   if (creator) baseRecord['客服跟进人'] = creator
 
-  return { source_key: sourceKey, records: [baseRecord], errors: [] }
+  return {
+    source_key: sourceKey,
+    records: fanOutComplaintRecords(orderNo, baseRecord, context, {
+      explicitSkuText: sku,
+      evidenceText: note,
+    }),
+    errors: [],
+  }
 }
 
 // ---------- 4. 瑕疵反馈 ----------
@@ -565,6 +674,8 @@ function transformDefectFeedback(
   }
 
   const description = stringify(rawFields['瑕疵说明'])
+  const solution = stringify(rawFields['协商方案'])
+  const attachments = mergeAttachments(rawFields['照片核实'], rawFields['照片核实 (1)'])
   const sku = stringify(rawFields['产品sku']) || stringify(rawFields['产品SKU'])
   const shippedAt = stringify(rawFields['订单发货时间'])
   const view = [VIEW_PRODUCT_DEFECT]
@@ -577,14 +688,21 @@ function transformDefectFeedback(
     记录日期: recordDate,
     订单号: orderNo,
     客诉类型: inferredType,
-    客诉方案: description ? ['补发'] : ['全额退款'],
-    待跟进客诉备注: description,
+    客诉方案: inferSolutionFromNegotiation(solution, description ? ['补发'] : ['全额退款']),
+    待跟进客诉备注: joinNoteWithSolution(description, solution),
   }
-  if (sku) baseRecord['客诉SKU'] = sku
+  if (attachments.length) baseRecord['退货/瑕疵凭证原图'] = attachments
   if (shippedAt) baseRecord['订单发货时间'] = shippedAt
   if (creator) baseRecord['客服跟进人'] = creator
 
-  return { source_key: sourceKey, records: [baseRecord], errors: [] }
+  return {
+    source_key: sourceKey,
+    records: fanOutComplaintRecords(orderNo, baseRecord, context, {
+      explicitSkuText: sku,
+      evidenceText: description,
+    }),
+    errors: [],
+  }
 }
 
 // ---------- 5. 错发反馈 ----------
@@ -604,6 +722,8 @@ function transformWrongSendFeedback(
   }
 
   const description = stringify(rawFields['错发说明'])
+  const solution = stringify(rawFields['协商方案'])
+  const attachments = mergeAttachments(rawFields['照片核实'], rawFields['照片核实 (1)'])
   const sku = stringify(rawFields['产品sku']) || stringify(rawFields['产品SKU'])
   const shippedAt = stringify(rawFields['订单发货时间'])
   const view = [VIEW_WRONG_SEND]
@@ -616,14 +736,21 @@ function transformWrongSendFeedback(
     记录日期: recordDate,
     订单号: orderNo,
     客诉类型: inferredType,
-    客诉方案: description ? ['补发'] : ['全额退款'],
-    待跟进客诉备注: description,
+    客诉方案: inferSolutionFromNegotiation(solution, description ? ['补发'] : ['全额退款']),
+    待跟进客诉备注: joinNoteWithSolution(description, solution),
   }
-  if (sku) baseRecord['客诉SKU'] = sku
+  if (attachments.length) baseRecord['退货/瑕疵凭证原图'] = attachments
   if (shippedAt) baseRecord['订单发货时间'] = shippedAt
   if (creator) baseRecord['客服跟进人'] = creator
 
-  return { source_key: sourceKey, records: [baseRecord], errors: [] }
+  return {
+    source_key: sourceKey,
+    records: fanOutComplaintRecords(orderNo, baseRecord, context, {
+      explicitSkuText: sku,
+      evidenceText: description,
+    }),
+    errors: [],
+  }
 }
 
 // ---------- 6. 物流问题 ----------
@@ -648,6 +775,7 @@ function transformLogisticsIssue(
     stringify(rawFields['跟进2']),
   ])
   const trackingNo = stringify(rawFields['物流号'])
+  const status = stringifyMulti(rawFields['状态']).join(', ')
   const view = [VIEW_LOGISTICS]
   const baseRecord: Record<string, unknown> = {
     ...buildBaseRecord(view),
@@ -656,14 +784,11 @@ function transformLogisticsIssue(
     客诉类型: inferComplaintTypeFromText(issueText, VIEW_LOGISTICS),
     待跟进客诉备注: issueText,
     '物流-跟进过程': followUpProcess,
-    '物流-跟进结果': '',
+    '物流-跟进结果': status,
   }
   if (trackingNo) baseRecord['物流号'] = trackingNo
 
-  // Logistics rows have no SKU → fan out per Shopify cache lines.
-  const skus = context.lookupOrderSkus?.(orderNo) ?? null
-  const records = skus && skus.length ? fanOutBySkus(baseRecord, skus) : [baseRecord]
-  return { source_key: sourceKey, records, errors: [] }
+  return { source_key: sourceKey, records: [baseRecord], errors: [] }
 }
 
 const TRANSFORMERS: Record<TransformerKind, (

@@ -6,6 +6,23 @@ const env = loadEnv()
 const service = new SyncService()
 const program = new Command()
 
+function summarizeStateForOutput(result: Record<string, unknown>) {
+  const state = result.state as { source_to_target_ids?: Record<string, string[]> } | undefined
+  if (!state?.source_to_target_ids) {
+    return result
+  }
+  return {
+    ...result,
+    state: {
+      source_to_target_keys: Object.keys(state.source_to_target_ids).length,
+      target_record_ids: Object.values(state.source_to_target_ids).reduce(
+        (sum, ids) => sum + ids.length,
+        0,
+      ),
+    },
+  }
+}
+
 program.name('sync').description('Unified Feishu/OpenClaw sync entrypoint')
 
 program
@@ -18,10 +35,10 @@ program
     const result = await service.preview(options)
     console.log(
       JSON.stringify(
-        {
+        summarizeStateForOutput({
           ...result,
           config: maskSyncConfig(result.config),
-        },
+        }),
         null,
         2,
       ),
@@ -47,10 +64,10 @@ program
     }
     console.log(
       JSON.stringify(
-        {
+        summarizeStateForOutput({
           ...result,
           config: maskSyncConfig(result.config),
-        },
+        }),
         null,
         2,
       ),
@@ -64,8 +81,16 @@ program
   .option('--date <date>', 'Only sync one date')
   .option('--from <date>', 'Start date')
   .option('--to <date>', 'End date')
+  .option('--rebuild-target', 'Delete target records and rebuild them from source artifacts')
+  .option('--rebuild-run-id <id>', 'Resume or name a source-to-target rebuild artifact run')
+  .option('--create-concurrency <count>', 'Concurrent target batch_create calls for rebuild mode', '4')
+  .option('--delete-concurrency <count>', 'Concurrent target batch_delete calls for rebuild mode', '4')
   .action(async (options) => {
-    const result = await service.syncSourceToTarget(options)
+    const result = await service.syncSourceToTarget({
+      ...options,
+      createConcurrency: Number.parseInt(options.createConcurrency, 10),
+      deleteConcurrency: Number.parseInt(options.deleteConcurrency, 10),
+    })
     if (!result.sqlite.ok || !result.bigquery_cache.ok) {
       process.exitCode = 1
     }
