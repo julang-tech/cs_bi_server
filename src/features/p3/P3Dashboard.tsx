@@ -23,6 +23,7 @@ export default function P3Dashboard() {
   const [dateBasis, setDateBasis] = useState<'record_date' | 'order_date' | 'refund_date'>('record_date')
   const [historyRange, setHistoryRange] = useState(() => getDefaultHistoryRange('day'))
   const [activeMetricKey, setActiveMetricKey] = useState('complaint_rate')
+  const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
 
   const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
   const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
@@ -31,7 +32,14 @@ export default function P3Dashboard() {
   function handleGrainChange(next: Grain) {
     setGrain(next)
     setHistoryRange(getDefaultHistoryRange(next))
+    setSelectedBucket(null)
   }
+
+  // Drop the historical bucket selection whenever the time window or basis
+  // shifts — the bucket may no longer exist in the new history.
+  useEffect(() => {
+    setSelectedBucket(null)
+  }, [historyRange.date_from, historyRange.date_to, dateBasis])
 
   const baseFilters = { grain, date_basis: dateBasis } as const
 
@@ -175,36 +183,74 @@ export default function P3Dashboard() {
           </section>
         ) : null
       }
-      currentPeriodSection={
-        <KpiSection title={getCurrentPeriodLabel(grain)} subtitle={`数据截至 ${currentPeriod.date_to}`} variant="current">
-          {cards.map((c) => {
-            const secondaryValue = loading || c.previousValue === undefined || c.previousValue === null
-              ? '--'
-              : c.formatter(c.previousValue)
-            return (
-              <KpiCard
-                key={c.key}
-                variant="current"
-                label={c.label}
-                description={c.description}
-                value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
-                delta={loading ? undefined : buildDirectionalDelta(
-                  c.currentValue,
-                  c.previousValue,
-                  c.deltaMode,
-                  c.polarity,
-                )}
-                secondaryLabel={previousPeriodLabel}
-                secondaryValue={secondaryValue}
-                metricKey={c.key}
-                active={activeMetricKey === c.key}
-                onSelect={setActiveMetricKey}
-                sparkline={c.historyTrend}
-              />
-            )
-          })}
-        </KpiSection>
-      }
+      currentPeriodSection={(() => {
+        const isHistorical = selectedBucket !== null
+        const sectionTitle = isHistorical
+          ? formatFocusBucketLabel(selectedBucket, grain)
+          : getCurrentPeriodLabel(grain)
+        const sectionSubtitle = isHistorical
+          ? '点击图表上的其他点切换，或重置回当前周期'
+          : `数据截至 ${currentPeriod.date_to}`
+        return (
+          <KpiSection
+            title={sectionTitle}
+            subtitle={sectionSubtitle}
+            variant="current"
+            action={isHistorical ? (
+              <button type="button" onClick={() => setSelectedBucket(null)}>重置当前周期</button>
+            ) : undefined}
+          >
+            {cards.map((c) => {
+              // When a historical bucket is selected from the chart, override
+              // the current/previous values from that bucket and the bucket
+              // immediately before it. First bucket in range has no previous,
+              // so no delta is shown (per user spec "区间第一天除外").
+              let displayCurrent = c.currentValue
+              let displayPrev: number | null | undefined = c.previousValue
+              let displayPrevLabel = previousPeriodLabel
+              let showDelta = true
+              if (isHistorical) {
+                const idx = c.historyTrend.findIndex((p) => p.bucket === selectedBucket)
+                if (idx >= 0) {
+                  displayCurrent = c.historyTrend[idx].value
+                  if (idx > 0) {
+                    displayPrev = c.historyTrend[idx - 1].value
+                    displayPrevLabel = `vs ${formatFocusBucketLabel(c.historyTrend[idx - 1].bucket, grain)}`
+                  } else {
+                    displayPrev = null
+                    displayPrevLabel = '区间起点'
+                    showDelta = false
+                  }
+                }
+              }
+              const secondaryValue = loading || displayPrev === undefined || displayPrev === null
+                ? '--'
+                : c.formatter(displayPrev)
+              return (
+                <KpiCard
+                  key={c.key}
+                  variant="current"
+                  label={c.label}
+                  description={c.description}
+                  value={loading ? '--' : c.formatter(displayCurrent ?? 0)}
+                  delta={loading || !showDelta ? undefined : buildDirectionalDelta(
+                    displayCurrent,
+                    displayPrev,
+                    c.deltaMode,
+                    c.polarity,
+                  )}
+                  secondaryLabel={displayPrevLabel}
+                  secondaryValue={secondaryValue}
+                  metricKey={c.key}
+                  active={activeMetricKey === c.key}
+                  onSelect={setActiveMetricKey}
+                  sparkline={c.historyTrend}
+                />
+              )
+            })}
+          </KpiSection>
+        )
+      })()}
       focusChart={loading ? null : (
         <FocusLineChart
           metrics={focusMetrics}
@@ -212,6 +258,8 @@ export default function P3Dashboard() {
           onActiveKeyChange={setActiveMetricKey}
           bucketFormatter={(bucket) => formatFocusBucketLabel(bucket, grain)}
           summaryByKey={summaryByKey}
+          selectedBucket={selectedBucket}
+          onBucketSelect={setSelectedBucket}
         />
       )}
       extensions={

@@ -43,6 +43,11 @@ interface FocusLineChartProps {
   // Optional summary line shown between the tabs and the plot. Map keyed by
   // metric.key so the summary updates when the active tab changes.
   summaryByKey?: Record<string, FocusMetricSummary | undefined>
+  // When set, the chart renders the bucket as a highlighted "selected" dot;
+  // clicking another dot fires onBucketSelect with the new bucket; clicking
+  // the already-selected dot fires onBucketSelect(null) to deselect.
+  selectedBucket?: string | null
+  onBucketSelect?: (bucket: string | null) => void
 }
 
 interface ChartRow {
@@ -134,6 +139,8 @@ export function FocusLineChart({
   ariaLabel,
   bucketFormatter = (bucket) => bucket,
   summaryByKey,
+  selectedBucket = null,
+  onBucketSelect,
 }: FocusLineChartProps) {
   const [internalActiveKey, setInternalActiveKey] = useState<string>(defaultKey ?? metrics[0]?.key ?? '')
   const selectedKey = activeKey ?? internalActiveKey
@@ -183,6 +190,49 @@ export function FocusLineChart({
         stroke="var(--surface)"
         strokeWidth={1.5}
       />
+    )
+  }
+
+  // Interactive dot for every history point. Transparent unless selected; the
+  // hit area (r=8) is invisible but still clickable via pointer-events=all so
+  // users can pick any bucket without trying to land on a tiny visible mark.
+  const renderInteractiveDot = (props: {
+    cx?: number; cy?: number; payload?: ChartRow; index?: number; key?: string
+  }) => {
+    const { cx, cy, payload, index, key } = props
+    const k = key ?? `idot-${index ?? `${cx}-${cy}`}`
+    if (cx == null || cy == null || !payload || payload.value == null) {
+      return <circle key={k} cx={cx ?? 0} cy={cy ?? 0} r={0} fill="none" />
+    }
+    const isSelected = payload.bucket === selectedBucket
+    const clickable = Boolean(onBucketSelect)
+    const handleClick = clickable
+      ? () => onBucketSelect?.(isSelected ? null : payload.bucket)
+      : undefined
+    return (
+      <g key={k}>
+        {isSelected ? (
+          <circle
+            cx={cx}
+            cy={cy}
+            r={5}
+            fill="var(--accent)"
+            stroke="var(--surface)"
+            strokeWidth={2}
+          />
+        ) : null}
+        {clickable ? (
+          <circle
+            cx={cx}
+            cy={cy}
+            r={8}
+            fill="transparent"
+            pointerEvents="all"
+            style={{ cursor: 'pointer' }}
+            onClick={handleClick}
+          />
+        ) : null}
+      </g>
     )
   }
 
@@ -335,7 +385,7 @@ export function FocusLineChart({
               dataKey="value"
               stroke="var(--accent)"
               strokeWidth={2}
-              dot={false}
+              dot={renderInteractiveDot}
               activeDot={{ r: 4, fill: 'var(--accent)', stroke: 'var(--surface)', strokeWidth: 1.5 }}
               isAnimationActive={false}
               connectNulls={false}
