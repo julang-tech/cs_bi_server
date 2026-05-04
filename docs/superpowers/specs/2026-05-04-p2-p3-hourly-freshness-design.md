@@ -44,15 +44,15 @@ Frontend defaults to current period and marks incomplete final bucket
 
 ## Backend Design
 
-Add configuration for the hourly BigQuery Shopify BI source tables instead of hard-coding only the current daily DWD table names. The first implementation should keep the existing query shape as much as possible and swap source table references through a small, typed configuration object.
+Use the existing Shopify DWD marts as the upstream source. Per the data warehouse ADR-0009, those marts are now hourly-refreshed by the upstream sync process, so the BI server does not need a new hourly-grain source table or a `grain=hour` API.
 
-The configurable source set must cover the same logical inputs the current cache refresh uses:
+The upstream source set is the same logical input set the current cache refresh uses:
 
 - orders fact, currently `shopify_dwd.dwd_orders_fact_usd`;
 - classified line items, currently `shopify_intermediate.int_line_items_classified`;
 - refund events, currently `shopify_dwd.dwd_refund_events`.
 
-If the new hourly upstream only covers orders and line items but not refunds, order/sales/GMV metrics can become hourly-fresh while refund metrics remain as fresh as the refund source. The response `data_as_of` should then represent the minimum reliable freshness across the sources used by the requested metrics.
+The cache should derive `data_as_of` from the BigQuery mart freshness watermark. The data warehouse exposes `_dbt_updated_at` on `dwd_orders_fact_usd` through `dwd_orders_fact`, and on `dwd_refund_events`; the BI server should use the minimum reliable freshness across those marts for the shared P2/P3 Shopify metrics.
 
 The SQLite cache remains the serving layer. It does not need to expose hour-grain facts to P2/P3 APIs. It does need freshness metadata:
 
@@ -83,7 +83,7 @@ The incomplete-bucket visual rule should be applied to the current day/week/mont
 
 ## Error Handling
 
-If the hourly BigQuery source is not configured, the service should keep using the existing source tables for refresh. This keeps local development and deployment rollback safe. The UI default range still follows current-period semantics, but freshness will only be as good as the configured upstream source.
+If the freshness query fails, the service should still refresh the cache data and leave `data_as_of` empty for that run. The UI default range still follows current-period semantics, but the freshness label will fall back to the current date when metadata is absent.
 
 If an hourly refresh fails, the worker should keep the last successful SQLite cache in place, log the failure, and record a failed cache run. The API should still serve the previous cache and surface normal partial/fallback notes only where existing behavior already does so.
 
@@ -95,7 +95,7 @@ Backend tests should cover:
 - worker refresh does not skip merely because a date window had a previous successful run;
 - P2 meta includes `data_as_of`;
 - P3 meta includes `data_as_of`;
-- fallback to existing source tables still works when hourly table config is absent.
+- cache refresh still works when the freshness query returns no watermark.
 
 Frontend tests should cover:
 
