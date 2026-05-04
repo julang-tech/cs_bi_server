@@ -13,6 +13,7 @@ export interface TrendPoint {
 export interface DashboardMeta {
   version?: string
   partial_data?: boolean
+  data_as_of?: string | null
   notes?: string[]
 }
 

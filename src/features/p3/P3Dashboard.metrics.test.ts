@@ -5,6 +5,17 @@ import path from 'node:path'
 const source = fs.readFileSync(path.join(process.cwd(), 'src/features/p3/P3Dashboard.tsx'), 'utf8')
 
 describe('P3 overview KPI composition', () => {
+  it('uses realtime current-period helpers and dashed incomplete current buckets', () => {
+    expect(source).toContain('getRealtimeCurrentPeriod')
+    expect(source).toContain('getRealtimeDefaultHistoryRange')
+    expect(source).toContain('getRealtimeCurrentPeriodLabel')
+    expect(source).toContain('getRealtimePresetHistoryRange')
+    expect(source).toContain('formatDataAsOf')
+    expect(source).toContain('currentDayIsIncomplete: true')
+    expect(source).not.toContain('getCurrentPeriod(grain)')
+    expect(source).not.toContain('getDefaultHistoryRange')
+  })
+
   it('keeps issue-type detail metrics out of current and history KPI cards', () => {
     const cardsSource = source.slice(
       source.indexOf('  const cards = ['),
