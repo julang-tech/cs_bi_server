@@ -91,6 +91,7 @@ type SyncServiceDeps = {
   createLiveLogisticsClient?: (config: SyncConfig, logger: SyncLogger) => LiveLogisticsProvider | null
   createSqliteRepository?: (dbPath: string) => SqliteMirrorRepository
   createBigQueryClient?: (config: SyncConfig, logger: SyncLogger) => BigQueryLike | null
+  now?: () => Date
 }
 
 type SyncLogger = {
@@ -241,18 +242,30 @@ function extractRows(result: unknown): BigQueryRows {
   return Array.isArray(rows) ? (rows as BigQueryRows) : []
 }
 
-function formatDateUtc(date: Date) {
-  return date.toISOString().slice(0, 10)
+function formatDateUtcParts(date: Date) {
+  const year = date.getUTCFullYear()
+  const month = `${date.getUTCMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getUTCDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
-function resolveBigQueryCacheWindow(now = new Date(), tailDays?: number) {
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+function resolveBigQueryCacheWindow(
+  now = new Date(),
+  tailDays?: number,
+  timezoneOffsetMinutes = 0,
+) {
+  const businessNow = new Date(now.getTime() + timezoneOffsetMinutes * 60_000)
+  const end = new Date(Date.UTC(
+    businessNow.getUTCFullYear(),
+    businessNow.getUTCMonth(),
+    businessNow.getUTCDate(),
+  ))
   const span = tailDays ?? BIGQUERY_CACHE_WINDOW_DAYS
   const start = new Date(end)
   start.setUTCDate(start.getUTCDate() - span)
   return {
-    dateFrom: formatDateUtc(start),
-    dateTo: formatDateUtc(end),
+    dateFrom: formatDateUtcParts(start),
+    dateTo: formatDateUtcParts(end),
   }
 }
 
@@ -1381,6 +1394,7 @@ export class SyncService {
   private readonly createLiveLogisticsClient: (config: SyncConfig, logger: SyncLogger) => LiveLogisticsProvider | null
   private readonly createSqliteRepository: (dbPath: string) => SqliteMirrorRepository
   private readonly createBigQueryClient: (config: SyncConfig, logger: SyncLogger) => BigQueryLike | null
+  private readonly now: () => Date
 
   constructor(deps: SyncServiceDeps = {}) {
     this.createClient =
@@ -1401,6 +1415,7 @@ export class SyncService {
         applyBigQueryProxyConfig(config.bigquery)
         return new BigQuery()
       })
+    this.now = deps.now ?? (() => new Date())
   }
 
   async preview(options: SyncCommandOptions) {
@@ -1809,9 +1824,17 @@ export class SyncService {
     let failed = sqlite.ok ? 0 : 1
     const refreshBigQueryCache = options.refreshBigQueryCache ?? true
     const cacheTailDays = options.cacheTailDays
-    const { dateFrom, dateTo } = resolveBigQueryCacheWindow(new Date(), cacheTailDays)
+    const timezoneOffsetMinutes = config.runtime.daily_full_refresh_timezone_offset_minutes ?? 480
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow(
+      this.now(),
+      cacheTailDays,
+      timezoneOffsetMinutes,
+    )
     const bigqueryCache = refreshBigQueryCache
-      ? await this.syncBigQueryCache(config, sqlitePath, logger, { tailDays: cacheTailDays })
+      ? await this.syncBigQueryCache(config, sqlitePath, logger, {
+          tailDays: cacheTailDays,
+          timezoneOffsetMinutes,
+        })
       : {
           enabled: false,
           ok: true,
@@ -1825,7 +1848,10 @@ export class SyncService {
       failed += 1
     }
     const shopifyBiCache = refreshBigQueryCache
-      ? await this.syncShopifyBiCache(config, sqlitePath, logger, { tailDays: cacheTailDays })
+      ? await this.syncShopifyBiCache(config, sqlitePath, logger, {
+          tailDays: cacheTailDays,
+          timezoneOffsetMinutes,
+        })
       : {
           enabled: false,
           ok: true,
@@ -1868,7 +1894,11 @@ export class SyncService {
     const sqlitePath = resolveRuntimePath(options.config, config.runtime.sqlite_path)
     const logger = createLogger(resolveRuntimePath(options.config, config.runtime.log_path))
     const tailDays = options.cacheTailDays ?? DEFAULT_CACHE_TAIL_DAYS
-    const result = await this.syncShopifyBiCache(config, sqlitePath, logger, { tailDays })
+    const timezoneOffsetMinutes = config.runtime.daily_full_refresh_timezone_offset_minutes ?? 480
+    const result = await this.syncShopifyBiCache(config, sqlitePath, logger, {
+      tailDays,
+      timezoneOffsetMinutes,
+    })
     return {
       ...result,
       skipped: false,
@@ -1879,9 +1909,13 @@ export class SyncService {
     config: SyncConfig,
     sqlitePath: string,
     logger: SyncLogger,
-    options?: { tailDays?: number },
+    options?: { tailDays?: number; timezoneOffsetMinutes?: number },
   ): Promise<SyncBigQueryCacheSummary> {
-    const { dateFrom, dateTo } = resolveBigQueryCacheWindow(new Date(), options?.tailDays)
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow(
+      this.now(),
+      options?.tailDays,
+      options?.timezoneOffsetMinutes ?? config.runtime.daily_full_refresh_timezone_offset_minutes ?? 480,
+    )
     const client = this.createBigQueryClient(config, logger)
     if (!client) {
       logger.warn('BigQuery cache sync skipped: credentials not found.')
@@ -1962,9 +1996,13 @@ export class SyncService {
     config: SyncConfig,
     sqlitePath: string,
     logger: SyncLogger,
-    options?: { tailDays?: number },
+    options?: { tailDays?: number; timezoneOffsetMinutes?: number },
   ): Promise<SyncShopifyBiCacheSummary> {
-    const { dateFrom, dateTo } = resolveBigQueryCacheWindow(new Date(), options?.tailDays)
+    const { dateFrom, dateTo } = resolveBigQueryCacheWindow(
+      this.now(),
+      options?.tailDays,
+      options?.timezoneOffsetMinutes ?? config.runtime.daily_full_refresh_timezone_offset_minutes ?? 480,
+    )
     const client = this.createBigQueryClient(config, logger)
     if (!client) {
       logger.warn('Shopify BI cache sync skipped: credentials not found.')

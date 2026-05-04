@@ -1776,6 +1776,58 @@ async function testSyncTargetToSqliteCanSkipBigQueryCacheRefreshes() {
   assert.equal(result.shopify_bi_cache.ok, true)
 }
 
+async function testSyncRefreshesShopifyBiV2CacheThroughBusinessToday() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+    runtime: { daily_full_refresh_timezone_offset_minutes?: number }
+  }
+  config.runtime.daily_full_refresh_timezone_offset_minutes = 480
+  writeJson(configPath, config)
+
+  const capturedParams: Array<Record<string, unknown>> = []
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query(options: unknown) {
+        const call = options as { params?: Record<string, unknown> }
+        if (call.params?.date_from && call.params?.date_to) {
+          capturedParams.push(call.params)
+        }
+        return [[]]
+      },
+    }),
+    now: () => new Date('2026-05-04T17:30:00.000Z'),
+  })
+
+  const result = await service.syncShopifyBiCacheIfDue({ config: configPath, cacheTailDays: 7 })
+
+  assert.equal(result.date_to, '2026-05-05')
+  assert.equal(capturedParams[0]?.date_to, '2026-05-05')
+}
+
 async function testSyncShopifyBiCacheIfDueRefreshesWhenWindowCovered() {
   const tmpDir = createTempDir()
   const configPath = createConfig(tmpDir)
@@ -3224,6 +3276,7 @@ async function run() {
   await testSyncRefreshesBigQueryCache()
   await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
   await testSyncRefreshesShopifyBiV2Cache()
+  await testSyncRefreshesShopifyBiV2CacheThroughBusinessToday()
   await testSyncTargetToSqliteCanSkipBigQueryCacheRefreshes()
   await testSyncShopifyBiCacheIfDueRefreshesWhenWindowCovered()
   await testSyncShopifyBiCacheIfDueReturnsFailureWhenCoverageCheckFails()
