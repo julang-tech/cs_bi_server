@@ -32,6 +32,10 @@ class StubSalesRepository implements SalesRepository {
       { spu: 'SPU-4', skc: 'SKC-4', sales_qty: 4 },
     ]
   }
+
+  getDataAsOf(_dateFrom: string, _dateTo: string) {
+    return '2026-05-04T06:00:00.000Z'
+  }
 }
 
 class StubIssueProvider implements IssueProvider {
@@ -159,6 +163,7 @@ async function run() {
   assert.equal(dashboardPayload.filters.date_basis, 'order_date')
   assert.deepEqual(dashboardPayload.trends.sales_qty[0], { bucket: '2026-03-02', value: 70 })
   assert.equal(dashboardPayload.meta.version, 'p3-formal-runtime')
+  assert.equal(dashboardPayload.meta.data_as_of, '2026-05-04T06:00:00.000Z')
   assert.equal(dashboardPayload.issue_share.length, 5)
 
   const optionsResponse = await app.inject({

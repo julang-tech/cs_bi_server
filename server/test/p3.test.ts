@@ -321,7 +321,7 @@ async function run() {
   await testSqliteShopifyBiCacheRepository()
   const filtered = filterIssues(issues, baseFilters)
   const result = computeDashboard(baseFilters, salesSummary, salesTrends, filtered, [], false)
-  const payload = buildDashboardPayload(baseFilters, result)
+  const payload = buildDashboardPayload(baseFilters, result, undefined, '2026-05-04T06:00:00.000Z')
 
   assert.deepEqual(payload.summary, {
     sales_qty: 120,
@@ -341,6 +341,7 @@ async function run() {
     { bucket: '2026-03-09', value: 50 },
   ])
   assert.equal(payload.meta.version, 'p3-formal-runtime')
+  assert.equal(payload.meta.data_as_of, '2026-05-04T06:00:00.000Z')
   assert.equal(payload.filters.date_basis, 'order_date')
 
   const logisticsFiltered = filterIssues(issues, { ...baseFilters, sku: 'SKU-4' })

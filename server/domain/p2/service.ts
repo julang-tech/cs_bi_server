@@ -84,6 +84,7 @@ type P2Meta = {
   partial_data: boolean
   source_mode?: 'sqlite_shopify_bi_cache' | 'bigquery_fallback'
   cache_generation?: string
+  data_as_of?: string | null
   notes: string[]
 }
 
@@ -109,6 +110,7 @@ type P2SpuSkcOptionsPayload = {
 export type P2CacheRepository = {
   hasCoverage(dateFrom: string, dateTo: string): boolean
   getGeneration(dateFrom: string, dateTo: string): string
+  getDataAsOf?: (dateFrom: string, dateTo: string) => string | null
   queryP2Overview(filters: P2Filters): {
     cards: P2OverviewCards
   }
@@ -237,6 +239,7 @@ export class P2Service {
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
         const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
+        const dataAsOf = this.cacheRepository.getDataAsOf?.(filters.date_from, filters.date_to) ?? null
         const cacheKey = buildSqliteResponseCacheKey('overview', generation, filters)
         const cached = this.overviewCache.get(cacheKey)
         if (cached) {
@@ -252,6 +255,7 @@ export class P2Service {
             partial_data: false,
             source_mode: 'sqlite_shopify_bi_cache',
             cache_generation: generation,
+            data_as_of: dataAsOf,
             notes: [ADR_0007_METRIC_NOTE],
           },
         })
@@ -527,6 +531,7 @@ GROUP BY bucket_date
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
         const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
+        const dataAsOf = this.cacheRepository.getDataAsOf?.(filters.date_from, filters.date_to) ?? null
         const cacheKey = buildSqliteResponseCacheKey('spu-table', generation, filters, topN)
         const cached = this.spuTableCache.get(cacheKey)
         if (cached) {
@@ -540,6 +545,7 @@ GROUP BY bucket_date
             partial_data: false,
             source_mode: 'sqlite_shopify_bi_cache',
             cache_generation: generation,
+            data_as_of: dataAsOf,
             notes: [],
           },
         })
@@ -892,6 +898,7 @@ ORDER BY spu, row_type DESC, refund_amount DESC
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
         const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
+        const dataAsOf = this.cacheRepository.getDataAsOf?.(filters.date_from, filters.date_to) ?? null
         const cacheKey = buildSqliteResponseCacheKey('spu-skc-options', generation, filters)
         const cached = this.optionsCache.get(cacheKey)
         if (cached) {
@@ -905,6 +912,7 @@ ORDER BY spu, row_type DESC, refund_amount DESC
             partial_data: false,
             source_mode: 'sqlite_shopify_bi_cache',
             cache_generation: generation,
+            data_as_of: dataAsOf,
             notes: [],
           },
         })

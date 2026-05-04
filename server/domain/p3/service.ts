@@ -114,8 +114,14 @@ export class P3Service {
       return cached
     }
 
-    const result = await this.computeDashboard(filters)
-    return this.dashboardCache.set(cacheKey, buildDashboardPayload(filters, result, this.sourceModes))
+    const [result, dataAsOf] = await Promise.all([
+      this.computeDashboard(filters),
+      this.resolveSalesDataAsOf(filters),
+    ])
+    return this.dashboardCache.set(
+      cacheKey,
+      buildDashboardPayload(filters, result, this.sourceModes, dataAsOf),
+    )
   }
 
   async getDrilldownOptions(filters: P3Filters): Promise<DrilldownOptionsResponse> {
@@ -186,6 +192,10 @@ export class P3Service {
       filtered.notes,
       filtered.partial_data,
     )
+  }
+
+  private async resolveSalesDataAsOf(filters: P3Filters) {
+    return (await this.salesRepository.getDataAsOf?.(filters.date_from, filters.date_to)) ?? null
   }
 
   private async getFilteredIssues(filters: P3Filters) {

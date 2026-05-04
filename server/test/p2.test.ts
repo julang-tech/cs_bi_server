@@ -115,6 +115,7 @@ async function testOverviewUsesSqliteCacheWhenCovered() {
   const service = new P2Service(bigQuery.client, {
     hasCoverage: () => true,
     getGeneration: () => 'generation-1',
+    getDataAsOf: () => '2026-05-04T06:00:00.000Z',
     queryP2Overview: (filters: P2Filters) => {
       sqliteCalls.push(filters)
       return {
@@ -153,6 +154,7 @@ async function testOverviewUsesSqliteCacheWhenCovered() {
   })
   assert.equal(payload.meta.source_mode, 'sqlite_shopify_bi_cache')
   assert.equal(payload.meta.cache_generation, 'generation-1')
+  assert.equal(payload.meta.data_as_of, '2026-05-04T06:00:00.000Z')
 }
 
 async function testOverviewFallsBackToBigQueryWhenCacheCoverageMissing() {
