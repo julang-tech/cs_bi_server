@@ -67,6 +67,36 @@ function maxText(db: DatabaseSync, tableName: string, column: string) {
   return row?.value ?? null
 }
 
+function columnExists(db: DatabaseSync, tableName: string, columnName: string) {
+  if (!tableExists(db, tableName)) {
+    return false
+  }
+  return db
+    .prepare(`PRAGMA table_info('${tableName}')`)
+    .all()
+    .some((row) => String((row as { name: unknown }).name) === columnName)
+}
+
+function latestShopifyBiDataAsOf(db: DatabaseSync) {
+  if (!columnExists(db, 'shopify_bi_cache_runs', 'data_as_of')) {
+    return null
+  }
+  const row = readScalar<{ data_as_of: string | null }>(
+    db,
+    `
+      SELECT data_as_of
+      FROM shopify_bi_cache_runs
+      WHERE scope = 'shopify_bi_v2'
+        AND ok = 1
+        AND data_as_of IS NOT NULL
+        AND TRIM(data_as_of) != ''
+      ORDER BY finished_at DESC, id DESC
+      LIMIT 1
+    `,
+  )
+  return row?.data_as_of ?? null
+}
+
 export function getSyncCacheStatus(configPath: string) {
   const config = loadSyncConfig(configPath)
   const sqlitePath = resolveRuntimePath(configPath, config.runtime.sqlite_path)
@@ -101,6 +131,7 @@ export function getSyncCacheStatus(configPath: string) {
         latest_success: null,
         max_order_date: null,
         max_refund_date: null,
+        data_as_of: null,
         orders_count: 0,
         order_lines_count: 0,
         refund_events_count: 0,
@@ -139,6 +170,7 @@ export function getSyncCacheStatus(configPath: string) {
         ),
         max_order_date: maxText(db, 'shopify_bi_orders', 'processed_date'),
         max_refund_date: maxText(db, 'shopify_bi_refund_events', 'refund_date'),
+        data_as_of: latestShopifyBiDataAsOf(db),
         orders_count: countRows(db, 'shopify_bi_orders') ?? 0,
         order_lines_count: countRows(db, 'shopify_bi_order_lines') ?? 0,
         refund_events_count: countRows(db, 'shopify_bi_refund_events') ?? 0,

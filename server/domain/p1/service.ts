@@ -26,12 +26,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function normalizeDashboardPayload(payload: unknown) {
+function normalizeIsoTimestamp(value: string | null) {
+  if (!value) {
+    return null
+  }
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
+
+function normalizeDashboardPayload(payload: unknown, fallbackDataAsOf: string | null = null) {
   if (!isRecord(payload)) {
     return payload
   }
 
   const summary = isRecord(payload.summary) ? payload.summary : {}
+  const meta = isRecord(payload.meta) ? payload.meta : {}
+  const dataAsOf =
+    normalizeIsoTimestamp(String(meta.data_as_of ?? meta.snapshot_at ?? '')) ??
+    fallbackDataAsOf
 
   return {
     ...payload,
@@ -46,6 +58,10 @@ function normalizeDashboardPayload(payload: unknown) {
       unreplied_count: 0,
       avg_unreplied_wait_hours: 0,
       ...summary,
+    },
+    meta: {
+      ...meta,
+      ...(dataAsOf ? { data_as_of: dataAsOf } : {}),
     },
   }
 }
@@ -94,7 +110,8 @@ export class P1Service implements P1DashboardService {
 
   async getDashboard(filters: P1Filters) {
     const response = await this.requestUpstream('/api/bi/p1/dashboard', filters)
-    return normalizeDashboardPayload(await response.json())
+    const fallbackDataAsOf = normalizeIsoTimestamp(response.headers.get('date'))
+    return normalizeDashboardPayload(await response.json(), fallbackDataAsOf)
   }
 
   async getBacklogMails(filters: P1BacklogMailFilters) {

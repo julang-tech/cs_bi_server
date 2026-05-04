@@ -213,6 +213,7 @@ export function buildDashboardPayload(
   filters: P3Filters,
   result: DashboardComputation,
   sourceModes: string[] = ['feishu/openclaw runtime fetch', 'shopify bigquery enrichment'],
+  dataAsOf: string | null = null,
 ) {
   return {
     filters: {
@@ -253,6 +254,7 @@ export function buildDashboardPayload(
       complaint_definition: 'standardized_issue_records',
       source_modes: sourceModes,
       partial_data: result.partial_data,
+      data_as_of: dataAsOf,
       notes: result.notes,
       stable_fields: ['filters', 'summary', 'trends', 'issue_share', 'meta'],
       upgradable_fields: ['meta.notes'],

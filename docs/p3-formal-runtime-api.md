@@ -18,7 +18,7 @@
 The sync worker maintains two SQLite-backed datasets:
 
 - Feishu target mirror: refreshed on `runtime.refresh_interval_minutes`.
-- Shopify BI cache: on worker startup, `syncTargetToSqlite({ refreshBigQueryCache: true })` refreshes the Shopify BI cache window from BigQuery before the due-check path runs. On interval ticks, the worker skips that unconditional refresh and uses the Shopify BI cache due-check; if the current cache window lacks a successful `shopify_bi_v2` run, it refreshes the window from BigQuery.
+- Shopify BI cache: refreshed from hourly-updated Shopify DWD marts. Regular worker ticks refresh the trailing cache window and record `data_as_of`, the effective upstream freshness watermark derived from the DWD sources.
 
 P2 and P3 read Shopify metrics from SQLite when the requested date range is covered. P2 may temporarily fall back to BigQuery while a first deployment backfill is still running.
 
@@ -78,6 +78,7 @@ npm.cmd run dev
     "complaint_definition": "standardized_issue_records",
     "source_modes": [],
     "partial_data": false,
+    "data_as_of": "2026-05-04T06:00:00.000Z",
     "notes": []
   }
 }
@@ -105,6 +106,17 @@ npm.cmd run dev
 - `issue_share`
   - `product / warehouse / logistics` 三类占比
   - 分母为全部标准化客诉记录数
+
+### Freshness Metadata
+
+- `meta.data_as_of`
+  - 当 P3 的 Shopify 指标来自 SQLite Shopify BI cache 且 cache run 记录了上游水位时返回。
+  - 表示订单、退款等 Shopify DWD 来源的有效数据截至时间；如果旧 cache run 没有上游水位，服务端会用本地 cache run `finished_at` 兜底，前端格式化为小时级“数据截至”。
+- 前端默认当前周期：
+  - 按日为今天。
+  - 按周为本周至今。
+  - 按月为本月至今。
+  - 当前未完整 day/week/month bucket 保持虚线/当前段样式。
 
 ### Date Basis Rules
 

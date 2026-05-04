@@ -65,7 +65,7 @@ GOOGLE_APPLICATION_CREDENTIALS=config/gcp/julang-dev-database-876c2efba122.json
 - `runtime.log_path`: `sync` / `sync:source-to-target` / `sync:worker` 共用日志文件
 - `runtime.sqlite_path`: 本地 SQLite 镜像文件，P3 从这里读取 issue 数据和 BigQuery 本地缓存
 - `runtime.refresh_interval_minutes`: `sync:worker` 刷新间隔，默认 `120`
-- `runtime.daily_full_refresh_time`: `sync:worker` 每天强刷新 BigQuery/Shopify BI 缓存的业务时区时间，默认 `03:30`
+- `runtime.daily_full_refresh_time`: `sync:worker` 每天强刷新 BigQuery/Shopify BI 缓存的业务时区时间，默认 `03:30`；普通轮询也会刷新 Shopify BI 尾部窗口以跟上小时级上游更新
 - `runtime.daily_full_refresh_timezone_offset_minutes`: 上述业务时区相对 UTC 的分钟偏移，默认 `480`，即北京时间
 
 ## BigQuery Proxy Fields
@@ -105,6 +105,6 @@ https://xxx.feishu.cn/base/AbCdEfGhIjKlMnOp?table=tbl123456789&view=vew987654321
 - `sync:source-to-target` 在配置物流商凭据后，会用 4PX / YunExpress 实时轨迹覆盖物流状态；查不到时才 fallback 到安全的 Shopify 状态。
 - `sync:run` 会读取飞书目标表同步 SQLite 镜像，并在有 `GOOGLE_APPLICATION_CREDENTIALS` 时刷新最近 400 天 BigQuery 缓存。
 - `sync:preview` 不会写飞书，也不会写 SQLite。
-- `sync:worker` 定时执行的是目标表到 SQLite 的同步和缓存刷新，不会写飞书目标表；普通轮询只做 Shopify BI due check，每日固定时间和启动时会强刷新 BigQuery/Shopify BI 缓存。
+- `sync:worker` 定时执行的是目标表到 SQLite 的同步和缓存刷新，不会写飞书目标表；普通轮询会刷新 Shopify BI 尾部窗口并记录 `data_as_of`，每日固定时间会强刷新 BigQuery/Shopify BI 缓存。
 - `/api/bi/cache-status` 可查看 SQLite 文件是否存在、最近成功缓存覆盖区间、表内最大订单/退款日期和行数。
 - `config/sync/config.json`、`config/gcp/*.json`、`config/data/*`、`config/logs/*` 已加入 `.gitignore`。

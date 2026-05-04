@@ -10,9 +10,10 @@ import { formatInteger, formatPercent } from '../../shared/utils/format'
 import { buildFocusTrend, formatFocusBucketLabel } from '../../shared/utils/focusTrend'
 import { buildDirectionalDelta, type DeltaMode, type MetricPolarity } from '../../shared/utils/delta'
 import {
-  getCurrentPeriod, getPreviousPeriod, getDefaultHistoryRange, getPeriodCount,
-  getCurrentPeriodLabel, getPreviousPeriodLabel,
+  getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange, getPeriodCount,
+  getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel, getRealtimePresetHistoryRange,
 } from '../../shared/utils/datePeriod'
+import { resolveDataAsOfLabel } from '../../shared/utils/dataAsOf'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { IssueStructure } from './IssueStructure'
 import { ProductComplaintRanking } from './ProductComplaintRanking'
@@ -21,17 +22,18 @@ import type { Grain, P3Dashboard as P3DashboardData, P3IssueShareItem, P3Product
 export default function P3Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
   const [dateBasis, setDateBasis] = useState<'record_date' | 'order_date' | 'refund_date'>('record_date')
-  const [historyRange, setHistoryRange] = useState(() => getDefaultHistoryRange('day'))
+  const today = useMemo(() => new Date(), [])
+  const [historyRange, setHistoryRange] = useState(() => getRealtimeDefaultHistoryRange('day', today))
   const [activeMetricKey, setActiveMetricKey] = useState('complaint_rate')
   const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
 
-  const currentPeriod = useMemo(() => getCurrentPeriod(grain), [grain])
-  const previousPeriod = useMemo(() => getPreviousPeriod(grain), [grain])
-  const previousPeriodLabel = useMemo(() => getPreviousPeriodLabel(grain), [grain])
+  const currentPeriod = useMemo(() => getRealtimeCurrentPeriod(grain, today), [grain, today])
+  const previousPeriod = useMemo(() => getRealtimePreviousPeriod(grain, today), [grain, today])
+  const previousPeriodLabel = useMemo(() => getRealtimePreviousPeriodLabel(grain), [grain])
 
   function handleGrainChange(next: Grain) {
     setGrain(next)
-    setHistoryRange(getDefaultHistoryRange(next))
+    setHistoryRange(getRealtimeDefaultHistoryRange(next, today))
     setSelectedBucket(null)
   }
 
@@ -48,6 +50,7 @@ export default function P3Dashboard() {
     currentPeriod, previousPeriod, historyRange,
     fetcher: (filters, signal) => fetchDashboard(filters as never, signal),
   })
+  const dataAsOfLabel = resolveDataAsOfLabel(current?.meta, { cadence: 'hourly' }) ?? currentPeriod.date_to
 
   // Extension area data (independent fetches)
   const [options, setOptions] = useState<P3IssueShareItem[]>([])
@@ -116,7 +119,9 @@ export default function P3Dashboard() {
   ]
 
   const focusMetrics: FocusMetricSpec[] = cards.map((c) => {
-    const trend = buildFocusTrend(c.historyTrend, grain, currentPeriod, c.currentValue)
+    const trend = buildFocusTrend(c.historyTrend, grain, currentPeriod, c.currentValue, {
+      currentDayIsIncomplete: true,
+    })
     return {
       key: c.key,
       label: c.label,
@@ -159,6 +164,8 @@ export default function P3Dashboard() {
         <FilterBar
           grain={grain} onGrainChange={handleGrainChange}
           historyRange={historyRange} onHistoryRangeChange={setHistoryRange}
+          maxDate={today}
+          presetRangeBuilder={(value) => getRealtimePresetHistoryRange(value, today)}
           extras={
             <div className="filter-bar__group">
               <span className="filter-bar__label">时间口径</span>
@@ -187,10 +194,10 @@ export default function P3Dashboard() {
         const isHistorical = selectedBucket !== null
         const sectionTitle = isHistorical
           ? formatFocusBucketLabel(selectedBucket, grain)
-          : getCurrentPeriodLabel(grain)
+          : getRealtimeCurrentPeriodLabel(grain)
         const sectionSubtitle = isHistorical
           ? '点击图表上的其他点切换，或重置回当前周期'
-          : `数据截至 ${currentPeriod.date_to}`
+          : `数据截至 ${dataAsOfLabel}`
         return (
           <KpiSection
             title={sectionTitle}

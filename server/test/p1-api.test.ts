@@ -282,6 +282,40 @@ async function testP1ServiceBackfillsMissingSummaryFields() {
   assert.equal(payload.summary.unreplied_email_count, 0)
 }
 
+async function testP1ServiceBackfillsDataAsOfFromResponseDate() {
+  const service = new P1Service({
+    baseUrl: 'https://cs-mail.example.test',
+    apiKey: 'secret-key',
+    fetchImpl: async () => new Response(JSON.stringify({
+      filters: {
+        date_from: '2026-05-05',
+        date_to: '2026-05-05',
+        grain: 'day',
+        agent_name: '',
+      },
+      summary: {},
+      trends: {},
+      agent_workload: [],
+      meta: { version: 'p1-chat-dashboard-v2' },
+    }), {
+      status: 200,
+      headers: {
+        'content-type': 'application/json',
+        date: 'Tue, 05 May 2026 07:15:30 GMT',
+      },
+    }),
+  })
+
+  const payload = await service.getDashboard({
+    date_from: '2026-05-05',
+    date_to: '2026-05-05',
+    grain: 'day',
+    agent_name: '',
+  }) as { meta: Record<string, unknown> }
+
+  assert.equal(payload.meta.data_as_of, '2026-05-05T07:15:30.000Z')
+}
+
 await testP1RouteReturnsServicePayload()
 await testP1BacklogMailRoutesProxyService()
 await testP1RouteRejectsInvalidDateRange()
@@ -289,5 +323,6 @@ await testP1RouteMapsUpstreamFailure()
 await testP1ServiceForwardsApiKeyHeader()
 await testP1ServiceMarksBacklogMailWithPost()
 await testP1ServiceBackfillsMissingSummaryFields()
+await testP1ServiceBackfillsDataAsOfFromResponseDate()
 
 console.log('P1 API tests passed')

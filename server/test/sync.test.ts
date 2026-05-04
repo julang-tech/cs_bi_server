@@ -1525,7 +1525,7 @@ async function testSyncRefreshesBigQueryCache() {
   assert.equal(result.bigquery_cache.ok, true)
   assert.equal(result.bigquery_cache.order_lines_upserted, 1)
   assert.equal(result.bigquery_cache.refund_events_upserted, 1)
-  assert.equal(queryCount, 5)
+  assert.equal(queryCount, 6)
 
   const cache = new SqliteP3BigQueryCacheRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
   const summary = await cache.fetchSummary({
@@ -1634,6 +1634,9 @@ async function testSyncRefreshesShopifyBiV2Cache() {
     createBigQueryClient: () => ({
       async query(options: unknown) {
         const query = String((options as { query?: string }).query ?? '')
+        if (query.includes('MAX(_dbt_updated_at)')) {
+          return [[{ data_as_of: '2026-05-04T06:00:00.000Z' }]]
+        }
         if (query.includes('int_line_items_classified')) {
           const usesParsedSkuSpu =
             query.includes('parsed_skc AS skc') && query.includes('parsed_spu AS spu')
@@ -1699,6 +1702,10 @@ async function testSyncRefreshesShopifyBiV2Cache() {
   assert.equal(shopifyBiCache?.orders_upserted, 1)
   assert.equal(shopifyBiCache?.order_lines_upserted, 1)
   assert.equal(shopifyBiCache?.refund_events_upserted, 1)
+  assert.equal(
+    (shopifyBiCache as { data_as_of?: string | null } | undefined)?.data_as_of,
+    '2026-05-04T06:00:00.000Z',
+  )
 
   const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
   const cache = new SqliteShopifyBiCacheRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
@@ -1769,7 +1776,59 @@ async function testSyncTargetToSqliteCanSkipBigQueryCacheRefreshes() {
   assert.equal(result.shopify_bi_cache.ok, true)
 }
 
-async function testSyncShopifyBiCacheIfDueSkipsWhenWindowCovered() {
+async function testSyncRefreshesShopifyBiV2CacheThroughBusinessToday() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const config = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+    runtime: { daily_full_refresh_timezone_offset_minutes?: number }
+  }
+  config.runtime.daily_full_refresh_timezone_offset_minutes = 480
+  writeJson(configPath, config)
+
+  const capturedParams: Array<Record<string, unknown>> = []
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return []
+      },
+      async listFields() {
+        return []
+      },
+      async createRecord() {
+        return 'unused'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
+    }),
+    createShopifyClient: () => null,
+    createBigQueryClient: () => ({
+      async query(options: unknown) {
+        const call = options as { params?: Record<string, unknown> }
+        if (call.params?.date_from && call.params?.date_to) {
+          capturedParams.push(call.params)
+        }
+        return [[]]
+      },
+    }),
+    now: () => new Date('2026-05-04T17:30:00.000Z'),
+  })
+
+  const result = await service.syncShopifyBiCacheIfDue({ config: configPath, cacheTailDays: 7 })
+
+  assert.equal(result.date_to, '2026-05-05')
+  assert.equal(capturedParams[0]?.date_to, '2026-05-05')
+}
+
+async function testSyncShopifyBiCacheIfDueRefreshesWhenWindowCovered() {
   const tmpDir = createTempDir()
   const configPath = createConfig(tmpDir)
   const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
@@ -1818,10 +1877,10 @@ async function testSyncShopifyBiCacheIfDueSkipsWhenWindowCovered() {
 
   const result = await service.syncShopifyBiCacheIfDue({ config: configPath })
 
-  assert.equal(bigQueryCalls, 0)
+  assert.equal(bigQueryCalls, 4)
   assert.equal(result.enabled, true)
   assert.equal(result.ok, true)
-  assert.equal(result.skipped, true)
+  assert.equal(result.skipped, false)
   assert.equal(result.failed, 0)
 }
 
@@ -1957,7 +2016,7 @@ async function testSyncShopifyBiCacheIfDueRefreshesWhenWindowMissing() {
 
   const result = await service.syncShopifyBiCacheIfDue({ config: configPath })
 
-  assert.equal(bigQueryCalls, 3)
+  assert.equal(bigQueryCalls, 4)
   assert.equal(result.enabled, true)
   assert.equal(result.ok, true)
   assert.equal(result.skipped, false)
@@ -2457,6 +2516,49 @@ async function testShopifyBiCacheReplacesDateWindowTransactionally() {
     refund_amount_ratio: 0,
     avg_order_amount: 0,
   })
+  cache.close()
+}
+
+async function testShopifyBiCacheStoresDataAsOf() {
+  const tmpDir = createTempDir()
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+
+  cache.replaceWindow({
+    dateFrom: '2026-05-04',
+    dateTo: '2026-05-04',
+    dataAsOf: '2026-05-04T06:00:00.000Z',
+    orders: [],
+    orderLines: [],
+    refundEvents: [],
+  })
+
+  assert.equal(
+    cache.getDataAsOf('2026-05-04', '2026-05-04'),
+    '2026-05-04T06:00:00.000Z',
+  )
+  cache.close()
+}
+
+async function testShopifyBiCacheFallsBackDataAsOfToFinishedAt() {
+  const tmpDir = createTempDir()
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+
+  cache.replaceWindow({
+    dateFrom: '2026-05-04',
+    dateTo: '2026-05-04',
+    orders: [],
+    orderLines: [],
+    refundEvents: [],
+  })
+
+  assert.match(
+    cache.getDataAsOf('2026-05-04', '2026-05-04') ?? '',
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+  )
   cache.close()
 }
 
@@ -3174,8 +3276,9 @@ async function run() {
   await testSyncRefreshesBigQueryCache()
   await testSyncBigQueryCacheFailureDoesNotBlockSqliteMirror()
   await testSyncRefreshesShopifyBiV2Cache()
+  await testSyncRefreshesShopifyBiV2CacheThroughBusinessToday()
   await testSyncTargetToSqliteCanSkipBigQueryCacheRefreshes()
-  await testSyncShopifyBiCacheIfDueSkipsWhenWindowCovered()
+  await testSyncShopifyBiCacheIfDueRefreshesWhenWindowCovered()
   await testSyncShopifyBiCacheIfDueReturnsFailureWhenCoverageCheckFails()
   await testSyncShopifyBiCacheIfDueRefreshesWhenWindowMissing()
   await testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders()
@@ -3184,6 +3287,8 @@ async function run() {
   await testSyncLegacyRefundCacheJoinsOrdersForOrderName()
   await testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache()
   await testShopifyBiCacheReplacesDateWindowTransactionally()
+  await testShopifyBiCacheStoresDataAsOf()
+  await testShopifyBiCacheFallsBackDataAsOfToFinishedAt()
   await testShopifyBiCacheRefundFlowUsesRefundDateWindow()
   await testShopifyBiCacheReplaceWindowRemovesStaleRefundDrivenOrderLines()
   await testShopifyBiCacheReplaceWindowRollsBackOnInsertFailure()

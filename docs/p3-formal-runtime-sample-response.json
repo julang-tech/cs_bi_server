@@ -120,6 +120,7 @@
       "shopify bigquery enrichment"
     ],
     "partial_data": false,
+    "data_as_of": "2026-05-04T06:00:00.000Z",
     "notes": [
       "Ignored 188 records that did not map to product/warehouse/logistics issues."
     ],

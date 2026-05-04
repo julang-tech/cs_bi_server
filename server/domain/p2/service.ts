@@ -84,6 +84,7 @@ type P2Meta = {
   partial_data: boolean
   source_mode?: 'sqlite_shopify_bi_cache' | 'bigquery_fallback'
   cache_generation?: string
+  data_as_of?: string | null
   notes: string[]
 }
 
@@ -109,6 +110,7 @@ type P2SpuSkcOptionsPayload = {
 export type P2CacheRepository = {
   hasCoverage(dateFrom: string, dateTo: string): boolean
   getGeneration(dateFrom: string, dateTo: string): string
+  getDataAsOf?: (dateFrom: string, dateTo: string) => string | null
   queryP2Overview(filters: P2Filters): {
     cards: P2OverviewCards
   }
@@ -237,6 +239,7 @@ export class P2Service {
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
         const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
+        const dataAsOf = this.cacheRepository.getDataAsOf?.(filters.date_from, filters.date_to) ?? null
         const cacheKey = buildSqliteResponseCacheKey('overview', generation, filters)
         const cached = this.overviewCache.get(cacheKey)
         if (cached) {
@@ -252,6 +255,7 @@ export class P2Service {
             partial_data: false,
             source_mode: 'sqlite_shopify_bi_cache',
             cache_generation: generation,
+            data_as_of: dataAsOf,
             notes: [ADR_0007_METRIC_NOTE],
           },
         })
@@ -294,7 +298,14 @@ export class P2Service {
       return cachedFallback
     }
 
-    const [orderMetricsResult, salesQtyResult, dailyOrderResult, dailySalesQtyResult, dailyRefundResult] = await Promise.all([
+    const [
+      orderMetricsResult,
+      salesQtyResult,
+      dailyOrderResult,
+      dailySalesQtyResult,
+      dailyRefundResult,
+      dataAsOf,
+    ] = await Promise.all([
       this.client.query({
         query: `
 WITH order_metrics AS (
@@ -449,6 +460,7 @@ GROUP BY bucket_date
           ...this.buildParams(filters),
         },
       }),
+      this.fetchBigQueryDataAsOf(),
     ])
 
     const rows = extractRows(orderMetricsResult)
@@ -510,6 +522,7 @@ GROUP BY bucket_date
       meta: {
         partial_data: false,
         source_mode: 'bigquery_fallback',
+        data_as_of: dataAsOf,
         notes: [
           ADR_0007_METRIC_NOTE,
           ...(cacheUnavailableMessage
@@ -527,6 +540,7 @@ GROUP BY bucket_date
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
         const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
+        const dataAsOf = this.cacheRepository.getDataAsOf?.(filters.date_from, filters.date_to) ?? null
         const cacheKey = buildSqliteResponseCacheKey('spu-table', generation, filters, topN)
         const cached = this.spuTableCache.get(cacheKey)
         if (cached) {
@@ -540,6 +554,7 @@ GROUP BY bucket_date
             partial_data: false,
             source_mode: 'sqlite_shopify_bi_cache',
             cache_generation: generation,
+            data_as_of: dataAsOf,
             notes: [],
           },
         })
@@ -892,6 +907,7 @@ ORDER BY spu, row_type DESC, refund_amount DESC
     try {
       if (this.cacheRepository?.hasCoverage(filters.date_from, filters.date_to)) {
         const generation = this.cacheRepository.getGeneration(filters.date_from, filters.date_to)
+        const dataAsOf = this.cacheRepository.getDataAsOf?.(filters.date_from, filters.date_to) ?? null
         const cacheKey = buildSqliteResponseCacheKey('spu-skc-options', generation, filters)
         const cached = this.optionsCache.get(cacheKey)
         if (cached) {
@@ -905,6 +921,7 @@ ORDER BY spu, row_type DESC, refund_amount DESC
             partial_data: false,
             source_mode: 'sqlite_shopify_bi_cache',
             cache_generation: generation,
+            data_as_of: dataAsOf,
             notes: [],
           },
         })
@@ -1041,6 +1058,33 @@ WHERE parsed_skc IS NOT NULL
       channel: filters.channel ?? '',
       listing_date_from: filters.listing_date_from ?? '',
       listing_date_to: filters.listing_date_to ?? '',
+    }
+  }
+
+  private async fetchBigQueryDataAsOf() {
+    if (!this.client) {
+      return null
+    }
+    try {
+      const rows = extractRows(await this.client.query({
+        query: `
+WITH source_watermarks AS (
+  SELECT MAX(_dbt_updated_at) AS data_as_of
+  FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\`
+  UNION ALL
+  SELECT MAX(_dbt_updated_at) AS data_as_of
+  FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\`
+)
+SELECT
+  FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%E3SZ', MIN(data_as_of)) AS data_as_of
+FROM source_watermarks
+WHERE data_as_of IS NOT NULL
+        `,
+      }))
+      const value = rows[0]?.data_as_of
+      return value ? String(value) : null
+    } catch {
+      return null
     }
   }
 

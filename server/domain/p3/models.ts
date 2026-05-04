@@ -153,6 +153,7 @@ export type DashboardResponse = {
     complaint_definition: string
     source_modes: string[]
     partial_data: boolean
+    data_as_of?: string | null
     notes: string[]
     stable_fields?: string[]
     upgradable_fields?: string[]
@@ -201,6 +202,7 @@ export interface SalesRepository {
   fetchSummary(filters: P3Filters): Promise<SummaryMetrics>
   fetchTrends(filters: P3Filters): Promise<TrendPoint[]>
   fetchProductSales(filters: P3Filters): Promise<ProductSalesPoint[]>
+  getDataAsOf?: (dateFrom: string, dateTo: string) => string | null | Promise<string | null>
 }
 
 export interface OrderEnrichmentRepository {

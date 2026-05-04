@@ -115,6 +115,7 @@ async function testOverviewUsesSqliteCacheWhenCovered() {
   const service = new P2Service(bigQuery.client, {
     hasCoverage: () => true,
     getGeneration: () => 'generation-1',
+    getDataAsOf: () => '2026-05-04T06:00:00.000Z',
     queryP2Overview: (filters: P2Filters) => {
       sqliteCalls.push(filters)
       return {
@@ -153,6 +154,7 @@ async function testOverviewUsesSqliteCacheWhenCovered() {
   })
   assert.equal(payload.meta.source_mode, 'sqlite_shopify_bi_cache')
   assert.equal(payload.meta.cache_generation, 'generation-1')
+  assert.equal(payload.meta.data_as_of, '2026-05-04T06:00:00.000Z')
 }
 
 async function testOverviewFallsBackToBigQueryWhenCacheCoverageMissing() {
@@ -171,6 +173,10 @@ async function testOverviewFallsBackToBigQueryWhenCacheCoverageMissing() {
       refund_amount: 20,
     }],
     [{ sales_qty: 4 }],
+    [],
+    [],
+    [],
+    [{ data_as_of: '2026-05-05T07:00:00.000Z' }],
   ])
   const service = new P2Service(client, {
     hasCoverage: (dateFrom: string, dateTo: string) => {
@@ -189,10 +195,11 @@ async function testOverviewFallsBackToBigQueryWhenCacheCoverageMissing() {
   const payload = await service.getOverview(createFilters())
 
   assert.deepEqual(coverageChecks, [{ dateFrom: '2026-03-31', dateTo: '2026-04-29' }])
-  assert.equal(calls.length, 5)
+  assert.equal(calls.length, 6)
   assert.equal(payload.cards.order_count, 2)
   assert.equal(payload.cards.sales_qty, 4)
   assert.equal(payload.meta.source_mode, 'bigquery_fallback')
+  assert.equal(payload.meta.data_as_of, '2026-05-05T07:00:00.000Z')
 }
 
 async function testOverviewFallsBackToBigQueryWhenCacheFails() {
@@ -226,7 +233,7 @@ async function testOverviewFallsBackToBigQueryWhenCacheFails() {
 
   const payload = await service.getOverview(createFilters())
 
-  assert.equal(calls.length, 5)
+  assert.equal(calls.length, 6)
   assert.equal(payload.cards.order_count, 1)
   assert.equal(payload.meta.source_mode, 'bigquery_fallback')
   assert.ok(
