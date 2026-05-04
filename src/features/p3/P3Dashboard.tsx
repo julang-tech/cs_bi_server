@@ -50,7 +50,7 @@ export default function P3Dashboard() {
     currentPeriod, previousPeriod, historyRange,
     fetcher: (filters, signal) => fetchDashboard(filters as never, signal),
   })
-  const dataAsOfLabel = resolveDataAsOfLabel(current?.meta) ?? currentPeriod.date_to
+  const dataAsOfLabel = resolveDataAsOfLabel(current?.meta, { cadence: 'hourly' }) ?? currentPeriod.date_to
 
   // Extension area data (independent fetches)
   const [options, setOptions] = useState<P3IssueShareItem[]>([])

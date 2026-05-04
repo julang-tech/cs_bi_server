@@ -84,7 +84,7 @@ export default function P1Dashboard() {
     historyRange,
     fetcher: (filters, signal) => fetchP1Dashboard(filters as never, signal),
   })
-  const dataAsOfLabel = resolveDataAsOfLabel(current?.meta) ?? currentPeriod.date_to
+  const dataAsOfLabel = resolveDataAsOfLabel(current?.meta, { cadence: '5min' }) ?? currentPeriod.date_to
 
   async function loadBacklogMails(signal?: AbortSignal) {
     setBacklogLoading(true)

@@ -55,7 +55,7 @@ export default function P2Dashboard() {
     currentPeriod, previousPeriod, historyRange,
     fetcher: (filters, signal) => fetchRefundOverview(filters as never, signal),
   })
-  const dataAsOfLabel = resolveDataAsOfLabel(current?.meta) ?? currentPeriod.date_to
+  const dataAsOfLabel = resolveDataAsOfLabel(current?.meta, { cadence: 'hourly' }) ?? currentPeriod.date_to
 
   const periodCount = getPeriodCount(historyRange, grain)
 
