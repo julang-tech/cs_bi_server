@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatDataAsOf } from './dataAsOf'
+import { formatDataAsOf, resolveDataAsOfLabel } from './dataAsOf'
 
 describe('formatDataAsOf', () => {
   it('formats valid timestamps in local dashboard time', () => {
@@ -12,5 +12,12 @@ describe('formatDataAsOf', () => {
     expect(formatDataAsOf(null)).toBeNull()
     expect(formatDataAsOf(undefined)).toBeNull()
     expect(formatDataAsOf('not-a-date')).toBeNull()
+  })
+
+  it('uses cache generation when upstream data_as_of is missing', () => {
+    expect(resolveDataAsOfLabel({
+      data_as_of: null,
+      cache_generation: '2026-05-05T07:15:30.000Z',
+    })).toMatch(/^2026-05-05 \d{2}:15$/)
   })
 })

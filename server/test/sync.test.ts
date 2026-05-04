@@ -2489,6 +2489,27 @@ async function testShopifyBiCacheStoresDataAsOf() {
   cache.close()
 }
 
+async function testShopifyBiCacheFallsBackDataAsOfToFinishedAt() {
+  const tmpDir = createTempDir()
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+
+  cache.replaceWindow({
+    dateFrom: '2026-05-04',
+    dateTo: '2026-05-04',
+    orders: [],
+    orderLines: [],
+    refundEvents: [],
+  })
+
+  assert.match(
+    cache.getDataAsOf('2026-05-04', '2026-05-04') ?? '',
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+  )
+  cache.close()
+}
+
 async function testShopifyBiCacheRefundFlowUsesRefundDateWindow() {
   const tmpDir = createTempDir()
   const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
@@ -3214,6 +3235,7 @@ async function run() {
   await testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache()
   await testShopifyBiCacheReplacesDateWindowTransactionally()
   await testShopifyBiCacheStoresDataAsOf()
+  await testShopifyBiCacheFallsBackDataAsOfToFinishedAt()
   await testShopifyBiCacheRefundFlowUsesRefundDateWindow()
   await testShopifyBiCacheReplaceWindowRemovesStaleRefundDrivenOrderLines()
   await testShopifyBiCacheReplaceWindowRollsBackOnInsertFailure()

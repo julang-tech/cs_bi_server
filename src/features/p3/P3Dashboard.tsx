@@ -13,7 +13,7 @@ import {
   getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange, getPeriodCount,
   getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel, getRealtimePresetHistoryRange,
 } from '../../shared/utils/datePeriod'
-import { formatDataAsOf } from '../../shared/utils/dataAsOf'
+import { resolveDataAsOfLabel } from '../../shared/utils/dataAsOf'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { IssueStructure } from './IssueStructure'
 import { ProductComplaintRanking } from './ProductComplaintRanking'
@@ -50,7 +50,7 @@ export default function P3Dashboard() {
     currentPeriod, previousPeriod, historyRange,
     fetcher: (filters, signal) => fetchDashboard(filters as never, signal),
   })
-  const dataAsOfLabel = formatDataAsOf(current?.meta?.data_as_of) ?? currentPeriod.date_to
+  const dataAsOfLabel = resolveDataAsOfLabel(current?.meta) ?? currentPeriod.date_to
 
   // Extension area data (independent fetches)
   const [options, setOptions] = useState<P3IssueShareItem[]>([])

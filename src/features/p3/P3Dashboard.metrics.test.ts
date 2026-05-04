@@ -10,7 +10,7 @@ describe('P3 overview KPI composition', () => {
     expect(source).toContain('getRealtimeDefaultHistoryRange')
     expect(source).toContain('getRealtimeCurrentPeriodLabel')
     expect(source).toContain('getRealtimePresetHistoryRange')
-    expect(source).toContain('formatDataAsOf')
+    expect(source).toContain('resolveDataAsOfLabel')
     expect(source).toContain('currentDayIsIncomplete: true')
     expect(source).not.toContain('getCurrentPeriod(grain)')
     expect(source).not.toContain('getDefaultHistoryRange')

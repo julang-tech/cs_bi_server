@@ -13,6 +13,7 @@ import {
   getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange, getPeriodCount,
   getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel, getRealtimePresetHistoryRange,
 } from '../../shared/utils/datePeriod'
+import { resolveDataAsOfLabel } from '../../shared/utils/dataAsOf'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { WorkloadAnalysis } from './WorkloadAnalysis'
 import { sortBacklogMailsByWaitDesc } from './backlogMails'
@@ -83,6 +84,7 @@ export default function P1Dashboard() {
     historyRange,
     fetcher: (filters, signal) => fetchP1Dashboard(filters as never, signal),
   })
+  const dataAsOfLabel = resolveDataAsOfLabel(current?.meta) ?? currentPeriod.date_to
 
   async function loadBacklogMails(signal?: AbortSignal) {
     setBacklogLoading(true)
@@ -268,7 +270,7 @@ export default function P1Dashboard() {
           : getRealtimeCurrentPeriodLabel(grain)
         const sectionSubtitle = isHistorical
           ? '点击图表上的其他点切换，或重置回当前周期'
-          : `数据截至 ${currentPeriod.date_to}`
+          : `数据截至 ${dataAsOfLabel}`
         return (
         <KpiSection
           title={sectionTitle}

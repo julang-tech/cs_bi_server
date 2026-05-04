@@ -14,6 +14,8 @@ export interface DashboardMeta {
   version?: string
   partial_data?: boolean
   data_as_of?: string | null
+  cache_generation?: string | null
+  snapshot_at?: string | null
   notes?: string[]
 }
 

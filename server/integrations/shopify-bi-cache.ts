@@ -684,14 +684,12 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
   getDataAsOf(dateFrom: string, dateTo: string) {
     const row = this.db
       .prepare(`
-        SELECT data_as_of
+        SELECT COALESCE(NULLIF(TRIM(data_as_of), ''), finished_at) AS data_as_of
         FROM shopify_bi_cache_runs
         WHERE scope = 'shopify_bi_v2'
           AND ok = 1
           AND date_from <= ?
           AND date_to >= ?
-          AND data_as_of IS NOT NULL
-          AND TRIM(data_as_of) != ''
         ORDER BY finished_at DESC, id DESC
         LIMIT 1
       `)

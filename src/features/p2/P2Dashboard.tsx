@@ -13,7 +13,7 @@ import {
   getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange, getPeriodCount,
   getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel, getRealtimePresetHistoryRange,
 } from '../../shared/utils/datePeriod'
-import { formatDataAsOf } from '../../shared/utils/dataAsOf'
+import { resolveDataAsOfLabel } from '../../shared/utils/dataAsOf'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { ProductRefundTable } from './ProductRefundTable'
 import type { Grain, P2Filters, P2Overview, P2OverviewCards, TrendPoint } from '../../api/types'
@@ -55,7 +55,7 @@ export default function P2Dashboard() {
     currentPeriod, previousPeriod, historyRange,
     fetcher: (filters, signal) => fetchRefundOverview(filters as never, signal),
   })
-  const dataAsOfLabel = formatDataAsOf(current?.meta?.data_as_of) ?? currentPeriod.date_to
+  const dataAsOfLabel = resolveDataAsOfLabel(current?.meta) ?? currentPeriod.date_to
 
   const periodCount = getPeriodCount(historyRange, grain)
 

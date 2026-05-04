@@ -298,7 +298,14 @@ export class P2Service {
       return cachedFallback
     }
 
-    const [orderMetricsResult, salesQtyResult, dailyOrderResult, dailySalesQtyResult, dailyRefundResult] = await Promise.all([
+    const [
+      orderMetricsResult,
+      salesQtyResult,
+      dailyOrderResult,
+      dailySalesQtyResult,
+      dailyRefundResult,
+      dataAsOf,
+    ] = await Promise.all([
       this.client.query({
         query: `
 WITH order_metrics AS (
@@ -453,6 +460,7 @@ GROUP BY bucket_date
           ...this.buildParams(filters),
         },
       }),
+      this.fetchBigQueryDataAsOf(),
     ])
 
     const rows = extractRows(orderMetricsResult)
@@ -514,6 +522,7 @@ GROUP BY bucket_date
       meta: {
         partial_data: false,
         source_mode: 'bigquery_fallback',
+        data_as_of: dataAsOf,
         notes: [
           ADR_0007_METRIC_NOTE,
           ...(cacheUnavailableMessage
@@ -1049,6 +1058,33 @@ WHERE parsed_skc IS NOT NULL
       channel: filters.channel ?? '',
       listing_date_from: filters.listing_date_from ?? '',
       listing_date_to: filters.listing_date_to ?? '',
+    }
+  }
+
+  private async fetchBigQueryDataAsOf() {
+    if (!this.client) {
+      return null
+    }
+    try {
+      const rows = extractRows(await this.client.query({
+        query: `
+WITH source_watermarks AS (
+  SELECT MAX(_dbt_updated_at) AS data_as_of
+  FROM \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\`
+  UNION ALL
+  SELECT MAX(_dbt_updated_at) AS data_as_of
+  FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\`
+)
+SELECT
+  FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%E3SZ', MIN(data_as_of)) AS data_as_of
+FROM source_watermarks
+WHERE data_as_of IS NOT NULL
+        `,
+      }))
+      const value = rows[0]?.data_as_of
+      return value ? String(value) : null
+    } catch {
+      return null
     }
   }
 

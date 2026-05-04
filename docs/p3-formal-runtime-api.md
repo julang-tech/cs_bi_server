@@ -111,7 +111,7 @@ npm.cmd run dev
 
 - `meta.data_as_of`
   - 当 P3 的 Shopify 指标来自 SQLite Shopify BI cache 且 cache run 记录了上游水位时返回。
-  - 表示订单、退款等 Shopify DWD 来源的有效数据截至时间，前端格式化为小时级“数据截至”。
+  - 表示订单、退款等 Shopify DWD 来源的有效数据截至时间；如果旧 cache run 没有上游水位，服务端会用本地 cache run `finished_at` 兜底，前端格式化为小时级“数据截至”。
 - 前端默认当前周期：
   - 按日为今天。
   - 按周为本周至今。
