@@ -193,46 +193,30 @@ export function FocusLineChart({
     )
   }
 
-  // Interactive dot for every history point. Transparent unless selected; the
-  // hit area (r=8) is invisible but still clickable via pointer-events=all so
-  // users can pick any bucket without trying to land on a tiny visible mark.
-  const renderInteractiveDot = (props: {
+  // Render the selected-bucket dot only — the click hit area is now the full
+  // vertical column (handled by ComposedChart.onClick + Tooltip cursor band
+  // below), so unselected dots are invisible.
+  const renderSelectedDot = (props: {
     cx?: number; cy?: number; payload?: ChartRow; index?: number; key?: string
   }) => {
     const { cx, cy, payload, index, key } = props
-    const k = key ?? `idot-${index ?? `${cx}-${cy}`}`
+    const k = key ?? `seldot-${index ?? `${cx}-${cy}`}`
     if (cx == null || cy == null || !payload || payload.value == null) {
       return <circle key={k} cx={cx ?? 0} cy={cy ?? 0} r={0} fill="none" />
     }
-    const isSelected = payload.bucket === selectedBucket
-    const clickable = Boolean(onBucketSelect)
-    const handleClick = clickable
-      ? () => onBucketSelect?.(isSelected ? null : payload.bucket)
-      : undefined
+    if (payload.bucket !== selectedBucket) {
+      return <circle key={k} cx={cx} cy={cy} r={0} fill="none" />
+    }
     return (
-      <g key={k}>
-        {isSelected ? (
-          <circle
-            cx={cx}
-            cy={cy}
-            r={5}
-            fill="var(--accent)"
-            stroke="var(--surface)"
-            strokeWidth={2}
-          />
-        ) : null}
-        {clickable ? (
-          <circle
-            cx={cx}
-            cy={cy}
-            r={8}
-            fill="transparent"
-            pointerEvents="all"
-            style={{ cursor: 'pointer' }}
-            onClick={handleClick}
-          />
-        ) : null}
-      </g>
+      <circle
+        key={k}
+        cx={cx}
+        cy={cy}
+        r={5}
+        fill="var(--accent)"
+        stroke="var(--surface)"
+        strokeWidth={2}
+      />
     )
   }
 
@@ -314,7 +298,19 @@ export function FocusLineChart({
       ) : null}
       <div className="focus-chart__plot">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 24, right: 56, left: 0, bottom: 4 }}>
+          <ComposedChart
+            data={data}
+            margin={{ top: 24, right: 56, left: 0, bottom: 4 }}
+            // Click anywhere on the chart → pin to that column's bucket. The
+            // Tooltip cursor below paints a wide hover band so users see the
+            // whole column is clickable. activeLabel is the X-axis value.
+            onClick={onBucketSelect ? (state: { activeLabel?: string | null } | null) => {
+              const label = state?.activeLabel
+              if (typeof label !== 'string' || !label) return
+              onBucketSelect(label === selectedBucket ? null : label)
+            } : undefined}
+            style={onBucketSelect ? { cursor: 'pointer' } : undefined}
+          >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.18} />
@@ -344,7 +340,13 @@ export function FocusLineChart({
               tickCount={5}
             />
             <Tooltip
-              cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
+              // Wide semi-transparent band on hover signals the whole column
+              // is clickable — keeps the thin line for non-interactive charts.
+              cursor={
+                onBucketSelect
+                  ? { fill: 'var(--accent)', fillOpacity: 0.06, stroke: 'var(--accent)', strokeOpacity: 0.4, strokeWidth: 1 }
+                  : { stroke: 'var(--border)', strokeWidth: 1 }
+              }
               content={
                 <CustomTooltip
                   formatter={active.formatter}
@@ -353,6 +355,15 @@ export function FocusLineChart({
                 />
               }
             />
+            {/* Persistent highlight band on the pinned column. */}
+            {selectedBucket ? (
+              <ReferenceLine
+                x={selectedBucket}
+                stroke="var(--accent)"
+                strokeWidth={1.5}
+                strokeOpacity={0.6}
+              />
+            ) : null}
             {historyMean !== null ? (
               <ReferenceLine
                 y={historyMean}
@@ -385,7 +396,7 @@ export function FocusLineChart({
               dataKey="value"
               stroke="var(--accent)"
               strokeWidth={2}
-              dot={renderInteractiveDot}
+              dot={renderSelectedDot}
               activeDot={{ r: 4, fill: 'var(--accent)', stroke: 'var(--surface)', strokeWidth: 1.5 }}
               isAnimationActive={false}
               connectNulls={false}
