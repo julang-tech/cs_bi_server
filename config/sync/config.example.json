@@ -87,5 +87,20 @@
       "https_proxy": "http://127.0.0.1:7890",
       "no_proxy": "127.0.0.1,localhost"
     }
+  },
+  "logistics": {
+    "enabled": true,
+    "timeout_seconds": 20,
+    "fpx": {
+      "api_base_url": "https://open.4px.com",
+      "app_key": "4px_app_key_here",
+      "app_secret": "4px_app_secret_here"
+    },
+    "yunexpress": {
+      "api_base_url": "https://openapi.yunexpress.cn",
+      "app_id": "yunexpress_app_id_here",
+      "app_secret": "yunexpress_app_secret_here",
+      "source_key": "yunexpress_source_key_here"
+    }
   }
 }

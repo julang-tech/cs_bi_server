@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { SyncService, sanitizeTargetRecord } from '../domain/sync/service.js'
+import { SyncService, sanitizeTargetRecord, type SyncState } from '../domain/sync/service.js'
 import {
   buildDateFilter,
   filterRowsByDate,
@@ -110,6 +110,20 @@ function testTransformBasicFields() {
   assert.equal(record['客服跟进人'], '张三')
 }
 
+function testTransformRefundLogKeepsReturnReceiptFlag() {
+  const result = transformSourceRecord('src-return-receipt', {
+    记录日期: '2026/01/02',
+    订单号: 'LC123-R',
+    '是否收到退货/退货单据': '是',
+    具体操作要求: '退款',
+  })
+
+  assert.equal(result.errors.length, 0)
+  const record = result.records[0] as Record<string, unknown>
+  assert.equal(record['是否收到退货/退货单据'], '是')
+  assert.equal(record['退货单号'], undefined)
+}
+
 function testTransformSplitsMultiSkuRows() {
   const result = transformSourceRecord('src-2', {
     记录日期: '2025/08/19',
@@ -136,6 +150,21 @@ function testTransformInfersRefundSolutionAndView() {
   assert.deepEqual(record['客诉方案'], ['补发'])
   assert.deepEqual(record['命中视图'], ['1-5待跟进表-补发'])
   assert.equal(record['客诉类型'], '仓库-漏发')
+}
+
+function testTransformRefundProductProblemMapsToCustomerReason() {
+  const result = transformSourceRecord('src-product-problem', {
+    记录日期: '2026/01/02',
+    订单号: 'LC126',
+    退款原因分类: '产品问题',
+    具体操作要求: '退款',
+  })
+
+  assert.equal(result.errors.length, 0)
+  const record = result.records[0] as Record<string, unknown>
+  assert.equal(record['客诉类型'], '客户原因-其他')
+  assert.deepEqual(record['命中视图'], ['1-1待跟进表-退款'])
+  assert.deepEqual(record['跟进组'], ['财务组'])
 }
 
 function testTransformMissingRequiredFields() {
@@ -218,6 +247,7 @@ function testShopifyHelpers() {
     currency: 'USD',
     fulfillment_status: 'FULFILLED',
     tracking_numbers: ['TRK-1'],
+    shipments: [],
     shipped_at: '2026-04-02T12:00:00Z',
     admin_order_url: 'https://lc.example.com/admin/orders/1',
     line_items: [
@@ -237,7 +267,7 @@ function testShopifyHelpers() {
   }
 
   assert.equal(inferLogisticsStatusFromShopify('UNFULFILLED'), '未发货')
-  assert.equal(inferLogisticsStatusFromShopify('FULFILLED'), '运输途中')
+  assert.equal(inferLogisticsStatusFromShopify('FULFILLED'), null)
   assert.equal(matchSkuAmount(order, 'sku-1'), '97.51')
   assert.equal(matchSkuAmount(order, null), '97.51')
 }
@@ -314,6 +344,7 @@ async function testSyncPreviewAndRun() {
           currency: 'USD',
           fulfillment_status: 'FULFILLED',
           tracking_numbers: ['TRACK-123'],
+          shipments: [],
           shipped_at: '2026-04-21T09:00:00Z',
           admin_order_url: 'https://lc.example.com/admin/orders/200',
           line_items: [
@@ -369,6 +400,89 @@ async function testSyncPreviewAndRun() {
   const secondSync = await service.syncSourceToTarget({ config: configPath })
   assert.equal(secondSync.updated, 1)
   assert.equal(updatedRecords.length, 1)
+}
+
+async function testSourceToTargetRebuildDeletesTargetAndWritesArtifacts() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  writeJson(path.join(tmpDir, 'data', 'state.json'), {
+    source_to_target_ids: {
+      'merged:LC200|SKU-1': ['old-target-rec'],
+    },
+  })
+
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+    { field_id: '5', field_name: '客诉SKU', field_type: 1, property: null },
+  ]
+  const sourceRecords: FeishuRecord[] = [
+    {
+      record_id: 'rec-1',
+      fields: {
+        记录日期: '2026/04/24',
+        订单号: 'LC200',
+        具体操作要求: '退款\nSKU-1',
+      },
+    },
+  ]
+  const targetRecords: FeishuRecord[] = [
+    { record_id: 'old-target-rec', fields: { 订单号: 'LC200' } },
+    { record_id: 'stale-target-rec', fields: { 订单号: 'LC999' } },
+  ]
+  const operations: string[] = []
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords(table) {
+        if (table.table_id === 'target-table') return targetRecords
+        return sourceRecords
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord() {
+        throw new Error('rebuild should use batchCreateRecords')
+      },
+      async updateRecord() {
+        throw new Error('rebuild must not update old target ids')
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        operations.push(`create:${fieldsList.length}`)
+        return fieldsList.map((fields) => `new-${String(fields['订单号'])}-${String(fields['客诉SKU'] ?? '')}`)
+      },
+      async batchDeleteRecords(_table: SyncConfig['target'], recordIds: string[]) {
+        operations.push(`delete:${recordIds.join(',')}`)
+      },
+    }),
+    createShopifyClient: () => null,
+  })
+
+  const result = await service.syncSourceToTarget({
+    config: configPath,
+    rebuildTarget: true,
+    rebuildRunId: 'test-run',
+    createConcurrency: 2,
+    deleteConcurrency: 2,
+  })
+
+  assert.equal(result.mode, 'source-to-target-rebuild')
+  assert.deepEqual(operations, ['delete:old-target-rec,stale-target-rec', 'create:1'])
+  assert.equal(result.created, 1)
+  assert.equal(result.deleted, 2)
+
+  const artifactDir = path.join(tmpDir, 'data', 'source-to-target-rebuild', 'test-run')
+  assert.ok(fs.existsSync(path.join(artifactDir, 'manifest.json')))
+  assert.ok(fs.existsSync(path.join(artifactDir, 'records.jsonl')))
+  assert.ok(fs.existsSync(path.join(artifactDir, 'state.next.json')))
+  assert.match(fs.readFileSync(path.join(artifactDir, 'records.jsonl'), 'utf8'), /LC200/)
+
+  const state = JSON.parse(fs.readFileSync(path.join(tmpDir, 'data', 'state.json'), 'utf8')) as SyncState
+  assert.deepEqual(state.source_to_target_ids, {
+    'merged:LC200|SKU-1': ['new-LC200-SKU-1'],
+  })
 }
 
 async function testShopifyBackfillOnlyFillsEmptyFields() {
@@ -433,6 +547,7 @@ async function testShopifyBackfillOnlyFillsEmptyFields() {
           currency: 'USD',
           fulfillment_status: 'UNFULFILLED',
           tracking_numbers: [],
+          shipments: [],
           shipped_at: null,
           admin_order_url: 'https://lc.example.com/admin/orders/201',
           line_items: [
@@ -452,6 +567,210 @@ async function testShopifyBackfillOnlyFillsEmptyFields() {
   assert.equal(createdRecords[0]?.['物流状态'], '运输途中')
   assert.equal(createdRecords[0]?.['客户姓名'], 'Filled Name')
   assert.equal(createdRecords[0]?.['订单金额'], 88)
+}
+
+async function testLiveLogisticsBackfillUsesCarrierStatus() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+    { field_id: '5', field_name: '物流状态', field_type: 1, property: null },
+    { field_id: '6', field_name: '物流号', field_type: 1, property: null },
+  ]
+
+  const createdRecords: Array<Record<string, unknown>> = []
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return [
+          {
+            record_id: 'rec-live-logistics',
+            fields: {
+              记录日期: '2026/04/24',
+              订单号: 'LC299',
+              具体操作要求: '退款',
+            },
+          },
+        ]
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord(_table, fields) {
+        createdRecords.push(fields)
+        return 'target-rec-live-logistics'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
+    }),
+    createShopifyClient: () => ({
+      async fetchOrder() {
+        return {
+          id: 'gid://shopify/Order/299',
+          name: 'LC299',
+          customer_name: 'Live Logistics',
+          customer_email: 'live@example.com',
+          order_date: '2026-04-20T10:00:00Z',
+          order_amount: '100.00',
+          currency: 'USD',
+          fulfillment_status: 'FULFILLED',
+          tracking_numbers: ['4PX3000000000CN'],
+          shipments: [
+            {
+              id: 'gid://shopify/Fulfillment/299',
+              status: 'SUCCESS',
+              display_status: 'FULFILLED',
+              created_at: '2026-04-21T09:00:00Z',
+              tracking: [{ company: '4PX', number: '4PX3000000000CN', url: null }],
+            },
+          ],
+          shipped_at: '2026-04-21T09:00:00Z',
+          admin_order_url: 'https://lc.example.com/admin/orders/299',
+          line_items: [
+            {
+              sku: 'SKU-LIVE',
+              quantity: 1,
+              originalUnitPrice: { amount: '100.00', currencyCode: 'USD' },
+              originalTotal: { amount: '100.00', currencyCode: 'USD' },
+            },
+          ],
+        }
+      },
+    }),
+    createLiveLogisticsClient: () => ({
+      async queryFpx(input) {
+        assert.equal(input.trackingNumber, '4PX3000000000CN')
+        return {
+          provider: 'fpx',
+          lookup_status: 'success',
+          logistics_status: 'delivered',
+          raw: {},
+        }
+      },
+    }),
+  })
+
+  await service.syncSourceToTarget({ config: configPath })
+  assert.equal(createdRecords[0]?.['物流号'], '4PX3000000000CN')
+  assert.equal(createdRecords[0]?.['物流状态'], '已签收')
+}
+
+async function testReceivedGoodsComplaintSkipsLiveLogisticsLookup() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+    { field_id: '5', field_name: '客诉类型', field_type: 1, property: null },
+    { field_id: '6', field_name: '物流状态', field_type: 1, property: null },
+    { field_id: '7', field_name: '物流号', field_type: 1, property: null },
+  ]
+
+  const createdRecords: Array<Record<string, unknown>> = []
+  let liveLogisticsLookups = 0
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return [
+          {
+            record_id: 'rec-defect-delivered',
+            fields: {
+              记录日期: '2026/04/24',
+              订单号: 'LC399',
+              退款原因分类: '瑕疵问题',
+              具体操作要求: '退款',
+            },
+          },
+        ]
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord(_table, fields) {
+        createdRecords.push(fields)
+        return 'target-rec-defect-delivered'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
+    }),
+    createShopifyClient: () => ({
+      async fetchOrder() {
+        return {
+          id: 'gid://shopify/Order/399',
+          name: 'LC399',
+          customer_name: 'Received Goods',
+          customer_email: 'received@example.com',
+          order_date: '2026-04-20T10:00:00Z',
+          order_amount: '100.00',
+          currency: 'USD',
+          fulfillment_status: 'FULFILLED',
+          tracking_numbers: ['4PX3990000000CN'],
+          shipments: [
+            {
+              id: 'gid://shopify/Fulfillment/399',
+              status: 'SUCCESS',
+              display_status: 'FULFILLED',
+              created_at: '2026-04-21T09:00:00Z',
+              tracking: [{ company: '4PX', number: '4PX3990000000CN', url: null }],
+            },
+          ],
+          shipped_at: '2026-04-21T09:00:00Z',
+          admin_order_url: 'https://lc.example.com/admin/orders/399',
+          line_items: [
+            {
+              sku: 'SKU-DEFECT',
+              quantity: 1,
+              originalUnitPrice: { amount: '100.00', currencyCode: 'USD' },
+              originalTotal: { amount: '100.00', currencyCode: 'USD' },
+            },
+          ],
+        }
+      },
+    }),
+    createLiveLogisticsClient: () => ({
+      async queryFpx() {
+        liveLogisticsLookups += 1
+        return {
+          provider: 'fpx',
+          lookup_status: 'success',
+          logistics_status: 'transit',
+          raw: {},
+        }
+      },
+    }),
+  })
+
+  await service.syncSourceToTarget({ config: configPath })
+  assert.equal(createdRecords[0]?.['客诉类型'], '货品瑕疵-其他')
+  assert.equal(createdRecords[0]?.['物流状态'], '已签收')
+  assert.equal(liveLogisticsLookups, 0)
 }
 
 async function testSkuAmountStaysEmptyWhenComplaintSkuMissingOnMultiProductOrder() {
@@ -513,6 +832,7 @@ async function testSkuAmountStaysEmptyWhenComplaintSkuMissingOnMultiProductOrder
           currency: 'USD',
           fulfillment_status: 'FULFILLED',
           tracking_numbers: ['TRACK-202'],
+          shipments: [],
           shipped_at: '2026-04-21T09:00:00Z',
           admin_order_url: 'https://lc.example.com/admin/orders/202',
           line_items: [
@@ -566,6 +886,225 @@ async function testSyncCsv() {
   assert.equal(result.source.rowCount, 1)
   assert.equal(result.summary.source_rows, 1)
   assert.equal(result.samples.length, 1)
+}
+
+async function testSourceImportDefaultsToCurrentYearFloor() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+  ]
+
+  const sourceRecords: FeishuRecord[] = [
+    {
+      record_id: 'rec-2025',
+      fields: {
+        记录日期: '2025/12/31',
+        订单号: 'LC2025',
+        具体操作要求: '退款',
+      },
+    },
+    {
+      record_id: 'rec-2026',
+      fields: {
+        记录日期: '2026/01/01',
+        订单号: 'LC2026',
+        具体操作要求: '退款',
+      },
+    },
+  ]
+  const createdRecords: Array<Record<string, unknown>> = []
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return sourceRecords
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord(_table, fields) {
+        createdRecords.push(fields)
+        return `target-${String(fields['订单号'])}`
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
+    }),
+    createShopifyClient: () => null,
+  })
+
+  const result = await service.syncSourceToTarget({ config: configPath })
+  assert.equal(result.per_source_counts[0]?.source_rows, 1)
+  assert.equal(createdRecords.length, 1)
+  assert.equal(createdRecords[0]?.['订单号'], 'LC2026')
+}
+
+async function testSourceToTargetBackfillsShopifyBiFinancials() {
+  const tmpDir = createTempDir()
+  const configPath = createConfig(tmpDir)
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(path.join(tmpDir, 'data', 'issues.sqlite'))
+  cache.replaceWindow({
+    dateFrom: '2026-01-01',
+    dateTo: '2026-01-31',
+    orders: [{
+      order_id: 'order-financials',
+      order_no: 'LC900',
+      shop_domain: '2vnpww-33.myshopify.com',
+      processed_date: '2026-01-02',
+      primary_product_type: 'Dress',
+      first_published_at_in_order: '2025-12-01',
+      is_regular_order: true,
+      is_gift_card_order: false,
+      gmv_usd: 180,
+      revenue_usd: 160,
+      net_revenue_usd: 120,
+    }],
+    orderLines: [
+      {
+        order_id: 'order-financials',
+        order_no: 'LC900',
+        line_key: 'order-financials:SKU-A:0',
+        sku: 'SKU-A',
+        skc: 'SKU',
+        spu: 'SKU',
+        product_id: 'prod-a',
+        variant_id: 'var-a',
+        quantity: 1,
+        discounted_total_usd: 70,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
+      },
+      {
+        order_id: 'order-financials',
+        order_no: 'LC900',
+        line_key: 'order-financials:SKU-B:0',
+        sku: 'SKU-B',
+        skc: 'SKU',
+        spu: 'SKU',
+        product_id: 'prod-b',
+        variant_id: 'var-b',
+        quantity: 1,
+        discounted_total_usd: 90,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
+      },
+    ],
+    refundEvents: [
+      {
+        refund_id: 'refund-financials-a',
+        order_id: 'order-financials',
+        order_no: 'LC900',
+        sku: 'SKU-A',
+        refund_date: '2026-01-03',
+        refund_quantity: 1,
+        refund_subtotal_usd: 30,
+      },
+      {
+        refund_id: 'refund-financials-b',
+        order_id: 'order-financials',
+        order_no: 'LC900',
+        sku: 'SKU-B',
+        refund_date: '2026-01-04',
+        refund_quantity: 1,
+        refund_subtotal_usd: 50,
+      },
+    ],
+  })
+  cache.close()
+
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+    { field_id: '5', field_name: '客诉SKU', field_type: 1, property: null },
+    { field_id: '6', field_name: 'SKU金额', field_type: 2, property: null },
+    { field_id: '7', field_name: '订单金额', field_type: 2, property: null },
+    { field_id: '8', field_name: 'SKU退款金额', field_type: 2, property: null },
+    { field_id: '9', field_name: '订单累计退款', field_type: 2, property: null },
+  ]
+  const createdRecords: Array<Record<string, unknown>> = []
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords() {
+        return [{
+          record_id: 'rec-financials',
+          fields: {
+            记录日期: '2026/01/05',
+            订单号: 'LC900',
+            具体操作要求: '退款\nSKU-A',
+          },
+        }]
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord(_table, fields) {
+        createdRecords.push(fields)
+        return 'target-financials'
+      },
+      async updateRecord(_table, recordId) {
+        return recordId
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        const ids = []
+        for (const fields of fieldsList) {
+          const id = await this.createRecord(_table, fields)
+          ids.push(id)
+        }
+        return ids
+      },
+    }),
+    createShopifyClient: () => ({
+      async fetchOrder() {
+        return {
+          id: 'gid://shopify/Order/900',
+          name: 'LC900',
+          customer_name: 'Financials',
+          customer_email: 'financials@example.com',
+          order_date: '2026-01-02T10:00:00Z',
+          order_amount: '999.00',
+          currency: 'USD',
+          fulfillment_status: 'FULFILLED',
+          tracking_numbers: [],
+          shipments: [],
+          shipped_at: null,
+          admin_order_url: 'https://lc.example.com/admin/orders/900',
+          line_items: [
+            {
+              sku: 'SKU-A',
+              quantity: 1,
+              originalUnitPrice: { amount: '999.00', currencyCode: 'USD' },
+              originalTotal: { amount: '999.00', currencyCode: 'USD' },
+            },
+          ],
+        }
+      },
+    }),
+  })
+
+  await service.syncSourceToTarget({ config: configPath })
+  assert.equal(createdRecords[0]?.['SKU金额'], 70)
+  assert.equal(createdRecords[0]?.['订单金额'], 180)
+  assert.equal(createdRecords[0]?.['SKU退款金额'], 30)
+  assert.equal(createdRecords[0]?.['订单累计退款'], 80)
 }
 
 async function testSqliteMirrorDeletesMissingRecords() {
@@ -2200,9 +2739,11 @@ function testTransformReissue6Usd() {
       原订单号: 'LC401',
       日期: '2026/05/01',
       客户姓名: 'Alice',
+      客诉SKU: 'LWS-ORIGINAL-BK-M',
       需补发SKU: 'LWS-PT21BK-M',
       补发订单号: 'LC401-RE',
       客诉原因: ['poor fit', 'Size too large'],
+      备注: '客户愿意等补发',
       创建人: '李四',
     },
     'reissue_6usd',
@@ -2210,14 +2751,37 @@ function testTransformReissue6Usd() {
   assert.equal(result.errors.length, 0)
   const record = result.records[0] as Record<string, unknown>
   assert.equal(record['订单号'], 'LC401')
-  assert.equal(record['客诉SKU'], 'LWS-PT21BK-M')
+  assert.equal(record['客诉SKU'], 'LWS-ORIGINAL-BK-M')
   assert.equal(record['补发订单号'], 'LC401-RE')
+  assert.equal(record['具体金额/操作要求'], '需补发SKU：LWS-PT21BK-M')
   assert.deepEqual(record['客诉方案'], ['6美元补发'])
   assert.deepEqual(record['命中视图'], ['1-5待跟进表-补发'])
   assert.deepEqual(record['跟进组'], ['仓库组'])
   assert.equal(record['客诉类型'], '客户原因-尺码不合适')
   assert.equal(record['客服跟进人'], '李四')
   assert.match(String(record['待跟进客诉备注'] ?? ''), /poor fit/)
+  assert.match(String(record['待跟进客诉备注'] ?? ''), /客户愿意等补发/)
+}
+
+function testTransformReissue6UsdSplitsMultiSkuField() {
+  const result = transformSourceRecord(
+    'src-reissue-multi',
+    {
+      原订单号: 'LC401',
+      日期: '2026/05/01',
+      客诉SKU: 'LWS-PT21BK-M\nLWS-PT21TBL-M',
+      需补发SKU: 'LWS-REISSUE-BK-M',
+      客诉原因: ['poor fit'],
+    },
+    'reissue_6usd',
+  )
+
+  assert.equal(result.errors.length, 0)
+  assert.equal(result.records.length, 2)
+  assert.equal(result.records[0]?.['客诉SKU'], 'LWS-PT21BK-M')
+  assert.equal(result.records[1]?.['客诉SKU'], 'LWS-PT21TBL-M')
+  assert.deepEqual(result.records[0]?.['客诉方案'], ['6美元补发'])
+  assert.equal(result.records[0]?.['具体金额/操作要求'], '需补发SKU：LWS-REISSUE-BK-M')
 }
 
 function testTransformManualReturn() {
@@ -2228,16 +2792,37 @@ function testTransformManualReturn() {
       记录日期: '2026/05/02',
       客诉SKU: 'LWS-PT21BK-L',
       客诉原因: ['style', 'don\'t like color'],
+      方案: ['代金券', '补发'],
+      备注: '实际原因：it arrived too late',
     },
     'manual_return',
   )
   assert.equal(result.errors.length, 0)
   const record = result.records[0] as Record<string, unknown>
   assert.deepEqual(record['命中视图'], ['1-1待跟进表-退款'])
-  assert.deepEqual(record['客诉方案'], ['全额退款'])
+  assert.deepEqual(record['客诉方案'], ['代金券', '补发'])
   assert.deepEqual(record['跟进组'], ['财务组'])
   assert.equal(record['客诉类型'], '客户原因-款式不喜欢')
   assert.equal(record['客诉SKU'], 'LWS-PT21BK-L')
+  assert.match(String(record['待跟进客诉备注'] ?? ''), /it arrived too late/)
+}
+
+function testTransformManualReturnSplitsMultiSkuField() {
+  const result = transformSourceRecord(
+    'src-manual-multi',
+    {
+      订单号: 'LC402',
+      记录日期: '2026/05/02',
+      客诉SKU: 'LWS-PT21BK-L\nLWS-PT21TBL-L',
+      客诉原因: ['style'],
+    },
+    'manual_return',
+  )
+
+  assert.equal(result.errors.length, 0)
+  assert.equal(result.records.length, 2)
+  assert.equal(result.records[0]?.['客诉SKU'], 'LWS-PT21BK-L')
+  assert.equal(result.records[1]?.['客诉SKU'], 'LWS-PT21TBL-L')
 }
 
 function testTransformDefectFeedback() {
@@ -2248,6 +2833,8 @@ function testTransformDefectFeedback() {
       反馈日期: '2026/05/03',
       产品sku: 'LWS-DF21BK-M',
       瑕疵说明: '收到时领口缝线开线了',
+      照片核实: [{ file_token: 'file-defect-1', name: 'defect.jpg' }],
+      协商方案: '接受120%代金券',
       反馈人: '王五',
     },
     'defect_feedback',
@@ -2255,12 +2842,37 @@ function testTransformDefectFeedback() {
   assert.equal(result.errors.length, 0)
   const record = result.records[0] as Record<string, unknown>
   assert.deepEqual(record['命中视图'], ['1-3待跟进表-货品瑕疵'])
-  assert.deepEqual(record['客诉方案'], ['补发'])
+  assert.deepEqual(record['客诉方案'], ['代金券'])
   assert.deepEqual(record['跟进组'], ['采购组', 'OEM组', '商品组', '财务组'])
-  assert.equal(record['客诉类型'], '货品瑕疵-缝线')
+  assert.equal(record['客诉类型'], '货品瑕疵-缝线问题')
   assert.equal(record['客诉SKU'], 'LWS-DF21BK-M')
   assert.match(String(record['待跟进客诉备注'] ?? ''), /缝线/)
+  assert.match(String(record['待跟进客诉备注'] ?? ''), /协商方案：接受120%代金券/)
+  assert.deepEqual(record['退货/瑕疵凭证原图'], [{ file_token: 'file-defect-1', name: 'defect.jpg' }])
   assert.equal(record['客服跟进人'], '王五')
+}
+
+function testTransformDefectFeedbackSplitsByShopifySkuWhenItemCountMatches() {
+  const result = transformSourceRecord(
+    'src-defect-count',
+    {
+      订单号: 'LC403',
+      反馈日期: '2026/05/03',
+      瑕疵说明: '2件都有破洞',
+    },
+    'defect_feedback',
+    {
+      lookupOrderSkus: (orderNo) => {
+        assert.equal(orderNo, 'LC403')
+        return ['LWS-DF21BK-M', 'LWS-DF21TBL-M']
+      },
+    },
+  )
+
+  assert.equal(result.errors.length, 0)
+  assert.equal(result.records.length, 2)
+  assert.equal(result.records[0]?.['客诉SKU'], 'LWS-DF21BK-M')
+  assert.equal(result.records[1]?.['客诉SKU'], 'LWS-DF21TBL-M')
 }
 
 function testTransformWrongSendFeedback() {
@@ -2271,6 +2883,8 @@ function testTransformWrongSendFeedback() {
       反馈日期: '2026/05/04',
       产品sku: 'LWS-WR21BK-M',
       错发说明: '客户漏发了一件外套',
+      '照片核实 (1)': [{ file_token: 'file-wrong-1', name: 'wrong.jpg' }],
+      协商方案: '客户要求退款',
       反馈人: '赵六',
     },
     'wrong_send_feedback',
@@ -2278,10 +2892,34 @@ function testTransformWrongSendFeedback() {
   assert.equal(result.errors.length, 0)
   const record = result.records[0] as Record<string, unknown>
   assert.deepEqual(record['命中视图'], ['1-2待跟进表-漏发、发错'])
-  assert.deepEqual(record['客诉方案'], ['补发'])
+  assert.deepEqual(record['客诉方案'], ['全额退款'])
   assert.deepEqual(record['跟进组'], ['仓库组'])
   assert.equal(record['客诉类型'], '仓库-漏发')
   assert.equal(record['客诉SKU'], 'LWS-WR21BK-M')
+  assert.match(String(record['待跟进客诉备注'] ?? ''), /协商方案：客户要求退款/)
+  assert.deepEqual(record['退货/瑕疵凭证原图'], [{ file_token: 'file-wrong-1', name: 'wrong.jpg' }])
+}
+
+function testTransformWrongSendFeedbackFillsSingleShopifySku() {
+  const result = transformSourceRecord(
+    'src-wrong-single',
+    {
+      订单号: 'LC404',
+      反馈日期: '2026/05/04',
+      错发说明: '客户反馈漏发',
+    },
+    'wrong_send_feedback',
+    {
+      lookupOrderSkus: (orderNo) => {
+        assert.equal(orderNo, 'LC404')
+        return ['LWS-WR21BK-M']
+      },
+    },
+  )
+
+  assert.equal(result.errors.length, 0)
+  assert.equal(result.records.length, 1)
+  assert.equal(result.records[0]?.['客诉SKU'], 'LWS-WR21BK-M')
 }
 
 function testTransformLogisticsIssueWithSkuLookup() {
@@ -2294,6 +2932,7 @@ function testTransformLogisticsIssueWithSkuLookup() {
       物流问题: '包裹超期未送达',
       跟进1: '已联系承运商',
       跟进2: '承运商表示已重新派送',
+      状态: ['已妥投', '重点关注'],
     },
     'logistics_issue',
     {
@@ -2305,8 +2944,8 @@ function testTransformLogisticsIssueWithSkuLookup() {
     },
   )
   assert.equal(result.errors.length, 0)
-  // 1 source row → 2 records (one per Shopify-cache SKU)
-  assert.equal(result.records.length, 2)
+  // Logistics rows are order/package-level events; Shopify SKU lookup must not fan out.
+  assert.equal(result.records.length, 1)
   const record = result.records[0] as Record<string, unknown>
   assert.deepEqual(record['命中视图'], ['1-4待跟进表-物流问题'])
   assert.deepEqual(record['跟进组'], ['物流组', '财务组'])
@@ -2315,26 +2954,22 @@ function testTransformLogisticsIssueWithSkuLookup() {
   assert.equal(record['待跟进客诉备注'], '包裹超期未送达')
   assert.match(String(record['物流-跟进过程'] ?? ''), /已联系承运商/)
   assert.match(String(record['物流-跟进过程'] ?? ''), /重新派送/)
-  assert.equal(record['物流-跟进结果'], '')
-  assert.equal((result.records[0] as Record<string, unknown>)['客诉SKU'], 'LWS-LG21BK-M')
-  assert.equal((result.records[1] as Record<string, unknown>)['客诉SKU'], 'LWS-LG21BK-L')
+  assert.equal(record['物流-跟进结果'], '已妥投, 重点关注')
+  assert.equal(record['客诉SKU'], undefined)
 }
 
-function testTransformLogisticsIssueFallbackWhenNoSkus() {
-  // No lookup → single record with empty 客诉SKU
+function testTransformLogisticsIssueSkipsRowsWithoutOrderNo() {
   const result = transformSourceRecord(
     'src-logistics-2',
     {
-      订单号: 'LC406',
       日期: '2026/05/05',
+      物流号: 'TRK-NO-ORDER',
       物流问题: '包裹丢失',
     },
     'logistics_issue',
   )
-  assert.equal(result.records.length, 1)
-  const record = result.records[0] as Record<string, unknown>
-  assert.equal(record['客诉类型'], '物流问题-丢包')
-  assert.equal(record['客诉SKU'], undefined)
+  assert.equal(result.records.length, 0)
+  assert.match(result.errors[0] ?? '', /订单号/)
 }
 
 // ===== inferComplaintTypeFromText / inferFollowUpTeam =====
@@ -2349,14 +2984,14 @@ function testInferComplaintTypeFromText() {
   // Logistics view
   assert.equal(inferComplaintTypeFromText('包裹超期', '1-4待跟进表-物流问题'), '物流问题-超期')
   assert.equal(inferComplaintTypeFromText('包裹丢了', '1-4待跟进表-物流问题'), '物流问题-丢包')
-  assert.equal(inferComplaintTypeFromText('地址写错了', '1-4待跟进表-物流问题'), '物流问题-地址')
+  assert.equal(inferComplaintTypeFromText('地址写错了', '1-4待跟进表-物流问题'), '物流问题-派发错地址')
   assert.equal(inferComplaintTypeFromText('其他原因', '1-4待跟进表-物流问题'), '物流问题-其他')
 
   // Defect view
-  assert.equal(inferComplaintTypeFromText('缝线开了', '1-3待跟进表-货品瑕疵'), '货品瑕疵-缝线')
-  assert.equal(inferComplaintTypeFromText('破洞', '1-3待跟进表-货品瑕疵'), '货品瑕疵-破洞')
+  assert.equal(inferComplaintTypeFromText('缝线开了', '1-3待跟进表-货品瑕疵'), '货品瑕疵-缝线问题')
+  assert.equal(inferComplaintTypeFromText('破洞', '1-3待跟进表-货品瑕疵'), '货品瑕疵-有破洞')
   assert.equal(inferComplaintTypeFromText('色差严重', '1-3待跟进表-货品瑕疵'), '货品瑕疵-色差')
-  assert.equal(inferComplaintTypeFromText('扣子掉了', '1-3待跟进表-货品瑕疵'), '货品瑕疵-扣子')
+  assert.equal(inferComplaintTypeFromText('扣子掉了', '1-3待跟进表-货品瑕疵'), '货品瑕疵-扣子问题')
   assert.equal(inferComplaintTypeFromText('未知', '1-3待跟进表-货品瑕疵'), '货品瑕疵-其他')
 
   // Wrong-send view
@@ -2493,16 +3128,22 @@ function testMergeKeepsRecordsWithEmptySkuDistinct() {
 
 async function run() {
   testTransformBasicFields()
+  testTransformRefundLogKeepsReturnReceiptFlag()
   testTransformSplitsMultiSkuRows()
   testTransformInfersRefundSolutionAndView()
+  testTransformRefundProductProblemMapsToCustomerReason()
   testTransformMissingRequiredFields()
   testTransformRefundLogFallbacks()
   testTransformReissue6Usd()
+  testTransformReissue6UsdSplitsMultiSkuField()
   testTransformManualReturn()
+  testTransformManualReturnSplitsMultiSkuField()
   testTransformDefectFeedback()
+  testTransformDefectFeedbackSplitsByShopifySkuWhenItemCountMatches()
   testTransformWrongSendFeedback()
+  testTransformWrongSendFeedbackFillsSingleShopifySku()
   testTransformLogisticsIssueWithSkuLookup()
-  testTransformLogisticsIssueFallbackWhenNoSkus()
+  testTransformLogisticsIssueSkipsRowsWithoutOrderNo()
   testInferComplaintTypeFromText()
   testInferFollowUpTeam()
   testMergeNoOverlapPassThrough()
@@ -2516,9 +3157,14 @@ async function run() {
   testResolveShopifySiteKey()
   testShopifyHelpers()
   await testSyncPreviewAndRun()
+  await testSourceToTargetRebuildDeletesTargetAndWritesArtifacts()
   await testShopifyBackfillOnlyFillsEmptyFields()
+  await testLiveLogisticsBackfillUsesCarrierStatus()
+  await testReceivedGoodsComplaintSkipsLiveLogisticsLookup()
   await testSkuAmountStaysEmptyWhenComplaintSkuMissingOnMultiProductOrder()
   await testSyncCsv()
+  await testSourceImportDefaultsToCurrentYearFloor()
+  await testSourceToTargetBackfillsShopifyBiFinancials()
   await testSqliteMirrorDeletesMissingRecords()
   await testSqliteMirrorRangeSyncDoesNotDeleteMissingRecords()
   await testSyncSqliteFailureMarksRunFailed()

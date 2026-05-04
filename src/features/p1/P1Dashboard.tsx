@@ -51,6 +51,7 @@ export default function P1Dashboard() {
   const [agentName, setAgentName] = useState<string>('')
   const [historyRange, setHistoryRange] = useState(() => getRealtimeDefaultHistoryRange('day', today))
   const [activeMetricKey, setActiveMetricKey] = useState('inbound_email_count')
+  const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
   const [backlogModalOpen, setBacklogModalOpen] = useState(false)
   const [backlogMails, setBacklogMails] = useState<P1BacklogMail[]>([])
   const [backlogLoading, setBacklogLoading] = useState(false)
@@ -66,7 +67,12 @@ export default function P1Dashboard() {
   function handleGrainChange(next: Grain) {
     setGrain(next)
     setHistoryRange(getRealtimeDefaultHistoryRange(next, today))
+    setSelectedBucket(null)
   }
+
+  useEffect(() => {
+    setSelectedBucket(null)
+  }, [historyRange.date_from, historyRange.date_to, agentName])
 
   const baseFilters = { grain, agent_name: agentName } as const
 
@@ -255,31 +261,60 @@ export default function P1Dashboard() {
           </section>
         ) : null
       }
-      currentPeriodSection={
+      currentPeriodSection={(() => {
+        const isHistorical = selectedBucket !== null
+        const sectionTitle = isHistorical
+          ? formatFocusBucketLabel(selectedBucket, grain)
+          : getRealtimeCurrentPeriodLabel(grain)
+        const sectionSubtitle = isHistorical
+          ? '点击图表上的其他点切换，或重置回当前周期'
+          : `数据截至 ${currentPeriod.date_to}`
+        return (
         <KpiSection
-          title={getRealtimeCurrentPeriodLabel(grain)}
-          subtitle={`数据截至 ${currentPeriod.date_to}`}
+          title={sectionTitle}
+          subtitle={sectionSubtitle}
           variant="current"
           className="kpi-section--p1-current"
+          action={isHistorical ? (
+            <button type="button" onClick={() => setSelectedBucket(null)}>重置当前周期</button>
+          ) : undefined}
         >
           {cards.map((c) => {
-            const secondaryValue = loading || c.previousValue === undefined || c.previousValue === null
+            let displayCurrent = c.currentValue
+            let displayPrev: number | null | undefined = c.previousValue
+            let displayPrevLabel = previousPeriodLabel
+            let showDelta = true
+            if (isHistorical) {
+              const idx = c.historyTrend.findIndex((p) => p.bucket === selectedBucket)
+              if (idx >= 0) {
+                displayCurrent = c.historyTrend[idx].value
+                if (idx > 0) {
+                  displayPrev = c.historyTrend[idx - 1].value
+                  displayPrevLabel = `vs ${formatFocusBucketLabel(c.historyTrend[idx - 1].bucket, grain)}`
+                } else {
+                  displayPrev = null
+                  displayPrevLabel = '区间起点'
+                  showDelta = false
+                }
+              }
+            }
+            const secondaryValue = loading || displayPrev === undefined || displayPrev === null
               ? '--'
-              : c.formatter(c.previousValue)
+              : c.formatter(displayPrev)
             return (
               <KpiCard
                 key={c.key}
                 variant="current"
                 label={c.label}
                 description={c.description}
-                value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
-                delta={loading ? undefined : buildDirectionalDelta(
-                  c.currentValue,
-                  c.previousValue,
+                value={loading ? '--' : c.formatter(displayCurrent ?? 0)}
+                delta={loading || !showDelta ? undefined : buildDirectionalDelta(
+                  displayCurrent,
+                  displayPrev,
                   c.deltaMode,
                   c.polarity,
                 )}
-                secondaryLabel={previousPeriodLabel}
+                secondaryLabel={displayPrevLabel}
                 secondaryValue={secondaryValue}
                 metricKey={c.key}
                 active={activeMetricKey === c.key}
@@ -310,7 +345,8 @@ export default function P1Dashboard() {
             </dl>
           </button>
         </KpiSection>
-      }
+        )
+      })()}
       focusChart={loading ? null : (
         <FocusLineChart
           metrics={focusMetrics}
@@ -318,6 +354,8 @@ export default function P1Dashboard() {
           onActiveKeyChange={setActiveMetricKey}
           bucketFormatter={(bucket) => formatFocusBucketLabel(bucket, grain)}
           summaryByKey={summaryByKey}
+          selectedBucket={selectedBucket}
+          onBucketSelect={setSelectedBucket}
         />
       )}
       extensions={

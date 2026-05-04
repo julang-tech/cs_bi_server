@@ -12,10 +12,17 @@ import {
 } from '../../integrations/sqlite.js'
 import {
   SqliteShopifyBiCacheRepository,
+  type ShopifyBiSyncFinancials,
   type ShopifyBiOrder,
   type ShopifyBiOrderLine,
   type ShopifyBiRefundEvent,
 } from '../../integrations/shopify-bi-cache.js'
+import {
+  createConfiguredLiveLogisticsClient,
+  inferCarrierFromTracking,
+  resolveLiveLogisticsStatus,
+  type LiveLogisticsProvider,
+} from '../../integrations/live-logistics.js'
 import type { SourceConfig } from '../../integrations/sync-config.js'
 import {
   inferLogisticsStatusFromShopify,
@@ -42,6 +49,7 @@ export type SyncCounters = {
   scanned: number
   created: number
   updated: number
+  deleted: number
   skipped: number
   failed: number
 }
@@ -52,6 +60,10 @@ export type SyncCommandOptions = {
   from?: string
   to?: string
   refreshBigQueryCache?: boolean
+  rebuildTarget?: boolean
+  rebuildRunId?: string
+  createConcurrency?: number
+  deleteConcurrency?: number
   // When set, BigQuery / Shopify BI cache refresh only re-pulls the trailing N
   // days (replace-by-window). When undefined, falls back to the full 400-day
   // backfill window — only meant for explicit one-off full re-syncs.
@@ -69,11 +81,14 @@ export type SyncCsvOptions = {
 type FeishuSyncClient = Pick<
   FeishuTableClient,
   'listRecords' | 'listFields' | 'createRecord' | 'updateRecord' | 'batchCreateRecords'
->
+> & {
+  batchDeleteRecords?: (table: SyncConfig['target'], recordIds: string[]) => Promise<void>
+}
 
 type SyncServiceDeps = {
   createClient?: (config: SyncConfig, logger: SyncLogger) => FeishuSyncClient
   createShopifyClient?: (config: SyncConfig, logger: SyncLogger) => ShopifyLikeClient | null
+  createLiveLogisticsClient?: (config: SyncConfig, logger: SyncLogger) => LiveLogisticsProvider | null
   createSqliteRepository?: (dbPath: string) => SqliteMirrorRepository
   createBigQueryClient?: (config: SyncConfig, logger: SyncLogger) => BigQueryLike | null
 }
@@ -131,6 +146,37 @@ type PerSourceCount = {
   transformed_records: number
 }
 
+type OrderFinancialLookup = (orderNo: string, sku: string | null) => ShopifyBiSyncFinancials | null
+
+type RebuildRecordArtifact = {
+  source_key: string
+  record_index: number
+  fields: Record<string, unknown>
+}
+
+type RebuildCreateResultArtifact = {
+  batch_index: number
+  entries: Array<{
+    source_key: string
+    record_index: number
+    record_id: string
+  }>
+}
+
+type RebuildManifest = {
+  run_id: string
+  started_at: string
+  updated_at: string
+  stage: 'preparing' | 'prepared' | 'deleting_target' | 'target_deleted' | 'creating_target' | 'completed'
+  source_records: number
+  target_records: number
+  delete_total: number
+  deleted: number
+  create_total: number
+  created: number
+  failed: number
+}
+
 type EnrichmentDiagnostic = {
   source_key: string
   record_index: number
@@ -159,10 +205,13 @@ const SHOPIFY_BACKFILL_FIELDS = [
   '后台订单链接',
   '物流状态',
   'SKU金额',
+  'SKU退款金额',
+  '订单累计退款',
 ] as const
 
 const BIGQUERY_CACHE_WINDOW_DAYS = 400
 const DEFAULT_CACHE_TAIL_DAYS = 7
+const SOURCE_IMPORT_START_DATE = '2026-01-01'
 
 function ensureParentDir(filePath: string) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true })
@@ -226,6 +275,16 @@ function stableSyntheticId(parts: unknown[]) {
   return parts.map((part) => String(part ?? '').trim()).join(':')
 }
 
+function applySourceImportStartDate(dateFilter: ReturnType<typeof buildDateFilter>) {
+  if (dateFilter?.start || dateFilter?.exact) {
+    return dateFilter
+  }
+  return {
+    ...(dateFilter ?? {}),
+    start: SOURCE_IMPORT_START_DATE,
+  }
+}
+
 function readState(statePath: string): SyncState {
   if (!fs.existsSync(statePath)) {
     return { source_to_target_ids: {} }
@@ -241,16 +300,149 @@ function readState(statePath: string): SyncState {
 
 function writeState(statePath: string, state: SyncState) {
   ensureParentDir(statePath)
-  fs.writeFileSync(
-    statePath,
-    JSON.stringify(
-      {
-        source_to_target_ids: state.source_to_target_ids,
-      },
-      null,
-      2,
-    ),
-  )
+  writeJsonAtomic(statePath, {
+    source_to_target_ids: state.source_to_target_ids,
+  })
+}
+
+function writeJsonAtomic(filePath: string, value: unknown) {
+  ensureParentDir(filePath)
+  const tmpPath = `${filePath}.tmp`
+  fs.writeFileSync(tmpPath, JSON.stringify(value, null, 2))
+  fs.renameSync(tmpPath, filePath)
+}
+
+function appendJsonLine(filePath: string, value: unknown) {
+  ensureParentDir(filePath)
+  fs.appendFileSync(filePath, `${JSON.stringify(value)}\n`)
+}
+
+function readJsonLines<T>(filePath: string): T[] {
+  if (!fs.existsSync(filePath)) return []
+  return fs.readFileSync(filePath, 'utf8')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as T)
+}
+
+function chunkArray<T>(items: T[], size: number) {
+  const chunks: T[][] = []
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size))
+  }
+  return chunks
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<void>,
+) {
+  const limit = Math.max(1, Math.floor(concurrency))
+  let nextIndex = 0
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (true) {
+      const index = nextIndex
+      nextIndex += 1
+      if (index >= items.length) return
+      await worker(items[index], index)
+    }
+  })
+  await Promise.all(runners)
+}
+
+function createRebuildRunId(now = new Date()) {
+  return now.toISOString().replace(/[:.]/g, '-')
+}
+
+function resolveRebuildArtifactDir(statePath: string, runId: string) {
+  return path.join(path.dirname(statePath), 'source-to-target-rebuild', runId)
+}
+
+function readRebuildManifest(manifestPath: string): RebuildManifest | null {
+  if (!fs.existsSync(manifestPath)) return null
+  return JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as RebuildManifest
+}
+
+function writeRebuildManifest(manifestPath: string, manifest: RebuildManifest) {
+  writeJsonAtomic(manifestPath, {
+    ...manifest,
+    updated_at: new Date().toISOString(),
+  })
+}
+
+function buildStateFromCreateResults(results: RebuildCreateResultArtifact[]) {
+  const state: SyncState = { source_to_target_ids: {} }
+  const entries = results
+    .flatMap((result) => result.entries)
+    .sort((left, right) => {
+      if (left.source_key !== right.source_key) {
+        return left.source_key.localeCompare(right.source_key)
+      }
+      return left.record_index - right.record_index
+    })
+  for (const entry of entries) {
+    state.source_to_target_ids[entry.source_key] ??= []
+    state.source_to_target_ids[entry.source_key][entry.record_index] = entry.record_id
+  }
+  for (const [sourceKey, recordIds] of Object.entries(state.source_to_target_ids)) {
+    state.source_to_target_ids[sourceKey] = recordIds.filter(Boolean)
+  }
+  return state
+}
+
+function containsFeishuAttachmentToken(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => containsFeishuAttachmentToken(item))
+  }
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+  const objectValue = value as Record<string, unknown>
+  if (typeof objectValue.file_token === 'string' || typeof objectValue.token === 'string') {
+    return true
+  }
+  return Object.values(objectValue).some((item) => containsFeishuAttachmentToken(item))
+}
+
+function stripFeishuAttachmentTokenFields(record: Record<string, unknown>) {
+  const strippedFields: string[] = []
+  const nextRecord: Record<string, unknown> = {}
+  for (const [fieldName, value] of Object.entries(record)) {
+    if (containsFeishuAttachmentToken(value)) {
+      strippedFields.push(fieldName)
+      continue
+    }
+    nextRecord[fieldName] = value
+  }
+  return { record: nextRecord, strippedFields }
+}
+
+async function batchCreateWithAttachmentFallback(
+  client: FeishuSyncClient,
+  table: SyncConfig['target'],
+  records: Array<Record<string, unknown>>,
+  logger: SyncLogger,
+  context: string,
+) {
+  try {
+    return await client.batchCreateRecords(table, records)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!message.includes('AttachPermNotAllow')) {
+      throw error
+    }
+    const stripped = records.map((record) => stripFeishuAttachmentTokenFields(record))
+    const strippedFieldNames = [...new Set(stripped.flatMap((entry) => entry.strippedFields))]
+    if (!strippedFieldNames.length) {
+      throw error
+    }
+    logger.warn(
+      `${context}: Feishu rejected source attachment tokens (${message}); retrying without fields: ${strippedFieldNames.join(', ')}.`,
+    )
+    return client.batchCreateRecords(table, stripped.map((entry) => entry.record))
+  }
 }
 
 export function createLogger(logPath: string): SyncLogger {
@@ -307,6 +499,18 @@ function isEmptyFieldValue(value: unknown): boolean {
   return stringify(value) === ''
 }
 
+function inferDeliveredStatusFromComplaint(record: Record<string, unknown>) {
+  const complaintType = stringify(record['客诉类型'])
+  if (
+    complaintType.includes('客户原因-尺码不合适')
+    || complaintType.includes('客户原因-款式不喜欢')
+    || complaintType.includes('货品瑕疵-')
+  ) {
+    return '已签收'
+  }
+  return null
+}
+
 function formatShopifyDatetime(value: string | null) {
   if (!value) {
     return null
@@ -323,6 +527,8 @@ async function enrichResultsWithShopify(
   config: SyncConfig,
   logger: SyncLogger,
   shopifyClient: ShopifyLikeClient | null,
+  liveLogisticsClient: LiveLogisticsProvider | null,
+  financialLookup?: OrderFinancialLookup,
 ) {
   const diagnostics: EnrichmentDiagnostic[] = []
   const summary: EnrichmentSummary = {
@@ -383,6 +589,43 @@ async function enrichResultsWithShopify(
   logger.info(`Shopify prefetch done: ${orderCache.size} orders cached.`)
 
   const enrichedResults: TransformResult[] = []
+  const liveLogisticsStatusCache = new Map<string, Promise<string | null>>()
+
+  async function resolveOrderLogisticsStatus(orderNo: string, order: Awaited<ReturnType<ShopifyLikeClient['fetchOrder']>>) {
+    if (!order) return null
+    const tracking = order.shipments
+      .flatMap((shipment) => shipment.tracking)
+      .find((item) => item.number)
+    const trackingNumber = tracking?.number ?? order.tracking_numbers[0] ?? ''
+    const cacheKey = `${orderNo}\u0000${trackingNumber}`
+    if (liveLogisticsStatusCache.has(cacheKey)) {
+      return liveLogisticsStatusCache.get(cacheKey)!
+    }
+    const promise = (async () => {
+      if (liveLogisticsClient && trackingNumber) {
+        try {
+          const resolved = await resolveLiveLogisticsStatus({
+            trackingNumber,
+            carrier: tracking?.company || inferCarrierFromTracking(trackingNumber),
+            internalTrackingNumber: trackingNumber.toUpperCase().startsWith('4PX') ? trackingNumber : '',
+          }, liveLogisticsClient)
+          if (resolved.status) {
+            logger.info(
+              `Live logistics resolved ${orderNo} ${trackingNumber}: ${resolved.status} (${resolved.provider || 'provider'}, raw=${resolved.rawStatus || 'empty'}).`,
+            )
+            return resolved.status
+          }
+        } catch (error) {
+          logger.warn(
+            `Live logistics lookup failed for ${orderNo} ${trackingNumber}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }
+      return inferLogisticsStatusFromShopify(order.fulfillment_status)
+    })()
+    liveLogisticsStatusCache.set(cacheKey, promise)
+    return promise
+  }
 
   for (const result of results) {
     if (result.errors.length) {
@@ -433,16 +676,23 @@ async function enrichResultsWithShopify(
       }
 
       const nextRecord = { ...record }
+      const complaintSku = stringify(record['客诉SKU']) || null
+      const financials = financialLookup?.(orderNo, complaintSku) ?? null
+      const logisticsStatus = isEmptyFieldValue(record['物流状态'])
+        ? inferDeliveredStatusFromComplaint(record) ?? await resolveOrderLogisticsStatus(orderNo, order)
+        : null
       const fieldCandidates: Array<[string, unknown]> = [
         ['客户姓名', order.customer_name],
         ['客户邮箱', order.customer_email],
         ['下单日期', formatShopifyDatetime(order.order_date)],
-        ['订单金额', order.order_amount],
+        ['订单金额', financials?.orderAmountUsd ?? order.order_amount],
         ['物流号', order.tracking_numbers[0] ?? null],
         ['订单发货时间', formatShopifyDatetime(order.shipped_at)],
         ['后台订单链接', order.admin_order_url],
-        ['物流状态', inferLogisticsStatusFromShopify(order.fulfillment_status)],
-        ['SKU金额', matchSkuAmount(order, stringify(record['客诉SKU']) || null)],
+        ['物流状态', logisticsStatus],
+        ['SKU金额', financials?.skuAmountUsd ?? matchSkuAmount(order, complaintSku)],
+        ['SKU退款金额', financials?.skuRefundAmountUsd],
+        ['订单累计退款', financials?.orderRefundAmountUsd],
       ]
 
       for (const [fieldName, candidateValue] of fieldCandidates) {
@@ -735,6 +985,7 @@ async function syncResults(
     scanned: 0,
     created: 0,
     updated: 0,
+    deleted: 0,
     skipped: 0,
     failed: 0,
   }
@@ -859,7 +1110,13 @@ async function syncResults(
   if (client && pendingCreates.length > 0) {
     logger.info(`Batch-creating ${pendingCreates.length} target records.`)
     const fieldsList = pendingCreates.map((p) => p.sanitizedRecord)
-    const createdIds = await client.batchCreateRecords(config.target, fieldsList)
+    const createdIds = await batchCreateWithAttachmentFallback(
+      client,
+      config.target,
+      fieldsList,
+      logger,
+      'source-to-target batch create',
+    )
     if (createdIds.length !== pendingCreates.length) {
       throw new Error(
         `batchCreateRecords returned ${createdIds.length} ids for ${pendingCreates.length} requests`,
@@ -902,9 +1159,207 @@ async function syncResults(
   }
 }
 
+function readRebuildRecords(recordsPath: string) {
+  return readJsonLines<RebuildRecordArtifact>(recordsPath)
+}
+
+async function writeRebuildRecords(
+  results: TransformResult[],
+  config: SyncConfig,
+  client: FeishuSyncClient,
+  recordsPath: string,
+  logger: SyncLogger,
+) {
+  const targetFields = await client.listFields(config.target)
+  const targetFieldsByName = Object.fromEntries(
+    targetFields.map((field) => [field.field_name, field]),
+  )
+  logger.info(`Loaded ${targetFields.length} target fields from ${config.target.table_id}.`)
+
+  const records: RebuildRecordArtifact[] = []
+  const diagnostics: Array<Record<string, unknown>> = []
+  let failed = 0
+  fs.rmSync(recordsPath, { force: true })
+
+  for (const result of results) {
+    if (result.errors.length) {
+      failed += 1
+      logger.error(`${result.source_key}: ${result.errors.join('; ')}`)
+      diagnostics.push({ source_key: result.source_key, errors: result.errors })
+      continue
+    }
+    for (let index = 0; index < result.records.length; index += 1) {
+      const { sanitizedRecord, dropped_invalid_fields, dropped_unknown_fields } =
+        sanitizeTargetRecord(result.source_key, result.records[index], targetFieldsByName)
+      if (dropped_invalid_fields.length || dropped_unknown_fields.length) {
+        logger.warn(
+          `${result.source_key} sanitized target ${index + 1}/${result.records.length}: dropped unknown=${dropped_unknown_fields.length}, invalid=${dropped_invalid_fields.length}.`,
+        )
+        diagnostics.push({
+          source_key: result.source_key,
+          dropped_invalid_fields,
+          dropped_unknown_fields,
+        })
+      }
+      const artifact = {
+        source_key: result.source_key,
+        record_index: index,
+        fields: sanitizedRecord,
+      }
+      records.push(artifact)
+      appendJsonLine(recordsPath, artifact)
+    }
+  }
+
+  return { records, diagnostics, failed }
+}
+
+async function syncResultsRebuild(
+  results: TransformResult[],
+  config: SyncConfig,
+  statePath: string,
+  client: FeishuSyncClient,
+  logger: SyncLogger,
+  options: SyncCommandOptions,
+) {
+  if (!client.batchDeleteRecords) {
+    throw new Error('Feishu client does not support batchDeleteRecords; cannot rebuild target table.')
+  }
+
+  const runId = options.rebuildRunId || createRebuildRunId()
+  const artifactDir = resolveRebuildArtifactDir(statePath, runId)
+  const manifestPath = path.join(artifactDir, 'manifest.json')
+  const recordsPath = path.join(artifactDir, 'records.jsonl')
+  const createResultsPath = path.join(artifactDir, 'create-results.jsonl')
+  const nextStatePath = path.join(artifactDir, 'state.next.json')
+  fs.mkdirSync(artifactDir, { recursive: true })
+
+  let manifest = readRebuildManifest(manifestPath) ?? {
+    run_id: runId,
+    started_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    stage: 'preparing' as const,
+    source_records: results.length,
+    target_records: 0,
+    delete_total: 0,
+    deleted: 0,
+    create_total: 0,
+    created: 0,
+    failed: 0,
+  }
+  writeRebuildManifest(manifestPath, manifest)
+
+  let records = readRebuildRecords(recordsPath)
+  const diagnostics: Array<Record<string, unknown>> = []
+  if (!records.length) {
+    const prepared = await writeRebuildRecords(results, config, client, recordsPath, logger)
+    records = prepared.records
+    diagnostics.push(...prepared.diagnostics)
+    manifest = {
+      ...manifest,
+      stage: 'prepared',
+      source_records: results.length,
+      create_total: records.length,
+      failed: prepared.failed,
+    }
+    writeRebuildManifest(manifestPath, manifest)
+  } else {
+    logger.info(`Rebuild ${runId}: loaded ${records.length} prepared records from ${recordsPath}.`)
+    manifest = {
+      ...manifest,
+      stage: manifest.stage === 'preparing' ? 'prepared' : manifest.stage,
+      create_total: records.length,
+    }
+    writeRebuildManifest(manifestPath, manifest)
+  }
+
+  if (!['target_deleted', 'creating_target', 'completed'].includes(manifest.stage)) {
+    manifest = { ...manifest, stage: 'deleting_target' }
+    writeRebuildManifest(manifestPath, manifest)
+    const targetRecords = await client.listRecords(config.target)
+    const targetIds = targetRecords.map((record) => record.record_id).filter(Boolean)
+    manifest = { ...manifest, target_records: targetIds.length, delete_total: targetIds.length }
+    writeRebuildManifest(manifestPath, manifest)
+    const deleteChunks = chunkArray(targetIds, 500)
+    logger.info(
+      `Rebuild ${runId}: deleting ${targetIds.length} target records with concurrency=${options.deleteConcurrency ?? 4}.`,
+    )
+    await runWithConcurrency(deleteChunks, options.deleteConcurrency ?? 4, async (chunk) => {
+      await client.batchDeleteRecords!(config.target, chunk)
+      manifest = { ...manifest, deleted: manifest.deleted + chunk.length }
+      writeRebuildManifest(manifestPath, manifest)
+      logger.info(`Rebuild ${runId}: deleted ${manifest.deleted}/${manifest.delete_total} target records.`)
+    })
+    manifest = { ...manifest, stage: 'target_deleted' }
+    writeRebuildManifest(manifestPath, manifest)
+  } else {
+    logger.info(`Rebuild ${runId}: target delete already completed; resuming create stage.`)
+  }
+
+  manifest = { ...manifest, stage: 'creating_target' }
+  writeRebuildManifest(manifestPath, manifest)
+  const createResults = readJsonLines<RebuildCreateResultArtifact>(createResultsPath)
+  const completedBatchIndexes = new Set(createResults.map((result) => result.batch_index))
+  const createBatches = chunkArray(records, 500)
+  const pendingBatches = createBatches
+    .map((entries, batchIndex) => ({ entries, batchIndex }))
+    .filter((batch) => !completedBatchIndexes.has(batch.batchIndex))
+  logger.info(
+    `Rebuild ${runId}: creating ${records.length} records in ${createBatches.length} batches (${pendingBatches.length} pending) with concurrency=${options.createConcurrency ?? 4}.`,
+  )
+
+  await runWithConcurrency(pendingBatches, options.createConcurrency ?? 4, async (batch) => {
+    const ids = await batchCreateWithAttachmentFallback(
+      client,
+      config.target,
+      batch.entries.map((entry) => entry.fields),
+      logger,
+      `rebuild ${runId} batch ${batch.batchIndex + 1}/${createBatches.length}`,
+    )
+    if (ids.length !== batch.entries.length) {
+      throw new Error(`batchCreateRecords returned ${ids.length} ids for ${batch.entries.length} rebuild records`)
+    }
+    const result: RebuildCreateResultArtifact = {
+      batch_index: batch.batchIndex,
+      entries: batch.entries.map((entry, index) => ({
+        source_key: entry.source_key,
+        record_index: entry.record_index,
+        record_id: ids[index],
+      })),
+    }
+    appendJsonLine(createResultsPath, result)
+    manifest = { ...manifest, created: manifest.created + ids.length }
+    writeRebuildManifest(manifestPath, manifest)
+    logger.info(`Rebuild ${runId}: created ${manifest.created}/${manifest.create_total} target records.`)
+  })
+
+  const finalCreateResults = readJsonLines<RebuildCreateResultArtifact>(createResultsPath)
+  const state = buildStateFromCreateResults(finalCreateResults)
+  writeJsonAtomic(nextStatePath, state)
+  writeState(statePath, state)
+  manifest = { ...manifest, stage: 'completed', created: records.length }
+  writeRebuildManifest(manifestPath, manifest)
+
+  return {
+    counters: {
+      scanned: results.length,
+      created: records.length,
+      updated: 0,
+      deleted: manifest.deleted,
+      skipped: 0,
+      failed: manifest.failed,
+    },
+    diagnostics,
+    state,
+    artifactDir,
+    manifest,
+  }
+}
+
 export class SyncService {
   private readonly createClient: (config: SyncConfig, logger: SyncLogger) => FeishuSyncClient
   private readonly createShopifyClient: (config: SyncConfig, logger: SyncLogger) => ShopifyLikeClient | null
+  private readonly createLiveLogisticsClient: (config: SyncConfig, logger: SyncLogger) => LiveLogisticsProvider | null
   private readonly createSqliteRepository: (dbPath: string) => SqliteMirrorRepository
   private readonly createBigQueryClient: (config: SyncConfig, logger: SyncLogger) => BigQueryLike | null
 
@@ -913,6 +1368,8 @@ export class SyncService {
       deps.createClient ?? ((config, logger) => new FeishuTableClient(config, logger))
     this.createShopifyClient =
       deps.createShopifyClient ?? ((config) => (config.shopify ? new ShopifyClient(config.shopify) : null))
+    this.createLiveLogisticsClient =
+      deps.createLiveLogisticsClient ?? ((config) => createConfiguredLiveLogisticsClient(config))
     this.createSqliteRepository =
       deps.createSqliteRepository ?? ((dbPath) => new SqliteMirrorRepository(dbPath))
     this.createBigQueryClient =
@@ -932,10 +1389,12 @@ export class SyncService {
     const statePath = resolveStatePath(options.config, config)
     const logPath = resolveRuntimePath(options.config, config.runtime.log_path)
     const logger = createLogger(logPath)
-    const dateFilter = buildDateFilter(options)
+    const dateFilter = applySourceImportStartDate(buildDateFilter(options))
     const client = this.createClient(config, logger)
     const shopifyClient = this.createShopifyClient(config, logger)
+    const liveLogisticsClient = this.createLiveLogisticsClient(config, logger)
     const skuLookup = this.createOrderSkuLookup(options.config, logger)
+    const financialLookup = this.createOrderFinancialLookup(options.config, logger)
     logger.info(`Starting preview with config ${options.config}.`)
     const { transformed, perSourceCounts } = await this.transformAllSources(
       config,
@@ -944,7 +1403,14 @@ export class SyncService {
       skuLookup,
       logger,
     )
-    const enriched = await enrichResultsWithShopify(transformed, config, logger, shopifyClient)
+    const enriched = await enrichResultsWithShopify(
+      transformed,
+      config,
+      logger,
+      shopifyClient,
+      liveLogisticsClient,
+      financialLookup,
+    )
     logger.info(
       `Preview transformed rows: ${
         perSourceCounts
@@ -993,11 +1459,63 @@ export class SyncService {
     const statePath = resolveStatePath(options.config, config)
     const logPath = resolveRuntimePath(options.config, config.runtime.log_path)
     const logger = createLogger(logPath)
-    const dateFilter = buildDateFilter(options)
+    const dateFilter = applySourceImportStartDate(buildDateFilter(options))
     const client = this.createClient(config, logger)
     const shopifyClient = this.createShopifyClient(config, logger)
+    const liveLogisticsClient = this.createLiveLogisticsClient(config, logger)
     const skuLookup = this.createOrderSkuLookup(options.config, logger)
+    const financialLookup = this.createOrderFinancialLookup(options.config, logger)
     logger.info(`Starting source-to-target sync with config ${options.config}.`)
+    if (options.rebuildTarget && options.rebuildRunId) {
+      const artifactDir = resolveRebuildArtifactDir(statePath, options.rebuildRunId)
+      if (fs.existsSync(path.join(artifactDir, 'records.jsonl'))) {
+        logger.info(
+          `Rebuild ${options.rebuildRunId}: found prepared records artifact; skipping source transform and enrichment.`,
+        )
+        const synced = await syncResultsRebuild([], config, statePath, client, logger, options)
+        logger.info(
+          `Source-to-target sync finished: scanned=${synced.counters.scanned}, created=${synced.counters.created}, updated=${synced.counters.updated}, deleted=${synced.counters.deleted}, failed=${synced.counters.failed}.`,
+        )
+        return {
+          mode: 'source-to-target-rebuild',
+          config,
+          statePath,
+          artifactDir: synced.artifactDir,
+          dateFilter,
+          summary: summarizeResults([]),
+          per_source_counts: [],
+          enrichment_summary: {
+            eligible_records: 0,
+            enriched_records: 0,
+            untouched_records: 0,
+            fully_backfilled_records: 0,
+            partial_backfilled_records: 0,
+            no_match_records: 0,
+          },
+          sqlite: {
+            enabled: false,
+            ok: true,
+            path: null,
+            inserted: 0,
+            updated: 0,
+            deleted: 0,
+            sqlite_failed: 0,
+          },
+          bigquery_cache: {
+            enabled: false,
+            ok: true,
+            date_from: null,
+            date_to: null,
+            order_lines_upserted: 0,
+            refund_events_upserted: 0,
+            failed: 0,
+          },
+          ...synced.counters,
+          diagnostics: synced.diagnostics,
+          state: synced.state,
+        }
+      }
+    }
     const { transformed, perSourceCounts } = await this.transformAllSources(
       config,
       client,
@@ -1005,7 +1523,14 @@ export class SyncService {
       skuLookup,
       logger,
     )
-    const enriched = await enrichResultsWithShopify(transformed, config, logger, shopifyClient)
+    const enriched = await enrichResultsWithShopify(
+      transformed,
+      config,
+      logger,
+      shopifyClient,
+      liveLogisticsClient,
+      financialLookup,
+    )
     logger.info(
       `Source-to-target transformed rows: ${
         perSourceCounts
@@ -1013,15 +1538,18 @@ export class SyncService {
           .join(', ')
       }.`,
     )
-    const synced = await syncResults(enriched.results, config, statePath, false, client, logger)
+    const synced = options.rebuildTarget
+      ? await syncResultsRebuild(enriched.results, config, statePath, client, logger, options)
+      : await syncResults(enriched.results, config, statePath, false, client, logger)
     logger.info(
-      `Source-to-target sync finished: scanned=${synced.counters.scanned}, created=${synced.counters.created}, updated=${synced.counters.updated}, failed=${synced.counters.failed}.`,
+      `Source-to-target sync finished: scanned=${synced.counters.scanned}, created=${synced.counters.created}, updated=${synced.counters.updated}, deleted=${synced.counters.deleted}, failed=${synced.counters.failed}.`,
     )
 
     return {
-      mode: 'source-to-target',
+      mode: options.rebuildTarget ? 'source-to-target-rebuild' : 'source-to-target',
       config,
       statePath,
+      artifactDir: 'artifactDir' in synced ? synced.artifactDir : null,
       dateFilter,
       summary: summarizeResults(enriched.results),
       per_source_counts: perSourceCounts,
@@ -1160,7 +1688,7 @@ export class SyncService {
     }
     const sqlitePath = resolveRuntimePath(configPath, config.runtime.sqlite_path)
     if (!fs.existsSync(sqlitePath)) {
-      logger.info(`Shopify BI cache not found at ${sqlitePath}; logistics SKU lookup disabled.`)
+      logger.info(`Shopify BI cache not found at ${sqlitePath}; order SKU lookup disabled.`)
       return undefined
     }
     let repository: SqliteShopifyBiCacheRepository | null = null
@@ -1184,6 +1712,45 @@ export class SyncService {
         logger.warn(
           `Shopify BI cache lookup failed for ${orderNo}: ${error instanceof Error ? error.message : String(error)}`,
         )
+        return null
+      }
+    }
+  }
+
+  private createOrderFinancialLookup(configPath: string, logger: SyncLogger): OrderFinancialLookup | undefined {
+    let config: SyncConfig
+    try {
+      config = loadSyncConfig(configPath)
+    } catch {
+      return undefined
+    }
+    const sqlitePath = resolveRuntimePath(configPath, config.runtime.sqlite_path)
+    if (!fs.existsSync(sqlitePath)) {
+      return undefined
+    }
+    let repository: SqliteShopifyBiCacheRepository | null = null
+    try {
+      repository = new SqliteShopifyBiCacheRepository(sqlitePath)
+    } catch (error) {
+      logger.warn(
+        `Failed to open Shopify BI cache for financial lookup: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return undefined
+    }
+    const cache = new Map<string, ShopifyBiSyncFinancials | null>()
+    return (orderNo: string, sku: string | null) => {
+      if (!orderNo) return null
+      const cacheKey = `${orderNo}\u0000${sku ?? ''}`
+      if (cache.has(cacheKey)) return cache.get(cacheKey) ?? null
+      try {
+        const financials = repository!.lookupSyncFinancials(orderNo, sku)
+        cache.set(cacheKey, financials)
+        return financials
+      } catch (error) {
+        logger.warn(
+          `Failed Shopify BI financial lookup for ${orderNo}${sku ? ` ${sku}` : ''}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        cache.set(cacheKey, null)
         return null
       }
     }
@@ -1890,6 +2457,43 @@ export function maskSyncConfig(config: SyncConfig) {
       ...config.feishu,
       app_secret: config.feishu.app_secret ? '***' : '',
     },
+    shopify: config.shopify
+      ? {
+          ...config.shopify,
+          sites: Object.fromEntries(
+            Object.entries(config.shopify.sites).map(([key, site]) => [
+              key,
+              {
+                ...site,
+                token: site.token ? '***' : '',
+              },
+            ]),
+          ) as NonNullable<SyncConfig['shopify']>['sites'],
+        }
+      : undefined,
+    logistics: config.logistics
+      ? {
+          ...config.logistics,
+          fpx: config.logistics.fpx
+            ? {
+                ...config.logistics.fpx,
+                app_secret: config.logistics.fpx.app_secret ? '***' : '',
+              }
+            : undefined,
+          yunexpress: config.logistics.yunexpress
+            ? {
+                ...config.logistics.yunexpress,
+                app_secret: config.logistics.yunexpress.app_secret ? '***' : '',
+              }
+            : undefined,
+          track17: config.logistics.track17
+            ? {
+                ...config.logistics.track17,
+                api_key: config.logistics.track17.api_key ? '***' : '',
+              }
+            : undefined,
+        }
+      : undefined,
   }
 }
 

@@ -40,6 +40,25 @@ const bigQueryProxyConfigSchema = z.object({
   no_proxy: z.string().optional(),
 })
 
+const logisticsConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  timeout_seconds: z.number().int().positive().optional(),
+  fpx: z.object({
+    api_base_url: z.string().optional(),
+    app_key: z.string().optional(),
+    app_secret: z.string().optional(),
+  }).optional(),
+  yunexpress: z.object({
+    api_base_url: z.string().optional(),
+    app_id: z.string().optional(),
+    app_secret: z.string().optional(),
+    source_key: z.string().optional(),
+  }).optional(),
+  track17: z.object({
+    api_key: z.string().optional(),
+  }).optional(),
+})
+
 const rawSyncConfigSchema = z
   .object({
     feishu: z.object({
@@ -70,6 +89,7 @@ const rawSyncConfigSchema = z
     bigquery: z.object({
       proxy: bigQueryProxyConfigSchema.optional(),
     }).optional(),
+    logistics: logisticsConfigSchema.optional(),
   })
   .refine((value) => Boolean(value.source) || (value.sources && value.sources.length > 0), {
     message: 'Either `source` (single) or `sources` (array) must be provided.',
@@ -158,6 +178,7 @@ export function loadP3RuntimeConfig(configPath: string) {
     },
     shopify: config.shopify,
     bigquery: config.bigquery,
+    logistics: config.logistics,
     configPath,
   }
 }

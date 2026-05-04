@@ -421,6 +421,30 @@
   color: var(--muted);
   font-size: 13px;
   font-weight: 600;
+  margin-left: auto;
+}
+
+.kpi-section__action {
+  display: inline-flex;
+  align-items: center;
+}
+
+.kpi-section__action button {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.kpi-section__action button:hover {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-color: var(--accent);
 }
 
 .kpi-section__grid {
