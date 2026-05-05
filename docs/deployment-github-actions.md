@@ -12,7 +12,7 @@ This project deploys to `lintico-server-1@183.6.71.38:2222` under `~/work/cs_bi_
   - `cs-bi-app.service`
   - `cs-bi-worker.service`
 
-`cs-bi-worker.service` is a separate long-running sync process. It runs a full cache refresh on startup, keeps the regular interval sync from `runtime.refresh_interval_minutes`, and runs another full BigQuery/Shopify BI cache refresh at `runtime.daily_full_refresh_time` in the configured business timezone.
+`cs-bi-worker.service` is a separate long-running sync process. It runs rolling-window source-to-target repair plus cache refresh on startup, keeps the regular interval sync from `runtime.refresh_interval_minutes`, and runs another BigQuery/Shopify BI cache refresh at `runtime.daily_full_refresh_time` in the configured business timezone. Scheduled runs never execute a no-window source-to-target rebuild.
 
 ## Required GitHub Secret
 

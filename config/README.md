@@ -100,11 +100,11 @@ https://xxx.feishu.cn/base/AbCdEfGhIjKlMnOp?table=tbl123456789&view=vew987654321
 
 - `P3` 会优先读取 `runtime.sqlite_path` 指向的 SQLite 镜像；镜像不存在时才回退到飞书 `target` 表。
 - `P3` 的销量、商品排行和订单补齐读取同一个 SQLite 文件里的 BigQuery 缓存，不在 API 请求时实时查询 BigQuery。
-- `sync:source-to-target` 会按需把飞书源表转换并写入飞书目标表，保留 Shopify 订单字段补齐。
-- `sync:source-to-target -- --rebuild-target` 是显式重建模式：先把转换后的目标记录写到 `runtime.state_path` 同目录下的 `source-to-target-rebuild/<run_id>/`，再批量删除目标表记录、并发批量创建新记录，全部成功后才替换增量 state。中断后用同一个 `--rebuild-run-id` 可以从本地产物继续。
+- `sync:source-to-target` 会按需把飞书源表转换并写入飞书目标表，保留 Shopify 订单字段补齐。常规修补应显式传 `--from/--to` 窗口，避免全量扫源表后按漂移的本地 state 误创建记录。
+- `sync:source-to-target -- --rebuild-target --confirm-rebuild-target` 是危险的一次性重建模式：先把转换后的目标记录写到 `runtime.state_path` 同目录下的 `source-to-target-rebuild/<run_id>/`，再批量删除目标表记录、并发批量创建新记录，全部成功后才替换增量 state。除非明确要重建整张目标表，否则不要使用；中断后用同一个 `--rebuild-run-id` 可以从本地产物继续。
 - `sync:source-to-target` 在配置物流商凭据后，会用 4PX / YunExpress 实时轨迹覆盖物流状态；查不到时才 fallback 到安全的 Shopify 状态。
-- `sync:run` 会读取飞书目标表同步 SQLite 镜像，并在有 `GOOGLE_APPLICATION_CREDENTIALS` 时刷新最近 400 天 BigQuery 缓存。
+- `sync:run` 会读取飞书目标表同步 SQLite 镜像，并在有 `GOOGLE_APPLICATION_CREDENTIALS` 时刷新最近 400 天 BigQuery 缓存；`scripts/full-sync.sh` 也只做目标表镜像和 BI cache 全量刷新，不会重写飞书目标表。
 - `sync:preview` 不会写飞书，也不会写 SQLite。
-- `sync:worker` 定时执行的是目标表到 SQLite 的同步和缓存刷新，不会写飞书目标表；普通轮询会刷新 Shopify BI 尾部窗口并记录 `data_as_of`，每日固定时间会强刷新 BigQuery/Shopify BI 缓存。
+- `sync:worker` 定时执行滚动窗口 source-to-target 修补、目标表到 SQLite 的同步和缓存刷新；普通轮询会刷新 Shopify BI 尾部窗口并记录 `data_as_of`，每日固定时间会强刷新 BigQuery/Shopify BI 缓存，但不会执行无日期窗口的全量 source-to-target。
 - `/api/bi/cache-status` 可查看 SQLite 文件是否存在、最近成功缓存覆盖区间、表内最大订单/退款日期和行数。
 - `config/sync/config.json`、`config/gcp/*.json`、`config/data/*`、`config/logs/*` 已加入 `.gitignore`。

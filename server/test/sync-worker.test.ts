@@ -166,16 +166,16 @@ async function testWorkerDailyFullRefreshForcesBigQueryCache() {
   })
 
   await worker.runOnce('daily-full-refresh')
-  assert.deepEqual(calls, [
-    {
-      name: 'syncSourceToTarget',
-      options: { config: 'config/sync/config.example.json', from: undefined, to: undefined },
-    },
-    {
-      name: 'syncTargetToSqlite',
-      options: { config: 'config/sync/config.example.json', refreshBigQueryCache: true, cacheTailDays: 7 },
-    },
-  ])
+  assert.equal(calls.length, 2)
+  assert.equal(calls[0].name, 'syncSourceToTarget')
+  const sourceOptions = calls[0].options as { config: string; from?: string; to?: string }
+  assert.equal(sourceOptions.config, 'config/sync/config.example.json')
+  assert.match(sourceOptions.from ?? '', ISO_DATE_RE)
+  assert.match(sourceOptions.to ?? '', ISO_DATE_RE)
+  assert.deepEqual(calls[1], {
+    name: 'syncTargetToSqlite',
+    options: { config: 'config/sync/config.example.json', refreshBigQueryCache: true, cacheTailDays: 7 },
+  })
 }
 
 function testBuildSourceWindow() {

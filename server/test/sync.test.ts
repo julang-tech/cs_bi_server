@@ -460,9 +460,22 @@ async function testSourceToTargetRebuildDeletesTargetAndWritesArtifacts() {
     createShopifyClient: () => null,
   })
 
+  await assert.rejects(
+    () =>
+      service.syncSourceToTarget({
+        config: configPath,
+        rebuildTarget: true,
+        rebuildRunId: 'test-run',
+        createConcurrency: 2,
+        deleteConcurrency: 2,
+      }),
+    /requires explicit confirmation/,
+  )
+
   const result = await service.syncSourceToTarget({
     config: configPath,
     rebuildTarget: true,
+    confirmRebuildTarget: true,
     rebuildRunId: 'test-run',
     createConcurrency: 2,
     deleteConcurrency: 2,
