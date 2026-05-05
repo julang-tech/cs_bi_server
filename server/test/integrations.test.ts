@@ -343,6 +343,27 @@ async function testFeishuTableClientCopiesAttachmentToTargetBitable() {
 
     if (url.includes('/drive/v1/medias/source-file-token/download-url')) {
       assert.equal(init?.headers && (init.headers as Record<string, string>).Authorization, 'Bearer tenant-token')
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            tmp_download_urls: [
+              {
+                file_token: 'source-file-token',
+                tmp_download_url: 'https://internal-api-drive-stream.feishu.cn/download/source-file-token',
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+        },
+      )
+    }
+
+    if (url.includes('internal-api-drive-stream.feishu.cn/download/source-file-token')) {
+      assert.equal(init?.headers && (init.headers as Record<string, string>).Authorization, undefined)
       return new Response(new Uint8Array([1, 2, 3]), {
         status: 200,
         headers: { 'content-type': 'image/jpeg' },
@@ -389,6 +410,7 @@ async function testFeishuTableClientCopiesAttachmentToTargetBitable() {
 
     assert.deepEqual(result, { file_token: 'target-file-token' })
     assert.ok(urls.some((url) => url.includes('/drive/v1/medias/source-file-token/download-url')))
+    assert.ok(urls.some((url) => url.includes('internal-api-drive-stream.feishu.cn/download/source-file-token')))
     assert.ok(urls.some((url) => url.includes('/drive/v1/medias/upload_all')))
     const sentUploadBody = uploadBody as FormData | null
     assert.ok(sentUploadBody)

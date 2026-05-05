@@ -573,7 +573,7 @@ async function testSourceToTargetCreateStripsForeignAttachmentTokensOnRetry() {
   assert.equal(attemptedCreates[1]?.['退货/瑕疵凭证原图'], undefined)
 }
 
-async function testSourceToTargetUpdateStripsForeignAttachmentTokensOnRetry() {
+async function testSourceToTargetUpdateSkipsAttachmentMigrationAndOmitsAttachmentField() {
   const tmpDir = createTempDir()
   const configPath = path.join(tmpDir, 'config', 'config.json')
   writeJson(configPath, {
@@ -618,6 +618,7 @@ async function testSourceToTargetUpdateStripsForeignAttachmentTokensOnRetry() {
     { field_id: '10', field_name: '退货/瑕疵凭证原图', field_type: 17, property: null },
   ]
   const attemptedUpdates: Array<Record<string, unknown>> = []
+  let copyAttachmentCalls = 0
 
   const service = new SyncService({
     createClient: () => ({
@@ -646,13 +647,14 @@ async function testSourceToTargetUpdateStripsForeignAttachmentTokensOnRetry() {
       },
       async updateRecord(_table, recordId, fields) {
         attemptedUpdates.push(fields)
-        if (fields['退货/瑕疵凭证原图']) {
-          throw new Error('Feishu API error 1254303: The attachment does not belong to this bitable.')
-        }
         return recordId
       },
       async batchCreateRecords() {
         throw new Error('update path should not batch create')
+      },
+      async copyAttachmentToBitable() {
+        copyAttachmentCalls += 1
+        throw new Error('update path should not migrate attachments')
       },
     }),
     createShopifyClient: () => null,
@@ -661,9 +663,9 @@ async function testSourceToTargetUpdateStripsForeignAttachmentTokensOnRetry() {
   const result = await service.syncSourceToTarget({ config: configPath, date: '2026-05-05' })
 
   assert.equal(result.updated, 1)
-  assert.equal(attemptedUpdates.length, 2)
-  assert.ok(attemptedUpdates[0]?.['退货/瑕疵凭证原图'])
-  assert.equal(attemptedUpdates[1]?.['退货/瑕疵凭证原图'], undefined)
+  assert.equal(copyAttachmentCalls, 0)
+  assert.equal(attemptedUpdates.length, 1)
+  assert.equal(attemptedUpdates[0]?.['退货/瑕疵凭证原图'], undefined)
 }
 
 async function testSourceToTargetCreateMigratesAttachmentsToTargetBitable() {
@@ -3627,7 +3629,7 @@ async function run() {
   await testSyncPreviewAndRun()
   await testSourceToTargetRebuildDeletesTargetAndWritesArtifacts()
   await testSourceToTargetCreateStripsForeignAttachmentTokensOnRetry()
-  await testSourceToTargetUpdateStripsForeignAttachmentTokensOnRetry()
+  await testSourceToTargetUpdateSkipsAttachmentMigrationAndOmitsAttachmentField()
   await testSourceToTargetCreateMigratesAttachmentsToTargetBitable()
   await testSourceToTargetAttachmentMigrationFailureDoesNotBlockCreate()
   await testShopifyBackfillOnlyFillsEmptyFields()

@@ -528,9 +528,43 @@ export class FeishuTableClient {
       throw new Error(`Feishu media download failed: ${response.status}`)
     }
 
+    const contentType = response.headers.get('content-type')
+    if (contentType?.toLowerCase().includes('application/json')) {
+      const payload = (await response.json()) as {
+        code?: number
+        msg?: string
+        data?: {
+          tmp_download_url?: string
+          tmp_download_urls?: Array<{ file_token?: string; tmp_download_url?: string }>
+        }
+      }
+      if (payload.code !== 0) {
+        throw new Error(`Feishu media download URL error ${payload.code}: ${payload.msg}`)
+      }
+      const resolvedUrl =
+        payload.data?.tmp_download_url
+        ?? payload.data?.tmp_download_urls?.find((item) => item.file_token === fileToken)?.tmp_download_url
+        ?? payload.data?.tmp_download_urls?.[0]?.tmp_download_url
+      if (!resolvedUrl) {
+        throw new Error('Feishu media download URL response missing tmp_download_url.')
+      }
+      return this.downloadResolvedMedia(resolvedUrl)
+    }
+
     const data = new Uint8Array(await response.arrayBuffer())
     return {
       data,
+      contentType,
+    }
+  }
+
+  private async downloadResolvedMedia(downloadUrl: string) {
+    const response = await fetch(downloadUrl, { method: 'GET' })
+    if (!response.ok) {
+      throw new Error(`Feishu resolved media download failed: ${response.status}`)
+    }
+    return {
+      data: new Uint8Array(await response.arrayBuffer()),
       contentType: response.headers.get('content-type'),
     }
   }

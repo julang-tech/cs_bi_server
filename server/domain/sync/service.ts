@@ -1209,23 +1209,15 @@ async function syncResults(
         continue
       }
 
-      sanitizedRecord = await migrateFeishuAttachmentFields(
-        client,
-        config.target,
-        sanitizedRecord,
-        logger,
-        `${result.source_key} target ${index + 1}/${result.records.length}`,
-        attachmentCopyCache,
-      )
-
       const existingId = existingIds[index]
       if (existingId) {
+        const updateRecord = stripFeishuAttachmentTokenFields(sanitizedRecord).record
         try {
           const updatedId = await updateRecordWithAttachmentFallback(
             client,
             config.target,
             existingId,
-            sanitizedRecord,
+            updateRecord,
             logger,
             `${result.source_key} target update ${index + 1}/${result.records.length}`,
           )
@@ -1235,7 +1227,7 @@ async function syncResults(
             source_record_id: result.source_key,
             source_record_index: index,
             synced_at: new Date().toISOString(),
-            fields: sanitizedRecord,
+            fields: updateRecord,
           })
           counters.updated += 1
           continue
@@ -1250,6 +1242,14 @@ async function syncResults(
       }
 
       // Queue for batch create.
+      sanitizedRecord = await migrateFeishuAttachmentFields(
+        client,
+        config.target,
+        sanitizedRecord,
+        logger,
+        `${result.source_key} target ${index + 1}/${result.records.length}`,
+        attachmentCopyCache,
+      )
       pendingCreates.push({
         resultIndex,
         recordIndex: index,
