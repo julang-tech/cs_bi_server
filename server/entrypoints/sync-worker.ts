@@ -163,19 +163,15 @@ export function createSyncWorker(options: {
     running = true
     logger.info(`Sync worker ${trigger} run started.`)
     try {
-      // Step 1: source → target. Daily full refresh runs without date filter;
-      // interval/startup ticks use a rolling window (default last 2 days) to
-      // pick up late edits without re-scanning the whole source. syncResults
-      // is idempotent (state file maps source_record_id → target id), so
-      // overlapping windows just upsert.
-      const sourceWindow =
-        trigger === 'daily-full-refresh'
-          ? null
-          : buildSourceWindow({
-              now: new Date(),
-              days: sourceWindowDays,
-              timezoneOffsetMinutes,
-            })
+      // Step 1: source → target. All worker triggers use the same rolling
+      // window (default last 2 days). Full source rewrites are intentionally
+      // excluded from the scheduled path because the target table record ids
+      // are environment-local state.
+      const sourceWindow = buildSourceWindow({
+        now: new Date(),
+        days: sourceWindowDays,
+        timezoneOffsetMinutes,
+      })
       try {
         const sourceResult = await service.syncSourceToTarget({
           config: options.configPath,

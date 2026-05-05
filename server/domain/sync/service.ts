@@ -61,6 +61,7 @@ export type SyncCommandOptions = {
   to?: string
   refreshBigQueryCache?: boolean
   rebuildTarget?: boolean
+  confirmRebuildTarget?: boolean
   rebuildRunId?: string
   createConcurrency?: number
   deleteConcurrency?: number
@@ -1630,6 +1631,11 @@ export class SyncService {
     const logPath = resolveRuntimePath(options.config, config.runtime.log_path)
     const logger = createLogger(logPath)
     const dateFilter = applySourceImportStartDate(buildDateFilter(options))
+    if (options.rebuildTarget && !options.confirmRebuildTarget) {
+      throw new Error(
+        'source-to-target --rebuild-target requires explicit confirmation because it deletes and recreates target table records.',
+      )
+    }
     const client = this.createClient(config, logger)
     const shopifyClient = this.createShopifyClient(config, logger)
     const liveLogisticsClient = this.createLiveLogisticsClient(config, logger)

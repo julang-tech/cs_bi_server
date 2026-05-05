@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Full sync: source→target (no date filter) + target→sqlite + full 400-day
-# BigQuery / Shopify BI cache refresh. Use this for one-off bootstraps or when
-# upstream data has back-edits beyond the cache_tail_days window.
+# Full cache sync: target→sqlite + full 400-day BigQuery / Shopify BI cache
+# refresh. This intentionally does not run source→target: the Feishu target
+# table keeps stable record ids and review state, so source→target backfills
+# should be run explicitly with --from/--to windows.
 #
 # The scheduled worker uses incremental tail refresh and never runs this.
 
@@ -9,11 +10,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-echo "==> [1/2] Source-to-target (full, no date filter)"
-npm run sync:source-to-target --silent
-
-echo
-echo "==> [2/2] Target-to-sqlite + full 400-day BigQuery cache refresh"
+echo "==> Target-to-sqlite + full 400-day BigQuery cache refresh"
 npm run sync:run --silent -- --full
 
 echo

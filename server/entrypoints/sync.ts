@@ -82,6 +82,10 @@ program
   .option('--from <date>', 'Start date')
   .option('--to <date>', 'End date')
   .option('--rebuild-target', 'Delete target records and rebuild them from source artifacts')
+  .option(
+    '--confirm-rebuild-target',
+    'Required with --rebuild-target; confirms target records may be deleted and recreated',
+  )
   .option('--rebuild-run-id <id>', 'Resume or name a source-to-target rebuild artifact run')
   .option('--create-concurrency <count>', 'Concurrent target batch_create calls for rebuild mode', '4')
   .option('--delete-concurrency <count>', 'Concurrent target batch_delete calls for rebuild mode', '4')
