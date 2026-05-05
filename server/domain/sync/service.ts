@@ -83,6 +83,10 @@ type FeishuSyncClient = Pick<
   'listRecords' | 'listFields' | 'createRecord' | 'updateRecord' | 'batchCreateRecords'
 > & {
   batchDeleteRecords?: (table: SyncConfig['target'], recordIds: string[]) => Promise<void>
+  copyAttachmentToBitable?: (
+    table: SyncConfig['target'],
+    attachment: Record<string, unknown>,
+  ) => Promise<Record<string, unknown>>
 }
 
 type SyncServiceDeps = {
@@ -438,6 +442,24 @@ function containsFeishuAttachmentToken(value: unknown): boolean {
   return Object.values(objectValue).some((item) => containsFeishuAttachmentToken(item))
 }
 
+function getFeishuAttachmentToken(value: Record<string, unknown>) {
+  const token = value.file_token ?? value.token
+  return typeof token === 'string' && token.trim() ? token.trim() : null
+}
+
+function normalizeFeishuAttachmentValues(value: unknown) {
+  const rawValues = Array.isArray(value) ? value : [value]
+  return rawValues.filter((item): item is Record<string, unknown> => {
+    return Boolean(item && typeof item === 'object' && getFeishuAttachmentToken(item as Record<string, unknown>))
+  })
+}
+
+function describeFeishuAttachment(value: Record<string, unknown>) {
+  const token = getFeishuAttachmentToken(value) ?? 'unknown-token'
+  const name = typeof value.name === 'string' && value.name.trim() ? value.name.trim() : ''
+  return name ? `${name} (${token})` : token
+}
+
 function stripFeishuAttachmentTokenFields(record: Record<string, unknown>) {
   const strippedFields: string[] = []
   const nextRecord: Record<string, unknown> = {}
@@ -451,6 +473,68 @@ function stripFeishuAttachmentTokenFields(record: Record<string, unknown>) {
   return { record: nextRecord, strippedFields }
 }
 
+type AttachmentCopyCache = Map<string, Promise<Record<string, unknown>>>
+
+async function migrateFeishuAttachmentFields(
+  client: FeishuSyncClient,
+  table: SyncConfig['target'],
+  record: Record<string, unknown>,
+  logger: SyncLogger,
+  context: string,
+  cache: AttachmentCopyCache,
+) {
+  if (!client.copyAttachmentToBitable) {
+    return record
+  }
+
+  let nextRecord: Record<string, unknown> | null = null
+  for (const [fieldName, value] of Object.entries(record)) {
+    const attachments = normalizeFeishuAttachmentValues(value)
+    if (!attachments.length) {
+      continue
+    }
+
+    const migratedAttachments: Array<Record<string, unknown>> = []
+    for (const attachment of attachments) {
+      const token = getFeishuAttachmentToken(attachment)
+      if (!token) {
+        continue
+      }
+      try {
+        let migrated = cache.get(token)
+        if (!migrated) {
+          migrated = client.copyAttachmentToBitable(table, attachment)
+          cache.set(token, migrated)
+        }
+        migratedAttachments.push(await migrated)
+      } catch (error) {
+        cache.delete(token)
+        logger.warn(
+          `${context}: failed to migrate Feishu attachment field ${fieldName} ${describeFeishuAttachment(attachment)}; writing record without this attachment. ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    }
+
+    nextRecord ??= { ...record }
+    if (migratedAttachments.length) {
+      nextRecord[fieldName] = migratedAttachments
+    } else {
+      delete nextRecord[fieldName]
+    }
+  }
+
+  return nextRecord ?? record
+}
+
+function isForeignFeishuAttachmentError(message: string) {
+  const normalized = message.toLowerCase()
+  return (
+    message.includes('AttachPermNotAllow')
+    || message.includes('1254303')
+    || normalized.includes('attachment does not belong to this bitable')
+  )
+}
+
 async function batchCreateWithAttachmentFallback(
   client: FeishuSyncClient,
   table: SyncConfig['target'],
@@ -462,7 +546,7 @@ async function batchCreateWithAttachmentFallback(
     return await client.batchCreateRecords(table, records)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    if (!message.includes('AttachPermNotAllow')) {
+    if (!isForeignFeishuAttachmentError(message)) {
       throw error
     }
     const stripped = records.map((record) => stripFeishuAttachmentTokenFields(record))
@@ -474,6 +558,32 @@ async function batchCreateWithAttachmentFallback(
       `${context}: Feishu rejected source attachment tokens (${message}); retrying without fields: ${strippedFieldNames.join(', ')}.`,
     )
     return client.batchCreateRecords(table, stripped.map((entry) => entry.record))
+  }
+}
+
+async function updateRecordWithAttachmentFallback(
+  client: FeishuSyncClient,
+  table: SyncConfig['target'],
+  recordId: string,
+  record: Record<string, unknown>,
+  logger: SyncLogger,
+  context: string,
+) {
+  try {
+    return await client.updateRecord(table, recordId, record)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    if (!isForeignFeishuAttachmentError(message)) {
+      throw error
+    }
+    const stripped = stripFeishuAttachmentTokenFields(record)
+    if (!stripped.strippedFields.length) {
+      throw error
+    }
+    logger.warn(
+      `${context}: Feishu rejected source attachment tokens (${message}); retrying without fields: ${stripped.strippedFields.join(', ')}.`,
+    )
+    return client.updateRecord(table, recordId, stripped.record)
   }
 }
 
@@ -1048,6 +1158,7 @@ async function syncResults(
   // Track which result_index → array of synced IDs (sparse — only non-create
   // entries get filled inline; create entries get filled after the batch flush).
   const syncedIdsByResult = new Map<number, Array<string | null>>()
+  const attachmentCopyCache: AttachmentCopyCache = new Map()
 
   for (const [resultIndex, result] of results.entries()) {
     counters.scanned += 1
@@ -1080,7 +1191,7 @@ async function syncResults(
 
     for (let index = 0; index < result.records.length; index += 1) {
       const rawRecord = result.records[index]
-      const { sanitizedRecord, dropped_invalid_fields, dropped_unknown_fields } =
+      let { sanitizedRecord, dropped_invalid_fields, dropped_unknown_fields } =
         sanitizeTargetRecord(result.source_key, rawRecord, targetFieldsByName)
 
       if (dropped_invalid_fields.length || dropped_unknown_fields.length) {
@@ -1098,10 +1209,26 @@ async function syncResults(
         continue
       }
 
+      sanitizedRecord = await migrateFeishuAttachmentFields(
+        client,
+        config.target,
+        sanitizedRecord,
+        logger,
+        `${result.source_key} target ${index + 1}/${result.records.length}`,
+        attachmentCopyCache,
+      )
+
       const existingId = existingIds[index]
       if (existingId) {
         try {
-          const updatedId = await client.updateRecord(config.target, existingId, sanitizedRecord)
+          const updatedId = await updateRecordWithAttachmentFallback(
+            client,
+            config.target,
+            existingId,
+            sanitizedRecord,
+            logger,
+            `${result.source_key} target update ${index + 1}/${result.records.length}`,
+          )
           syncedIds[index] = updatedId
           mirroredRecords.push({
             record_id: updatedId,
@@ -1210,6 +1337,7 @@ async function writeRebuildRecords(
 
   const records: RebuildRecordArtifact[] = []
   const diagnostics: Array<Record<string, unknown>> = []
+  const attachmentCopyCache: AttachmentCopyCache = new Map()
   let failed = 0
   fs.rmSync(recordsPath, { force: true })
 
@@ -1221,7 +1349,7 @@ async function writeRebuildRecords(
       continue
     }
     for (let index = 0; index < result.records.length; index += 1) {
-      const { sanitizedRecord, dropped_invalid_fields, dropped_unknown_fields } =
+      let { sanitizedRecord, dropped_invalid_fields, dropped_unknown_fields } =
         sanitizeTargetRecord(result.source_key, result.records[index], targetFieldsByName)
       if (dropped_invalid_fields.length || dropped_unknown_fields.length) {
         logger.warn(
@@ -1233,6 +1361,14 @@ async function writeRebuildRecords(
           dropped_unknown_fields,
         })
       }
+      sanitizedRecord = await migrateFeishuAttachmentFields(
+        client,
+        config.target,
+        sanitizedRecord,
+        logger,
+        `${result.source_key} rebuild target ${index + 1}/${result.records.length}`,
+        attachmentCopyCache,
+      )
       const artifact = {
         source_key: result.source_key,
         record_index: index,

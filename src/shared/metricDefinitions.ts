@@ -119,7 +119,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
             name: '回邮数',
             short: '统计周期内客服发出的回复邮件数。',
             detail:
-              '衡量客服处理的产出量。下方坐席工作量表会按客服拆分回邮效率（回信时长 / 每小时回信均值 / 质检结果分布）。',
+              '衡量客服处理的产出量。下方坐席工作量表会按客服拆分回邮效率（在席时长 / 标准在席时长 / 每小时回信均值 / 质检结果分布）。',
           },
           {
             id: 'p1.avg_queue_hours',
@@ -170,17 +170,25 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           },
           {
             id: 'p1.agent_reply_span_hours',
-            name: '回信时长',
+            name: '在席时长',
             short: '该客服首封到末封回信的实际工作时间跨度（小时）。',
-            formula: '回信时长 = 当日 / 当周最后一封回信时间 − 第一封回信时间',
+            formula: '在席时长 = 当日 / 当周最后一封回信时间 − 第一封回信时间',
             detail:
-              '反映客服当天 / 当周实际投入回信的小时数（不是排班工时）。如果客服中午休息了几小时，那段时间也算在内。',
+              '反映客服当天 / 当周实际投入回信的小时数（不是排班工时）。如果客服中午休息了几小时，那段时间也算在内。**和"标准在席时长"对照看**可判断客服比标准节奏快还是慢。',
+          },
+          {
+            id: 'p1.agent_standard_attendance_hours',
+            name: '标准在席时长',
+            short: '按 30 封 / 小时的团队标准节奏，估算这堆回邮量"应该"花多少小时。',
+            formula: '标准在席时长 = 总回邮数 ÷ 30',
+            detail:
+              '假定客服按团队约定的标准节奏（30 封 / 小时）处理邮件，反映这位客服当天 / 当周的回邮量需要多少标准工时。和实际"在席时长"对比：实际 < 标准 说明节奏比标准快，实际 > 标准 说明慢于标准。',
           },
           {
             id: 'p1.agent_hourly_reply_span',
             name: '每小时回信均值',
-            short: '总回邮数 / 回信时长，反映在线时段的产出节奏。',
-            formula: '每小时回信均值 = 总回邮数 ÷ 回信时长',
+            short: '总回邮数 / 在席时长，反映在线时段的产出节奏。',
+            formula: '每小时回信均值 = 总回邮数 ÷ 在席时长',
             detail:
               '基于首封到末封的实际跨度，所以不受坐席休息 / 离开影响，纯粹衡量"在线时的产出速度"。',
           },
@@ -298,7 +306,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p2.product_refund_table',
             name: '商品退款表现表',
-            short: '默认按退款金额拉 Top50 SPU，每页 10 行；可按 SPU / SKC 筛选。',
+            short: '默认按退款金额拉 Top50 SPU；每页可切换 10 / 20 / 50 行；可按 SPU / SKC 筛选。',
             detail:
               '展开 SPU 可见各 SKC 明细。筛选后会按筛选条件重新拉 Top50。SPU = 款（Shopify product），SKC = 款 + 颜色组合。',
           },
@@ -433,9 +441,9 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p3.product_ranking',
             name: '商品客诉表现表',
-            short: '默认按客诉量拉 Top50 SPU，每页 10 行，可展开 SKC 明细。',
+            short: '默认按客诉率倒序展示 Top50 SPU；销量 / 客诉量 / 客诉率列头可点击切换排序；每页可切 10 / 20 / 50 条。',
             detail:
-              '已剔除非商品行（保险 / 运费 / 价差）。销量、客诉量、客诉率使用当前筛选的时间口径。',
+              '已剔除非商品行（保险 / 运费 / 价差）。Top50 拉取仍按上游客诉量排序，前端再按用户选择的列重排。销量、客诉量、客诉率使用当前筛选的时间口径。可展开 SKC 明细。',
           },
           {
             id: 'p3.product_ranking_sales_qty',

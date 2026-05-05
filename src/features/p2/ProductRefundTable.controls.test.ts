@@ -15,12 +15,13 @@ describe('ProductRefundTable controls', () => {
     expect(source).not.toContain('listing-date-group')
   })
 
-  it('fetches the top 50 refund rows and paginates 10 rows per page', () => {
+  it('fetches the top 50 refund rows and lets users switch page size', () => {
     expect(source).toContain('PRODUCT_REFUND_FETCH_LIMIT = 50')
-    expect(source).toContain('PRODUCT_REFUND_PAGE_SIZE = 10')
+    expect(source).toContain('PRODUCT_REFUND_PAGE_SIZE_OPTIONS = [10, 20, 50]')
     expect(source).toContain('top_n: PRODUCT_REFUND_FETCH_LIMIT')
     expect(source).toContain('默认拉取退款金额 Top50')
     expect(source).toContain('visibleRows')
+    expect(source).toContain('page-size-control')
     expect(source).not.toContain('Top20')
     expect(source).not.toContain('再排序为Top5')
     expect(source).not.toContain('前 5 行')

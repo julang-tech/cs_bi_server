@@ -27,7 +27,7 @@ function formatRate(value: number | null | undefined): string {
 }
 
 const PRODUCT_REFUND_FETCH_LIMIT = 50
-const PRODUCT_REFUND_PAGE_SIZE = 10
+const PRODUCT_REFUND_PAGE_SIZE_OPTIONS = [10, 20, 50] as const
 
 export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   const [top50Rows, setTop50Rows] = useState<P2SpuRow[]>([])
@@ -39,6 +39,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   const [sortState, setSortState] = useState<SortState>({ key: 'refund_amount', direction: 'desc' })
   const [productPickerOpen, setProductPickerOpen] = useState(false)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<number>(PRODUCT_REFUND_PAGE_SIZE_OPTIONS[0])
   const [activeSpu, setActiveSpu] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -183,10 +184,10 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     return rows
   }, [top50Rows, filteredRows, selectedSpus, selectedSkcs, sortState])
 
-  const pageCount = Math.max(1, Math.ceil(displayedRows.length / PRODUCT_REFUND_PAGE_SIZE))
+  const pageCount = Math.max(1, Math.ceil(displayedRows.length / pageSize))
   const safePage = Math.min(page, pageCount)
-  const startIndex = (safePage - 1) * PRODUCT_REFUND_PAGE_SIZE
-  const visibleRows = displayedRows.slice(startIndex, startIndex + PRODUCT_REFUND_PAGE_SIZE)
+  const startIndex = (safePage - 1) * pageSize
+  const visibleRows = displayedRows.slice(startIndex, startIndex + pageSize)
 
   const visibleActiveSpu = useMemo(() => {
     if (activeSpu && filteredSpuOptions.includes(activeSpu)) return activeSpu
@@ -243,7 +244,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
       <div className="table-head">
         <div>
           <h3>商品退款表现表</h3>
-          <p className="table-note">默认拉取退款金额 Top50，每页展示 10 条</p>
+          <p className="table-note">默认拉取退款金额 Top50；每页可切换 10 / 20 / 50 条</p>
         </div>
 
         <div className="table-sort-tools">
@@ -366,6 +367,20 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
 
           {displayedRows.length ? (
             <div className="ranking-pagination product-table-pagination">
+              <label className="page-size-control">
+                <span>每页</span>
+                <select
+                  value={pageSize}
+                  onChange={(event) => {
+                    setPageSize(Number(event.target.value))
+                    setPage(1)
+                  }}
+                >
+                  {PRODUCT_REFUND_PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </label>
               <div className="pagination-buttons" role="group" aria-label="商品退款表现表分页">
                 <button
                   type="button"

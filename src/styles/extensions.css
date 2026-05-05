@@ -91,6 +91,11 @@
   color: var(--accent);
 }
 
+.workload-total-label {
+  color: var(--muted-strong);
+  font-weight: 700;
+}
+
 /* Generic trend chart hit/axis helpers used inside P1 workload trend */
 
 .trend-chart__reference-line {
