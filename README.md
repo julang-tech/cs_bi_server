@@ -103,14 +103,14 @@ GOOGLE_APPLICATION_CREDENTIALS=config/gcp/julang-dev-database-876c2efba122.json
 - Node `app` 已接入真实 P3 计算链路
 - Node `app` 已支持从 SQLite BigQuery 缓存读取销量、商品和订单补齐数据，并支持 Feishu tenant token 获取和 bitable records 拉取
 - Node `sync` 已承接 Feishu/OpenClaw 同步、目标表 SQLite 镜像、BigQuery 缓存和 CSV 预览能力
-- Node `sync:worker` 已支持启动即读取飞书目标表同步 SQLite 并强刷新 BigQuery/Shopify BI 缓存、之后每 2 小时自动刷新 SQLite 镜像并做 Shopify BI 缓存 due check；默认每天北京时间 03:30 再做一次强刷新
+- Node `sync:worker` 已支持启动即读取飞书目标表同步 SQLite 并强刷新 BigQuery/Shopify BI 缓存、之后每 60 分钟自动刷新 SQLite 镜像并做 Shopify BI 缓存 due check；默认每天北京时间 03:30 再做一次强刷新
 
 ## SQLite Mirror Notes
 
 - `sync:source-to-target` 会按需把飞书源表转换并写入飞书目标表，保留 Shopify 订单字段补齐。
 - `sync:run` 会读取飞书目标表同步本地 SQLite 镜像，并在有 GCP 凭证时刷新最近 400 天 BigQuery 本地缓存。
 - `sync:preview` 只预览源表到目标表的转换结果，不写飞书、不写 SQLite。
-- `sync:worker` 是长期运行进程，启动后会立即执行一轮 `sync:run`，之后按 `runtime.refresh_interval_minutes` 轮询，默认 `120` 分钟；它还会按 `runtime.daily_full_refresh_time` 在业务时区固定做一次强刷新，默认北京时间 `03:30`；它不写飞书目标表。
+- `sync:worker` 是长期运行进程，启动后会立即执行一轮 `sync:run`，之后按 `runtime.refresh_interval_minutes` 轮询，默认 `60` 分钟；它还会按 `runtime.daily_full_refresh_time` 在业务时区固定做一次强刷新，默认北京时间 `03:30`；它不写飞书目标表。
 - `/api/bi/cache-status` 可查看 SQLite 文件是否存在、最近成功缓存覆盖区间、表内最大订单/退款日期和行数，方便判断看板是否读到了过期缓存。
 
 ## Logging

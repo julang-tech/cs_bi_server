@@ -27,6 +27,17 @@ function formatSampleOrderNos(orderNos: string[]) {
   return orderNos.length > 20 ? `${sample},...` : sample
 }
 
+function nextIsoDate(value: string) {
+  const date = new Date(`${value}T00:00:00.000Z`)
+  if (Number.isNaN(date.getTime())) return value
+  date.setUTCDate(date.getUTCDate() + 1)
+  return date.toISOString().slice(0, 10)
+}
+
+function maxIsoDate(left: string, right: string) {
+  return left > right ? left : right
+}
+
 export type ShopifyBiOrder = {
   order_id: string
   order_no: string
@@ -95,6 +106,7 @@ export type ShopifyBiP2OverviewFilters = {
   date_from: string
   date_to: string
   grain: 'day' | 'week' | 'month'
+  date_basis?: 'order_date' | 'refund_date'
   category?: string
   spu?: string
   skc?: string
@@ -204,6 +216,10 @@ function bucketDate(dateText: string, grain: P3Filters['grain']) {
 
 function uniqueOrderCount(rows: Array<{ order_no: string }>) {
   return new Set(rows.map((row) => row.order_no)).size
+}
+
+function resolveP2DateBasis(filters: ShopifyBiP2OverviewFilters) {
+  return filters.date_basis === 'refund_date' ? 'refund_date' : 'order_date'
 }
 
 export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnrichmentRepository {
@@ -654,17 +670,36 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
   }
 
   hasCoverage(dateFrom: string, dateTo: string) {
-    const row = this.db
+    const rows = this.db
       .prepare(`
-        SELECT COUNT(*) AS count
+        SELECT date_from, date_to
         FROM shopify_bi_cache_runs
         WHERE scope = 'shopify_bi_v2'
           AND ok = 1
-          AND date_from <= ?
           AND date_to >= ?
+          AND date_from <= ?
+        ORDER BY date_from ASC, date_to ASC
       `)
-      .get(dateFrom, dateTo) as { count: number } | undefined
-    return Number(row?.count ?? 0) > 0
+      .all(dateFrom, dateTo) as Array<{ date_from: string; date_to: string }>
+
+    let coveredTo: string | null = null
+    for (const row of rows) {
+      if (!coveredTo) {
+        if (row.date_from > dateFrom) {
+          return false
+        }
+        coveredTo = row.date_to
+      } else if (row.date_from <= nextIsoDate(coveredTo)) {
+        coveredTo = maxIsoDate(coveredTo, row.date_to)
+      } else {
+        return false
+      }
+
+      if (coveredTo >= dateTo) {
+        return true
+      }
+    }
+    return false
   }
 
   getGeneration(dateFrom: string, dateTo: string) {
@@ -674,8 +709,8 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
         FROM shopify_bi_cache_runs
         WHERE scope = 'shopify_bi_v2'
           AND ok = 1
-          AND date_from <= ?
           AND date_to >= ?
+          AND date_from <= ?
       `)
       .get(dateFrom, dateTo) as { generation: string } | undefined
     return String(row?.generation ?? '')
@@ -688,8 +723,8 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
         FROM shopify_bi_cache_runs
         WHERE scope = 'shopify_bi_v2'
           AND ok = 1
-          AND date_from <= ?
           AND date_to >= ?
+          AND date_from <= ?
         ORDER BY finished_at DESC, id DESC
         LIMIT 1
       `)
@@ -698,6 +733,11 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
   }
 
   queryP2Overview(filters: ShopifyBiP2OverviewFilters) {
+    const dateBasis = resolveP2DateBasis(filters)
+    const refundDatePredicate =
+      dateBasis === 'refund_date'
+        ? 're.refund_date BETWEEN @date_from AND @date_to'
+        : 'o.processed_date BETWEEN @date_from AND @date_to'
     const params = {
       date_from: filters.date_from,
       date_to: filters.date_to,
@@ -738,7 +778,7 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
             COALESCE(SUM(re.refund_subtotal_usd), 0) AS refund_amount
           FROM shopify_bi_refund_events re
           JOIN shopify_bi_orders o ON o.order_id = re.order_id
-          WHERE re.refund_date BETWEEN @date_from AND @date_to
+          WHERE ${refundDatePredicate}
             AND o.is_gift_card_order = 0
             AND o.is_regular_order = 1
             AND (@category = '' OR o.primary_product_type = @category)
@@ -787,6 +827,12 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
   }
 
   queryP2Trends(filters: ShopifyBiP2OverviewFilters) {
+    const dateBasis = resolveP2DateBasis(filters)
+    const refundBucketDate = dateBasis === 'refund_date' ? 're.refund_date' : 'o.processed_date'
+    const refundDatePredicate =
+      dateBasis === 'refund_date'
+        ? 're.refund_date BETWEEN @date_from AND @date_to'
+        : 'o.processed_date BETWEEN @date_from AND @date_to'
     const params = {
       date_from: filters.date_from,
       date_to: filters.date_to,
@@ -839,12 +885,12 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
     const refundRows = this.db
       .prepare(`
         SELECT
-          re.refund_date AS bucket_date,
+          ${refundBucketDate} AS bucket_date,
           COUNT(DISTINCT re.order_id) AS refund_order_count,
           COALESCE(SUM(re.refund_subtotal_usd), 0) AS refund_amount
         FROM shopify_bi_refund_events re
         JOIN shopify_bi_orders o ON o.order_id = re.order_id
-        WHERE re.refund_date BETWEEN @date_from AND @date_to
+        WHERE ${refundDatePredicate}
           AND o.is_gift_card_order = 0
           AND o.is_regular_order = 1
           AND (@category = '' OR o.primary_product_type = @category)
@@ -861,7 +907,7 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
                 AND (@spu = '' OR li.spu = @spu)
             )
           )
-        GROUP BY re.refund_date
+        GROUP BY ${refundBucketDate}
       `)
       .all(params) as Array<Record<string, unknown>>
 
@@ -949,6 +995,11 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
   }
 
   queryP2SpuTable(filters: ShopifyBiP2OverviewFilters, topN: number) {
+    const dateBasis = resolveP2DateBasis(filters)
+    const refundDatePredicate =
+      dateBasis === 'refund_date'
+        ? 're.refund_date BETWEEN @date_from AND @date_to'
+        : 'o.processed_date BETWEEN @date_from AND @date_to'
     const params: Record<string, string | number> = {
       date_from: filters.date_from,
       date_to: filters.date_to,
@@ -1008,13 +1059,20 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
         ),
         refund_event_agg AS (
           SELECT
-            order_id,
-            sku,
-            SUM(COALESCE(refund_quantity, 0)) AS refund_qty,
-            SUM(COALESCE(refund_subtotal_usd, 0)) AS refund_amount
-          FROM shopify_bi_refund_events
-          WHERE refund_date BETWEEN @date_from AND @date_to
-          GROUP BY order_id, sku
+            re.order_id,
+            re.sku,
+            SUM(COALESCE(re.refund_quantity, 0)) AS refund_qty,
+            SUM(COALESCE(re.refund_subtotal_usd, 0)) AS refund_amount
+          FROM shopify_bi_refund_events re
+          JOIN shopify_bi_orders o ON o.order_id = re.order_id
+          WHERE ${refundDatePredicate}
+            AND o.is_gift_card_order = 0
+            AND o.is_regular_order = 1
+            AND (@category = '' OR o.primary_product_type = @category)
+            AND (@channel = '' OR o.shop_domain = @channel)
+            AND (@listing_date_from = '' OR o.first_published_at_in_order >= @listing_date_from)
+            AND (@listing_date_to = '' OR o.first_published_at_in_order <= @listing_date_to)
+          GROUP BY re.order_id, re.sku
         ),
         refund_line_dim AS (
           SELECT

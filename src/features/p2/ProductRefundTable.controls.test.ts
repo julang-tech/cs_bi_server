@@ -27,4 +27,33 @@ describe('ProductRefundTable controls', () => {
     expect(source).not.toContain('前 5 行')
     expect(source).not.toContain('slice(0, 5)')
   })
+
+  it('refetches rows when refund date basis changes', () => {
+    const initialFetchEffect = source.slice(
+      source.indexOf('  // Initial / base-filter-driven fetch'),
+      source.indexOf('  // Filter-driven fetch'),
+    )
+    const filteredFetchEffect = source.slice(
+      source.indexOf('  // Filter-driven fetch'),
+      source.indexOf('  // Reset expanded state'),
+    )
+    const pageResetEffect = source.slice(
+      source.indexOf('  useEffect(() => {\n    setPage(1)'),
+      source.indexOf('  const displayedRows'),
+    )
+
+    expect(initialFetchEffect).toContain('baseFilters.date_basis')
+    expect(filteredFetchEffect).toContain('baseFilters.date_basis')
+    expect(pageResetEffect).toContain('baseFilters.date_basis')
+  })
+
+  it('switches product table wording between cohort and refund-flow bases', () => {
+    expect(source).toContain('const PRODUCT_REFUND_COPY')
+    expect(source).toContain('商品退款表现表')
+    expect(source).toContain('订单 cohort 口径')
+    expect(source).toContain('商品退款流入表')
+    expect(source).toContain('退款流入量')
+    expect(source).toContain('流入量/同期销量')
+    expect(source).toContain('不是订单 cohort 退款率')
+  })
 })

@@ -60,6 +60,7 @@ const p2FilterSchema = z.object({
   date_from: z.string(),
   date_to: z.string(),
   grain: z.enum(['day', 'week', 'month']).default('month'),
+  date_basis: z.enum(['order_date', 'refund_date']).default('order_date'),
   category: z.string().optional(),
   spu: z.string().optional(),
   skc: z.string().optional(),

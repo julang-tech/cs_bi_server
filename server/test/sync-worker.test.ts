@@ -1,12 +1,36 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { buildSourceWindow, createSyncWorker, millisecondsUntilNextDailyRun } from '../entrypoints/sync-worker.js'
+import { loadP3RuntimeConfig } from '../integrations/sync-config.js'
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
 const sourceToTargetStub = async () => ({
   scanned: 0, created: 0, updated: 0, failed: 0,
 })
+
+function createConfigWithoutInterval() {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cs-bi-sync-worker-'))
+  const configPath = path.join(tempDir, 'config', 'sync', 'config.json')
+  fs.mkdirSync(path.dirname(configPath), { recursive: true })
+  fs.writeFileSync(
+    configPath,
+    JSON.stringify({
+      feishu: { app_id: 'cli_xxx', app_secret: 'secret' },
+      source: { app_token: 'source-app', table_id: 'source-table', view_id: 'source-view' },
+      target: { app_token: 'target-app', table_id: 'target-table', view_id: 'target-view' },
+      runtime: {
+        state_path: './data/state.json',
+        log_path: './data/sync.log',
+        sqlite_path: './data/issues.sqlite',
+      },
+    }),
+  )
+  return { tempDir, configPath }
+}
 
 async function testWorkerRunsImmediately() {
   const calls: Array<{ name: string; options: unknown }> = []
@@ -58,6 +82,44 @@ async function testWorkerRunsImmediately() {
     name: 'syncTargetToSqlite',
     options: { config: 'config/sync/config.example.json', refreshBigQueryCache: true, cacheTailDays: 7 },
   })
+}
+
+async function testWorkerDefaultIntervalIsOneHour() {
+  const { tempDir, configPath } = createConfigWithoutInterval()
+  try {
+    const worker = createSyncWorker({
+      configPath,
+      logger: {
+        info() {},
+        warn() {},
+        error() {},
+      },
+      service: {
+        syncSourceToTarget: sourceToTargetStub,
+        async syncTargetToSqlite() {
+          return {
+            created: 0,
+            updated: 0,
+            failed: 0,
+            sqlite: {
+              ok: true,
+              inserted: 0,
+              updated: 0,
+              deleted: 0,
+              sqlite_failed: 0,
+            },
+          }
+        },
+      },
+    })
+
+    const intervalMs = worker.start()
+    worker.stop()
+    assert.equal(intervalMs, 60 * 60 * 1000)
+    assert.equal(loadP3RuntimeConfig(configPath).runtime.refreshIntervalMinutes, 60)
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  }
 }
 
 async function testWorkerIntervalSplitsFeishuMirrorFromShopifyBiDueCheck() {
@@ -282,6 +344,7 @@ async function testWorkerUsesIntervalAndSkipsOverlap() {
 
 async function run() {
   await testWorkerRunsImmediately()
+  await testWorkerDefaultIntervalIsOneHour()
   await testWorkerIntervalSplitsFeishuMirrorFromShopifyBiDueCheck()
   await testWorkerDailyFullRefreshForcesBigQueryCache()
   testBuildSourceWindow()

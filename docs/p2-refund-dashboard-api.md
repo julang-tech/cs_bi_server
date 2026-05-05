@@ -1,8 +1,8 @@
 ﻿# P2 退款情况看板接口定义与取数说明
 
 ## 1. 页面目标
-- 看退款规模、退款订单占比、退款金额占比、商品分布
-- 按订单时间统计
+- 看订单 / 销量 / GMV、退款订单数、退款金额、退款金额占比和商品分布
+- 订单类指标始终按订单时间统计；退款相关指标支持订单时间口径 / 退款时间口径切换
 - 支持粒度选择（天/周/月）与时间范围筛选
 - 商品表支持 SPU 行展开查看 SKC 明细，支持多条同时展开
 
@@ -18,12 +18,15 @@
 - `date_from` `string`（`YYYY-MM-DD`）
 - `date_to` `string`（`YYYY-MM-DD`）
 - `grain` `day | week | month`
+- `date_basis` `order_date | refund_date`，默认 `order_date`，只影响退款订单数、退款金额、退款金额占比和商品表里的退款指标
+  - `order_date`：订单 cohort 口径。按下单时间圈定订单 / 商品销售批次，退款指标统计这批订单当前累计退款。
+  - `refund_date`：退款流入口径。订单、销量、销售额仍按下单时间统计；退款指标按退款事件发生时间归属。
 - `category` `string` 可选
+- `channel` `string` 可选，按 Shopify 店铺完整域名筛选，例如 `2vnpww-33.myshopify.com`
 - `spu` `string` 可选
 - `skc` `string` 可选
 - `listing_date_from` `string` 可选
 - `listing_date_to` `string` 可选
-- `top_n` `number`（前端会传，后端可忽略）
 
 #### 返回
 ```json
@@ -31,7 +34,8 @@
   "filters": {
     "date_from": "2026-03-01",
     "date_to": "2026-03-31",
-    "grain": "month"
+    "grain": "month",
+    "date_basis": "order_date"
   },
   "cards": {
     "order_count": 17468,
@@ -42,15 +46,7 @@
     "net_received_amount": 2060000,
     "net_revenue_amount": 1800000,
     "refund_amount_ratio": 0.058,
-    "regular_order_count": 15000,
-    "non_regular_order_count": 2468,
-    "regular_received_amount": 1800000,
-    "non_regular_received_amount": 260000,
-    "avg_order_amount": 117.9,
-    "regular_avg_order_amount": 120.0,
-    "non_regular_avg_order_amount": 105.3,
-    "refund_order_ratio_total": 0.112,
-    "refund_order_ratio_regular": 0.131
+    "avg_order_amount": 117.9
   },
   "meta": {
     "partial_data": false,
@@ -58,7 +54,7 @@
     "cache_generation": "2026-05-01T12:00:00.000Z",
     "data_as_of": "2026-05-04T06:00:00.000Z",
     "notes": [
-      "Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping; refund_amount is now refund-flow (events in window) not cohort (orders in window). See lintico-data-warehouse/shopify_data_sync/docs/decisions/0007-dwd-align-with-cs-bi-finance.md"
+      "Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping. Refund metrics follow the selected date_basis."
     ]
   }
 }
@@ -66,13 +62,25 @@
 
 ---
 
-### 2.2 商品退款表现表接口
+### 2.2 商品退款表现 / 退款流入表接口
 - **Method**: `GET`
 - **Path**: `/api/bi/p2/refund-dashboard/spu-table`
 
 #### Query 参数
 同 `overview`，额外：
-- `top_n` `number`（前端实际会至少拉 20，用于前端二次排序）
+- `top_n` `number`（前端默认拉 50，用于前端二次排序与分页）
+- `spu_list` `string | string[]` 可选，商品筛选弹窗选中多个 SPU 时传递
+- `skc_list` `string | string[]` 可选，商品筛选弹窗选中多个 SKC 时传递
+
+#### 时间口径
+- `date_basis = order_date` 时，前端展示为“商品退款表现表”：
+  - `sales_qty` / `sales_amount` 为该时间窗下单商品的销量 / 销售额。
+  - `refund_qty` / `refund_amount` 为这批订单商品当前累计退款量 / 退款金额。
+  - `refund_qty_ratio` / `refund_amount_ratio` 是订单 cohort 退款率，用于判断商品真实退款风险。
+- `date_basis = refund_date` 时，前端展示为“商品退款流入表”：
+  - `sales_qty` / `sales_amount` 仍为同一时间窗下单商品的同期销量 / 同期销售额。
+  - `refund_qty` / `refund_amount` 为该时间窗发生的退款流入量 / 退款流入金额。
+  - `refund_qty_ratio` / `refund_amount_ratio` 是退款流入 ÷ 同期销售参考分母，不是订单 cohort 退款率。
 
 #### 返回
 ```json
@@ -81,7 +89,8 @@
     "date_from": "2026-03-01",
     "date_to": "2026-03-31",
     "grain": "month",
-    "top_n": 20
+    "date_basis": "order_date",
+    "top_n": 50
   },
   "rows": [
     {
@@ -124,9 +133,10 @@
 - 服务实现：
   - `server/domain/p2/service.ts`
 - 前端接口调用：
-  - `src/api/p2.js`
+  - `src/api/p2.ts`
 - 页面实现：
-  - `src/App.jsx`
+  - `src/features/p2/P2Dashboard.tsx`
+  - `src/features/p2/ProductRefundTable.tsx`
 
 ---
 
@@ -148,7 +158,7 @@ P2 正常服务路径优先读取本地 SQLite Shopify BI cache。该 cache 由 
 - `meta.cache_generation`: SQLite 响应包含该字段，表示覆盖当前请求日期范围的最近一次成功 cache refresh 时间戳。
 - `meta.data_as_of`: SQLite 响应包含该字段时，表示当前 cache 覆盖范围对应的上游 Shopify DWD 数据水位。前端展示为小时级“数据截至”。
 - `meta.partial_data`: 存在局部失败或凭证缺失等降级时为 `true`。
-- `meta.notes`: 包含 ADR-0007 指标口径说明，以及 cache 不可用、BigQuery 凭证缺失等 fallback 说明。
+- `meta.notes`: 概览响应包含 ADR-0007 指标口径说明；各接口在 cache 不可用、BigQuery 凭证缺失等降级场景返回 fallback 说明。
 
 ### 4.3 Shopify BI Cache 上游表
 
@@ -180,13 +190,13 @@ P2 正常服务路径优先读取本地 SQLite Shopify BI cache。该 cache 由 
 
 ## 6. 前端排序与 TopN 策略
 
-- 后端默认按 `refund_amount` 聚合返回（前端传 `top_n >= 20`）
+- 后端默认按 `refund_amount` 聚合返回（前端默认传 `top_n = 50`）
 - 前端支持排序字段切换：
   - `refund_qty`
   - `refund_amount`
   - `refund_qty_ratio`
   - `refund_amount_ratio`
-- 前端在返回结果中二次排序，再截取展示 `TopN`（默认 5）
+- 前端在返回结果中二次排序，并按每页 10 / 20 / 50 分页展示
 
 ---
 
@@ -202,11 +212,15 @@ P2 正常服务路径优先读取本地 SQLite Shopify BI cache。该 cache 由 
 
 ---
 
-## 8. 当前口径说明（占比）
+## 8. 当前口径说明（商品表占比）
 
-- SPU 行：
-  - `退款数占比 = SPU退款数 / SPU销量`
-  - `退款金额占比 = SPU退款金额 / SPU销售额`
-- SKC 行（为便于与父行对齐）：
+- `order_date` 下：
+  - `退款数占比 = 该订单 cohort 的退款数 / 该订单 cohort 的销量`
+  - `退款金额占比 = 该订单 cohort 的退款金额 / 该订单 cohort 的销售额`
+- `refund_date` 下：
+  - `流入量/同期销量 = 当期退款流入数 / 同期下单销量`
+  - `流入额/同期销售额 = 当期退款流入金额 / 同期下单销售额`
+  - 这是运营流入压力视角，不代表该批订单最终退款率。
+- SKC 明细行前端展示时为便于与父行对齐：
   - `退款数占比 = SKC退款数 / 所属SPU销量`
   - `退款金额占比 = SKC退款金额 / 所属SPU销售额`

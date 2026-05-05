@@ -64,7 +64,7 @@ GOOGLE_APPLICATION_CREDENTIALS=config/gcp/julang-dev-database-876c2efba122.json
 - `runtime.state_path`: 源记录到目标记录的同步状态文件
 - `runtime.log_path`: `sync` / `sync:source-to-target` / `sync:worker` 共用日志文件
 - `runtime.sqlite_path`: 本地 SQLite 镜像文件，P3 从这里读取 issue 数据和 BigQuery 本地缓存
-- `runtime.refresh_interval_minutes`: `sync:worker` 刷新间隔，默认 `120`
+- `runtime.refresh_interval_minutes`: `sync:worker` 刷新间隔，默认 `60`
 - `runtime.daily_full_refresh_time`: `sync:worker` 每天强刷新 BigQuery/Shopify BI 缓存的业务时区时间，默认 `03:30`；普通轮询也会刷新 Shopify BI 尾部窗口以跟上小时级上游更新
 - `runtime.daily_full_refresh_timezone_offset_minutes`: 上述业务时区相对 UTC 的分钟偏移，默认 `480`，即北京时间
 

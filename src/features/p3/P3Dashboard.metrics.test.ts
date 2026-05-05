@@ -32,6 +32,13 @@ describe('P3 overview KPI composition', () => {
     expect(cardsSource).not.toContain('仓库问题客诉量')
   })
 
+  it('uses date-basis aware complaint metric tooltips', () => {
+    expect(source).toContain('getComplaintMetricDescription')
+    expect(source).toContain('客诉登记时间口径')
+    expect(source).toContain('订单时间口径')
+    expect(source).toContain('退款时间口径')
+  })
+
   it('does not compute hidden previous-range deltas for the focus chart summary', () => {
     const summaryStart = source.indexOf('  // Build per-metric summary for the focus chart')
     const summarySource = source.slice(

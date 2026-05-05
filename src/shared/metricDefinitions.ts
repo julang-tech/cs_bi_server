@@ -255,16 +255,16 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p2.refund_order_count',
             name: '退款订单数',
-            short: '统计周期内发生退款事件的订单数（去重）。',
+            short: '退款相关订单数（去重），受页面“退款口径”影响。',
             detail:
-              '**按退款实际发生的日期统计**，不按原订单下单日期。一个订单多次退款只算 1 个退款订单。',
+              '订单时间口径下，统计所选下单时间范围内当前累计发生过退款的订单数；退款时间口径下，统计所选时间范围内实际发生退款事件的订单数。一个订单多次退款只算 1 个退款订单。',
           },
           {
             id: 'p2.refund_amount',
             name: '退款金额',
-            short: '统计周期内退款金额合计（美元）。',
+            short: '退款金额合计（美元），受页面“退款口径”影响。',
             detail:
-              '按退款实际发生的日期统计，**含退运费**。每张退款单按订单当时的汇率折算成美元后合计。',
+              '订单时间口径下，统计所选下单时间范围内订单的当前累计退款金额；退款时间口径下，统计所选时间范围内实际发生的退款金额。每张退款单按订单当时的汇率折算成美元后合计。',
           },
           {
             id: 'p2.gmv',
@@ -296,7 +296,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
             short: '退款金额 / 净实付金额。',
             formula: '退款金额占比 = 退款金额 ÷ 净实付金额',
             detail:
-              '衡量退款相对销售收入的压力。**注意分子分母时间口径不同**：分子是这段时间内"发生的退款"，分母是这段时间内"产生的销售"——这两批订单不一定是同一批（退款可能针对几周前的订单）。所以更适合看趋势，绝对值不能精确归因到具体订单。',
+              '衡量退款相对销售收入的压力。订单时间口径下是同批订单累计退款金额 ÷ 同批订单净实付金额；退款时间口径下是所选时间范围内实际发生退款金额 ÷ 同期订单时间范围内净实付金额。',
           },
         ],
       },
@@ -306,9 +306,9 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p2.product_refund_table',
             name: '商品退款表现表',
-            short: '默认按退款金额拉 Top50 SPU；每页可切换 10 / 20 / 50 行；可按 SPU / SKC 筛选。',
+            short: '订单时间下是商品退款表现表；退款时间下切换为商品退款流入表。默认按退款金额拉 Top50 SPU，每页可切换 10 / 20 / 50 行。',
             detail:
-              '展开 SPU 可见各 SKC 明细。筛选后会按筛选条件重新拉 Top50。SPU = 款（Shopify product），SKC = 款 + 颜色组合。',
+              '订单时间口径是订单 cohort：按下单时间圈定商品销售批次，退款量/金额统计这批订单当前累计退款，退款率用于判断商品真实退款风险。退款时间口径是流入分析：退款量/金额按退款发生时间归属，销量/销售额仍是同期下单销量，仅作参考分母，不是订单 cohort 退款率。展开 SPU 可见各 SKC 明细；筛选后会按筛选条件重新拉 Top50。SPU = 款（Shopify product），SKC = 款 + 颜色组合。',
           },
           {
             id: 'p2.product_refund_table_sales_qty',
@@ -319,13 +319,13 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p2.product_refund_table_refund_qty',
             name: '— 退款件数',
-            short: '该 SPU / SKC 在统计周期内的退款件数。',
-            detail: '按退款实际发生日期统计，与"退款订单数"互补（这里看件数）。',
+            short: '订单时间下为该批订单当前累计退款件数；退款时间下为区间内退款流入件数。',
+            detail: '订单时间口径用于看商品 cohort 退款压力；退款时间口径用于看当期退款流入集中在哪些商品。',
           },
           {
             id: 'p2.product_refund_table_refund_amount',
             name: '— 退款金额',
-            short: '该 SPU / SKC 在统计周期内的退款金额（美元）。',
+            short: '订单时间下为该批订单当前累计退款金额；退款时间下为区间内退款流入金额（美元）。',
             detail: '与上方 KPI"退款金额"同口径，按 SPU / SKC 分组。默认排序键。',
           },
           {
@@ -333,7 +333,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
             name: '— 退款数占比',
             short: '退款件数 / 销售件数。',
             formula: '退款数占比 = 退款件数 ÷ 销售件数',
-            detail: '观察商品件数维度的退款压力，适合和"退款金额占比"一起看。',
+            detail: '订单时间口径下是 cohort 退款率；退款时间口径下是退款流入量 ÷ 同期销量，仅用于观察流入压力，不代表该批订单最终退款率。',
           },
         ],
       },
@@ -374,7 +374,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
             short: '客诉量 / 销量。',
             formula: '客诉率 = 客诉量 ÷ 销量',
             detail:
-              '分子分母都已剔除非商品行，可直接相除。**注意**：分子按所选时间口径，分母按销售实际日期——切换时间口径只影响分子的归属时间。',
+              '分子分母都已剔除非商品行。客诉量按所选时间口径归属，销量按订单实际日期归属；订单时间口径最接近 cohort 客诉率，登记时间和退款时间口径更偏运营流入视角。',
           },
           {
             id: 'p3.issue_product_count',
@@ -441,9 +441,9 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p3.product_ranking',
             name: '商品客诉表现表',
-            short: '默认按客诉率倒序展示 Top50 SPU；销量 / 客诉量 / 客诉率列头可点击切换排序；每页可切 10 / 20 / 50 条。',
+            short: '订单时间下是商品客诉表现表；登记/退款时间下切换为商品客诉流入表。默认按客诉率倒序展示 Top50 SPU，每页可切换 10 / 20 / 50 行。',
             detail:
-              '已剔除非商品行（保险 / 运费 / 价差）。Top50 拉取仍按上游客诉量排序，前端再按用户选择的列重排。销量、客诉量、客诉率使用当前筛选的时间口径。可展开 SKC 明细。',
+              '订单时间口径是订单 cohort：按下单时间圈定商品销售批次，客诉量统计这批订单产生的客诉，客诉率用于判断商品真实客诉风险。登记时间/退款时间口径是流入分析：客诉量分别按飞书登记时间或关联退款事件时间归属，销量仍是同期下单销量，仅作参考分母，不是订单 cohort 客诉率。已剔除非商品行（保险 / 运费 / 价差）。Top50 拉取仍按上游客诉量排序，前端再按用户选择的列重排。可展开 SKC 明细。',
           },
           {
             id: 'p3.product_ranking_sales_qty',
@@ -454,7 +454,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p3.product_ranking_complaint_count',
             name: '— 客诉量',
-            short: '该 SPU / SKC 在统计周期内的客诉数。',
+            short: '订单时间下为该批订单产生的客诉数；登记/退款时间下为对应时间流入的客诉数。',
             detail: '物流类客诉按订单内的 SKU 展开后归到对应 SPU / SKC；其它类按客诉登记时填的商品 SKU。',
           },
           {
@@ -462,7 +462,7 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
             name: '— 客诉率',
             short: '该 SPU / SKC 的客诉量 / 销量。',
             formula: '客诉率 = 客诉量 ÷ 销量',
-            detail: '同上方 KPI"客诉率"口径，分子分母均按 SKU 行数。',
+            detail: '订单时间口径下是 cohort 客诉率；登记/退款时间口径下是客诉流入量 ÷ 同期销量，仅用于观察流入压力，不代表该批订单最终客诉率。',
           },
         ],
       },

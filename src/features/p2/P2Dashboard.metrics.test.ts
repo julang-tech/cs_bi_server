@@ -28,6 +28,22 @@ describe('P2 overview focus chart summary', () => {
     expect(cardsSource).toContain("polarity: 'negative'")
   })
 
+  it('passes refund date basis and uses dynamic refund metric tooltips', () => {
+    expect(source).toContain("const [dateBasis, setDateBasis] = useState<'order_date' | 'refund_date'>('order_date')")
+    expect(source).toContain("date_basis: dateBasis")
+    expect(source).toContain('<option value="order_date">订单时间</option>')
+    expect(source).toContain('<option value="refund_date">退款时间</option>')
+    expect(source).toContain('getRefundMetricDescription')
+    expect(source).toContain('订单时间口径')
+    expect(source).toContain('退款时间口径')
+  })
+
+  it('passes full Shopify domains for store filtering', () => {
+    expect(source).toContain("value: '2vnpww-33.myshopify.com'")
+    expect(source).toContain("value: 'lintico-fr.myshopify.com'")
+    expect(source).toContain("value: 'lintico-uk.myshopify.com'")
+  })
+
   it('does not compute hidden previous-range deltas for the focus chart summary', () => {
     const summarySource = source.slice(
       source.indexOf('  // Per-metric summary line for focus chart'),

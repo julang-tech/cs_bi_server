@@ -2509,6 +2509,7 @@ async function testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders() {
     date_from: '2026-04-01',
     date_to: '2026-04-30',
     grain: 'month',
+    date_basis: 'refund_date',
   }).cards
   assert.equal(cards.order_count, 0)
   assert.equal(cards.net_received_amount, 0)
@@ -2518,6 +2519,7 @@ async function testSyncRefreshesShopifyBiV2CacheForRefundFlowOrders() {
     date_from: '2026-04-01',
     date_to: '2026-04-30',
     grain: 'month',
+    date_basis: 'refund_date',
     skc: 'SKC-801',
   }).cards
   assert.equal(skcFilteredCards.order_count, 0)
@@ -2922,6 +2924,63 @@ async function testShopifyBiCacheStoresDataAsOf() {
   cache.close()
 }
 
+async function testShopifyBiCacheCoverageUsesMergedSuccessfulWindows() {
+  const tmpDir = createTempDir()
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+
+  cache.replaceWindow({
+    dateFrom: '2026-04-01',
+    dateTo: '2026-05-02',
+    dataAsOf: '2026-05-02T05:00:00.000Z',
+    orders: [],
+    orderLines: [],
+    refundEvents: [],
+  })
+  cache.replaceWindow({
+    dateFrom: '2026-04-29',
+    dateTo: '2026-05-06',
+    dataAsOf: '2026-05-05T16:14:07.465Z',
+    orders: [],
+    orderLines: [],
+    refundEvents: [],
+  })
+
+  assert.equal(cache.hasCoverage('2026-04-07', '2026-05-06'), true)
+  assert.match(cache.getGeneration('2026-04-07', '2026-05-06'), /^\d{4}-\d{2}-\d{2}T/)
+  assert.equal(
+    cache.getDataAsOf('2026-04-07', '2026-05-06'),
+    '2026-05-05T16:14:07.465Z',
+  )
+  cache.close()
+}
+
+async function testShopifyBiCacheCoverageRejectsGapsBetweenWindows() {
+  const tmpDir = createTempDir()
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+
+  cache.replaceWindow({
+    dateFrom: '2026-04-01',
+    dateTo: '2026-04-20',
+    orders: [],
+    orderLines: [],
+    refundEvents: [],
+  })
+  cache.replaceWindow({
+    dateFrom: '2026-04-22',
+    dateTo: '2026-05-06',
+    orders: [],
+    orderLines: [],
+    refundEvents: [],
+  })
+
+  assert.equal(cache.hasCoverage('2026-04-07', '2026-05-06'), false)
+  cache.close()
+}
+
 async function testShopifyBiCacheFallsBackDataAsOfToFinishedAt() {
   const tmpDir = createTempDir()
   const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
@@ -2995,6 +3054,7 @@ async function testShopifyBiCacheRefundFlowUsesRefundDateWindow() {
     date_from: '2026-04-01',
     date_to: '2026-04-30',
     grain: 'month',
+    date_basis: 'refund_date',
   }).cards
   assert.equal(cards.order_count, 0)
   assert.equal(cards.net_received_amount, 0)
@@ -3098,6 +3158,7 @@ async function testShopifyBiCacheReplaceWindowRemovesStaleRefundDrivenOrderLines
     date_from: '2026-04-01',
     date_to: '2026-04-30',
     grain: 'month',
+    date_basis: 'refund_date',
     skc: 'OLD-SKC',
   }).cards
   assert.equal(oldSkcCards.refund_order_count, 0)
@@ -3107,6 +3168,7 @@ async function testShopifyBiCacheReplaceWindowRemovesStaleRefundDrivenOrderLines
     date_from: '2026-04-01',
     date_to: '2026-04-30',
     grain: 'month',
+    date_basis: 'refund_date',
     skc: 'NEW-SKC',
   }).cards
   assert.equal(newSkcCards.refund_order_count, 1)
@@ -3673,6 +3735,8 @@ async function run() {
   await testShopifyBiCacheCreatesV2TablesWithoutDroppingLegacyCache()
   await testShopifyBiCacheReplacesDateWindowTransactionally()
   await testShopifyBiCacheStoresDataAsOf()
+  await testShopifyBiCacheCoverageUsesMergedSuccessfulWindows()
+  await testShopifyBiCacheCoverageRejectsGapsBetweenWindows()
   await testShopifyBiCacheFallsBackDataAsOfToFinishedAt()
   await testShopifyBiCacheRefundFlowUsesRefundDateWindow()
   await testShopifyBiCacheReplaceWindowRemovesStaleRefundDrivenOrderLines()

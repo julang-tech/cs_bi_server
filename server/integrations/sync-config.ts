@@ -168,7 +168,7 @@ export function loadP3RuntimeConfig(configPath: string) {
       statePath: resolveRuntimePath(configPath, config.runtime.state_path),
       logPath: resolveRuntimePath(configPath, config.runtime.log_path),
       sqlitePath: resolveRuntimePath(configPath, config.runtime.sqlite_path),
-      refreshIntervalMinutes: config.runtime.refresh_interval_minutes ?? 120,
+      refreshIntervalMinutes: config.runtime.refresh_interval_minutes ?? 60,
       dailyFullRefreshTime: config.runtime.daily_full_refresh_time ?? '03:30',
       dailyFullRefreshTimezoneOffsetMinutes:
         config.runtime.daily_full_refresh_timezone_offset_minutes ?? 480,
