@@ -104,6 +104,7 @@ export interface P1BacklogMailNeedsReplyResult {
 // ----- P2 -----
 export interface P2Filters extends PeriodWindow {
   grain: Grain
+  date_basis?: 'order_date' | 'refund_date'
   channel?: string
   category?: string
   spu?: string

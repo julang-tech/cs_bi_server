@@ -19,9 +19,32 @@ import { IssueStructure } from './IssueStructure'
 import { ProductComplaintRanking } from './ProductComplaintRanking'
 import type { Grain, P3Dashboard as P3DashboardData, P3IssueShareItem, P3ProductRankingRow } from '../../api/types'
 
+type P3DateBasis = 'record_date' | 'order_date' | 'refund_date'
+
+const COMPLAINT_METRIC_DESCRIPTIONS: Record<P3DateBasis, Partial<Record<string, string>>> = {
+  record_date: {
+    complaint_count: '客诉登记时间口径：按 CS 在飞书登记的记录日期归属客诉量。',
+    complaint_rate: '客诉登记时间口径：登记时间客诉量 ÷ 同期订单销量，适合看运营录入视角，不是严格订单 cohort 率。',
+  },
+  order_date: {
+    complaint_count: '订单时间口径：按客诉关联订单的下单日期归属客诉量。',
+    complaint_rate: '订单时间口径：该批订单产生的客诉量 ÷ 该批订单销量，是最接近 cohort 的客诉率。',
+  },
+  refund_date: {
+    complaint_count: '退款时间口径：按客诉关联退款事件的发生日期归属客诉量。',
+    complaint_rate: '退款时间口径：退款时间客诉量 ÷ 同期订单销量，适合看退款流入视角，不是严格订单 cohort 率。',
+  },
+}
+
+function getComplaintMetricDescription(key: string, dateBasis: P3DateBasis) {
+  const base = getMetricDescription(`p3.${key}`)
+  const basisText = COMPLAINT_METRIC_DESCRIPTIONS[dateBasis][key]
+  return basisText ? `${base} ${basisText}` : base
+}
+
 export default function P3Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
-  const [dateBasis, setDateBasis] = useState<'record_date' | 'order_date' | 'refund_date'>('record_date')
+  const [dateBasis, setDateBasis] = useState<P3DateBasis>('record_date')
   const today = useMemo(() => new Date(), [])
   const [historyRange, setHistoryRange] = useState(() => getRealtimeDefaultHistoryRange('day', today))
   const [activeMetricKey, setActiveMetricKey] = useState('complaint_rate')
@@ -102,7 +125,7 @@ export default function P3Dashboard() {
     },
     {
       key: 'complaint_count', label: '客诉量', sparkline: true,
-      description: getMetricDescription('p3.complaint_count'),
+      description: getComplaintMetricDescription('complaint_count', dateBasis),
       currentValue: current?.summary.complaint_count,
       previousValue: previous?.summary.complaint_count,
       historyTrend: history?.trends.complaint_count ?? [],
@@ -110,7 +133,7 @@ export default function P3Dashboard() {
     },
     {
       key: 'complaint_rate', label: '客诉率', sparkline: true,
-      description: getMetricDescription('p3.complaint_rate'),
+      description: getComplaintMetricDescription('complaint_rate', dateBasis),
       currentValue: current?.summary.complaint_rate,
       previousValue: previous?.summary.complaint_rate,
       historyTrend: history?.trends.complaint_rate ?? [],
@@ -272,7 +295,12 @@ export default function P3Dashboard() {
       extensions={
         <>
           <IssueStructure dashboard={history} options={options} />
-          <ProductComplaintRanking rows={ranking} loading={extLoading} error={extError} />
+          <ProductComplaintRanking
+            rows={ranking}
+            loading={extLoading}
+            error={extError}
+            dateBasis={dateBasis}
+          />
         </>
       }
     />

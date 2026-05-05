@@ -45,7 +45,7 @@ npm.cmd run dev
 | `date_from` | `YYYY-MM-DD` | Yes | - | 按当前 `date_basis` 过滤，起始日含当日。 |
 | `date_to` | `YYYY-MM-DD` | Yes | - | 按当前 `date_basis` 过滤，结束日含当日。 |
 | `grain` | `day \| week \| month` | No | `week` | `week` 以周一为 bucket 起点。 |
-| `date_basis` | `order_date \| refund_date` | No | `order_date` | 控制客诉过滤与客诉趋势分桶使用订单时间还是退款时间。 |
+| `date_basis` | `record_date \| order_date \| refund_date` | No | `record_date` | 控制客诉过滤与客诉趋势分桶使用客诉登记时间、订单时间还是退款时间。 |
 | `sku` | `string` | No | `null` | 商品维度过滤。 |
 | `skc` | `string` | No | `null` | 商品维度过滤。 |
 | `spu` | `string` | No | `null` | 商品维度过滤。 |
@@ -120,15 +120,20 @@ npm.cmd run dev
 
 ### Date Basis Rules
 
+- `date_basis = record_date`
+  - 客诉过滤与客诉趋势按 `issue.record_date`
+  - 商品排行展示为“商品客诉登记流入表”
 - `date_basis = order_date`
   - 客诉过滤与客诉趋势按 `issue.order_date`
   - 若 `order_date` 缺失，回退 `record_date`
+  - 商品排行展示为“商品客诉表现表”
 - `date_basis = refund_date`
   - 客诉过滤与客诉趋势按 `issue.refund_date`
   - 若 `refund_date` 缺失，该 issue 不进入当前统计
+  - 商品排行展示为“商品退款客诉流入表”
 - 分母 `sales_qty`
-  - 两种时间口径下都表示同一时间窗的订单数
-  - `refund_date` 模式下因此属于“退款时间客诉 / 订单数分母”的混合口径
+  - 三种时间口径下都表示同一时间窗的下单商品数，按 Shopify 订单时间统计
+  - `record_date` / `refund_date` 模式下属于“客诉流入 / 同期销量分母”的混合口径，不是订单 cohort 客诉率
 
 ### Filtering Rules
 
@@ -164,7 +169,56 @@ npm.cmd run dev
 }
 ```
 
-## Endpoint 3: Drilldown Preview
+## Endpoint 3: Product Ranking
+
+- Method: `GET`
+- Path: `/api/bi/p3/product-ranking`
+- Query 参数：与 `/api/bi/p3/dashboard` 相同
+
+### Response Shape
+
+```json
+{
+  "filters": {},
+  "ranking": [
+    {
+      "spu": "SPU-1",
+      "sales_qty": 100,
+      "complaint_count": 8,
+      "complaint_rate": 0.08,
+      "children": [
+        {
+          "skc": "SKC-1",
+          "sales_qty": 40,
+          "complaint_count": 4,
+          "complaint_rate": 0.1
+        }
+      ]
+    }
+  ],
+  "meta": {
+    "partial_data": false,
+    "notes": []
+  }
+}
+```
+
+### Product Ranking Time Basis
+
+- `date_basis = order_date`
+  - 前端展示为“商品客诉表现表”。
+  - `sales_qty` 是所选下单时间窗内的商品销量；`complaint_count` 是这批订单商品产生的客诉量。
+  - `complaint_rate = complaint_count / sales_qty`，用于判断商品真实 cohort 客诉风险。
+- `date_basis = record_date`
+  - 前端展示为“商品客诉登记流入表”。
+  - `complaint_count` 按飞书登记时间归属；`sales_qty` 仍是同期下单销量。
+  - `complaint_rate` 在前端标为“登记流入率”，是登记客诉流入量 ÷ 同期销量，不是订单 cohort 客诉率。
+- `date_basis = refund_date`
+  - 前端展示为“商品退款客诉流入表”。
+  - `complaint_count` 按关联退款事件时间归属；`sales_qty` 仍是同期下单销量。
+  - `complaint_rate` 在前端标为“退款流入率”，是退款客诉流入量 ÷ 同期销量，不是订单 cohort 客诉率。
+
+## Endpoint 4: Drilldown Preview
 
 - Method: `GET`
 - Path: `/api/bi/p3/drilldown-preview`
@@ -222,6 +276,10 @@ npm.cmd run dev
 - `/api/bi/p3/drilldown-options`
   - `filters`
   - `options`
+  - `meta`
+- `/api/bi/p3/product-ranking`
+  - `filters`
+  - `ranking`
   - `meta`
 - `/api/bi/p3/drilldown-preview`
   - `filters`

@@ -129,7 +129,7 @@ export function createSyncWorker(options: {
     options.logger ??
     createLogger(resolveRuntimePath(options.configPath, config.runtime.log_path))
   const intervalMs =
-    options.intervalMs ?? (config.runtime.refresh_interval_minutes ?? 120) * 60 * 1000
+    options.intervalMs ?? (config.runtime.refresh_interval_minutes ?? 60) * 60 * 1000
   const dailyFullRefreshTime =
     options.dailyFullRefreshTime ??
     config.runtime.daily_full_refresh_time ??

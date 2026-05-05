@@ -73,7 +73,7 @@ async function testOverviewUsesAdr0007FinanceMetrics() {
   ])
   const service = new P2Service(client)
 
-  const payload = await service.getOverview(createFilters())
+  const payload = await service.getOverview({ ...createFilters(), date_basis: 'refund_date' })
 
   const overviewSql = calls[0]?.query ?? ''
   assert.match(overviewSql, /WITH order_metrics AS/)
@@ -106,7 +106,38 @@ async function testOverviewUsesAdr0007FinanceMetrics() {
   assert.equal(payload.cards.net_revenue_amount, 80)
   assert.equal(payload.cards.refund_amount_ratio, 10 / 90)
   assert.match(payload.meta.notes[0] ?? '', /ADR-0007/)
-  assert.match(payload.meta.notes[0] ?? '', /refund-flow/)
+  assert.match(payload.meta.notes[0] ?? '', /date_basis/)
+}
+
+async function testOverviewBigQueryRefundMetricsSwitchDateBasis() {
+  const orderBasisClient = createClient([
+    [{ order_count: 1, gmv: 100, net_received_amount: 80, net_revenue_amount: 60, refund_order_count: 1, refund_amount: 20 }],
+    [{ sales_qty: 1 }],
+    [],
+    [],
+    [],
+    [],
+  ])
+  const orderBasisService = new P2Service(orderBasisClient.client)
+  await orderBasisService.getOverview({ ...createFilters(), date_basis: 'order_date' })
+  const orderBasisSql = orderBasisClient.calls[0]?.query ?? ''
+  const orderBasisRefundSql = extractSqlSection(orderBasisSql, 'refund_metrics AS', 'FROM order_metrics om')
+  assert.match(orderBasisRefundSql, /o\.processed_date BETWEEN DATE\(@date_from\) AND DATE\(@date_to\)/)
+  assert.doesNotMatch(orderBasisRefundSql, /re\.refund_date BETWEEN DATE\(@date_from\) AND DATE\(@date_to\)/)
+
+  const refundBasisClient = createClient([
+    [{ order_count: 1, gmv: 100, net_received_amount: 80, net_revenue_amount: 60, refund_order_count: 1, refund_amount: 20 }],
+    [{ sales_qty: 1 }],
+    [],
+    [],
+    [],
+    [],
+  ])
+  const refundBasisService = new P2Service(refundBasisClient.client)
+  await refundBasisService.getOverview({ ...createFilters(), date_basis: 'refund_date' })
+  const refundBasisSql = refundBasisClient.calls[0]?.query ?? ''
+  const refundBasisRefundSql = extractSqlSection(refundBasisSql, 'refund_metrics AS', 'FROM order_metrics om')
+  assert.match(refundBasisRefundSql, /re\.refund_date BETWEEN DATE\(@date_from\) AND DATE\(@date_to\)/)
 }
 
 async function testOverviewUsesSqliteCacheWhenCovered() {
@@ -336,7 +367,7 @@ async function testSpuTableExcludesShippingCostLines() {
   const { client, calls } = createClient([[]])
   const service = new P2Service(client)
 
-  await service.getSpuTable(createFilters(), 20)
+  await service.getSpuTable({ ...createFilters(), date_basis: 'refund_date' }, 20)
 
   const spuTableSql = calls[0]?.query ?? ''
   assert.match(spuTableSql, /NOT COALESCE\(li\.is_shipping_cost, FALSE\)/)
@@ -832,6 +863,7 @@ async function testSqliteCacheReturnsP2SpuTableAndOptions() {
       ...createFilters(),
       date_from: '2026-04-01',
       date_to: '2026-04-30',
+      date_basis: 'refund_date',
       category: 'Dress',
     }, 2)
     assert.equal(table.rows.length, 2)
@@ -865,7 +897,95 @@ async function testSqliteCacheReturnsP2SpuTableAndOptions() {
   }
 }
 
+async function testSqliteP2RefundMetricsSwitchDateBasis() {
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bikanban-p2-date-basis-'))
+  const sqlitePath = path.join(tmpDir, 'data', 'issues.sqlite')
+  const { SqliteShopifyBiCacheRepository } = await import('../integrations/shopify-bi-cache.js')
+  const cache = new SqliteShopifyBiCacheRepository(sqlitePath)
+  try {
+    cache.replaceWindow({
+      dateFrom: '2026-04-01',
+      dateTo: '2026-05-31',
+      orders: [{
+        order_id: 'order-date-basis',
+        order_no: 'LC900',
+        shop_domain: '2vnpww-33.myshopify.com',
+        processed_date: '2026-04-10',
+        primary_product_type: 'Dress',
+        first_published_at_in_order: '2026-03-20',
+        is_regular_order: true,
+        is_gift_card_order: false,
+        gmv_usd: 120,
+        revenue_usd: 100,
+        net_revenue_usd: 60,
+      }],
+      orderLines: [{
+        order_id: 'order-date-basis',
+        order_no: 'LC900',
+        line_key: 'order-date-basis:SKU-1',
+        sku: 'DRESS-RED-M',
+        skc: 'DRESS-RED',
+        spu: 'DRESS',
+        product_id: 'prod-1',
+        variant_id: 'var-1',
+        quantity: 1,
+        discounted_total_usd: 100,
+        is_insurance_item: false,
+        is_price_adjustment: false,
+        is_shipping_cost: false,
+      }],
+      refundEvents: [{
+        refund_id: 'refund-date-basis',
+        order_id: 'order-date-basis',
+        order_no: 'LC900',
+        sku: 'DRESS-RED-M',
+        refund_date: '2026-05-05',
+        refund_quantity: 1,
+        refund_subtotal_usd: 40,
+      }],
+      finishedAt: '2026-05-05T10:00:00.000Z',
+    })
+
+    const orderBasis = cache.queryP2Overview({
+      date_from: '2026-04-01',
+      date_to: '2026-04-30',
+      grain: 'day',
+      date_basis: 'order_date',
+    })
+    assert.equal(orderBasis.cards.order_count, 1)
+    assert.equal(orderBasis.cards.net_received_amount, 100)
+    assert.equal(orderBasis.cards.refund_order_count, 1)
+    assert.equal(orderBasis.cards.refund_amount, 40)
+    assert.equal(orderBasis.cards.refund_amount_ratio, 0.4)
+    const orderBasisTrends = cache.queryP2Trends({
+      date_from: '2026-04-01',
+      date_to: '2026-04-30',
+      grain: 'day',
+      date_basis: 'order_date',
+    })
+    assert.deepEqual(
+      orderBasisTrends.trends.refund_amount.filter((point) => point.value > 0),
+      [{ bucket: '2026-04-10', value: 40 }],
+    )
+
+    const refundBasis = cache.queryP2Overview({
+      date_from: '2026-04-01',
+      date_to: '2026-04-30',
+      grain: 'day',
+      date_basis: 'refund_date',
+    })
+    assert.equal(refundBasis.cards.order_count, 1)
+    assert.equal(refundBasis.cards.net_received_amount, 100)
+    assert.equal(refundBasis.cards.refund_order_count, 0)
+    assert.equal(refundBasis.cards.refund_amount, 0)
+  } finally {
+    cache.close()
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+}
+
 await testOverviewUsesAdr0007FinanceMetrics()
+await testOverviewBigQueryRefundMetricsSwitchDateBasis()
 await testOverviewUsesSqliteCacheWhenCovered()
 await testOverviewFallsBackToBigQueryWhenCacheCoverageMissing()
 await testOverviewFallsBackToBigQueryWhenCacheFails()
@@ -885,5 +1005,6 @@ await testSpuTableFallsBackToBigQueryWhenCacheCoverageMissing()
 await testSpuSkcOptionsFallsBackToBigQueryWhenCacheFails()
 await testSpuTableCacheErrorWithoutBigQueryDoesNotClaimFallback()
 await testSqliteCacheReturnsP2SpuTableAndOptions()
+await testSqliteP2RefundMetricsSwitchDateBasis()
 
 console.log('P2 tests passed')

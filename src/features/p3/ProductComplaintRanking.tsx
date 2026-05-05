@@ -14,9 +14,11 @@ interface ProductComplaintRankingProps {
   rows: P3ProductRankingRow[]
   loading: boolean
   error: string
+  dateBasis: 'record_date' | 'order_date' | 'refund_date'
 }
 
 interface RankingPaginationProps {
+  ariaLabel: string
   pageSize: number
   setPageSize: (size: number) => void
   safePage: number
@@ -24,7 +26,38 @@ interface RankingPaginationProps {
   setPage: (updater: number | ((current: number) => number)) => void
 }
 
-function RankingPagination({ pageSize, setPageSize, safePage, pageCount, setPage }: RankingPaginationProps) {
+const COMPLAINT_RANKING_COPY = {
+  record_date: {
+    title: '商品客诉登记流入表',
+    hint: '登记时间口径：客诉量按飞书登记时间归属；同期销量按下单时间统计，仅作参考分母，登记流入率不是订单 cohort 客诉率。',
+    salesQty: '同期销量',
+    complaintCount: '登记客诉量',
+    complaintRate: '登记流入率',
+  },
+  order_date: {
+    title: '商品客诉表现表',
+    hint: '订单 cohort 口径：按下单时间圈定商品销售批次，客诉量统计这批订单产生的客诉；客诉率用于判断商品真实客诉风险。',
+    salesQty: '销量',
+    complaintCount: '客诉量',
+    complaintRate: '客诉率',
+  },
+  refund_date: {
+    title: '商品退款客诉流入表',
+    hint: '退款时间口径：客诉量按关联退款事件时间归属；同期销量按下单时间统计，仅作参考分母，退款流入率不是订单 cohort 客诉率。',
+    salesQty: '同期销量',
+    complaintCount: '退款客诉量',
+    complaintRate: '退款流入率',
+  },
+} as const
+
+function RankingPagination({
+  ariaLabel,
+  pageSize,
+  setPageSize,
+  safePage,
+  pageCount,
+  setPage,
+}: RankingPaginationProps) {
   return (
     <div className="ranking-pagination">
       <label className="page-size-control">
@@ -41,7 +74,7 @@ function RankingPagination({ pageSize, setPageSize, safePage, pageCount, setPage
           ))}
         </select>
       </label>
-      <div className="pagination-buttons" role="group" aria-label="商品客诉表现表分页">
+      <div className="pagination-buttons" role="group" aria-label={ariaLabel}>
         <button
           type="button"
           className="toolbar-button pagination-button"
@@ -80,7 +113,12 @@ function RankingPagination({ pageSize, setPageSize, safePage, pageCount, setPage
   )
 }
 
-export function ProductComplaintRanking({ rows, loading, error }: ProductComplaintRankingProps) {
+export function ProductComplaintRanking({
+  rows,
+  loading,
+  error,
+  dateBasis,
+}: ProductComplaintRankingProps) {
   const [expandedSpus, setExpandedSpus] = useState<Set<string>>(() => new Set())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
@@ -135,16 +173,23 @@ export function ProductComplaintRanking({ rows, loading, error }: ProductComplai
   const safePage = Math.min(page, pageCount)
   const startIndex = (safePage - 1) * pageSize
   const visibleRows = topRows.slice(startIndex, startIndex + pageSize)
+  const copy = COMPLAINT_RANKING_COPY[dateBasis]
+  const columns: Array<{ key: SortKey; label: string }> = [
+    { key: 'sales_qty', label: copy.salesQty },
+    { key: 'complaint_count', label: copy.complaintCount },
+    { key: 'complaint_rate', label: copy.complaintRate },
+  ]
 
   return (
     <section className="table-card ranking-card">
       <div className="table-card__header">
         <div>
-          <h3>商品客诉表现表</h3>
-          <p className="table-card__hint">默认按客诉率倒序展示 Top50 SPU，每页 10 / 20 / 50 条可切换；点击表头列名可切换排序，可展开查看对应 SKC 明细。</p>
+          <h3>{copy.title}</h3>
+          <p className="table-card__hint">{copy.hint} 默认按客诉率倒序展示 Top50 SPU，每页 10 / 20 / 50 条可切换；点击表头列名可切换排序，可展开查看对应 SKC 明细。</p>
         </div>
         {topRows.length ? (
           <RankingPagination
+            ariaLabel={`${copy.title}分页`}
             pageSize={pageSize}
             setPageSize={setPageSize}
             safePage={safePage}
@@ -168,11 +213,7 @@ export function ProductComplaintRanking({ rows, loading, error }: ProductComplai
                 <th>排名</th>
                 <th>SPU</th>
                 <th>SKC</th>
-                {([
-                  { key: 'sales_qty', label: '销量' },
-                  { key: 'complaint_count', label: '客诉量' },
-                  { key: 'complaint_rate', label: '客诉率' },
-                ] as Array<{ key: SortKey; label: string }>).map((col) => (
+                {columns.map((col) => (
                   <th key={col.key}>
                     <button
                       type="button"
@@ -203,9 +244,9 @@ export function ProductComplaintRanking({ rows, loading, error }: ProductComplai
                         </span>
                       </button>
                     </td>
-                    <td data-label="销量">{formatInteger(row.sales_qty)}</td>
-                    <td data-label="客诉量">{formatInteger(row.complaint_count)}</td>
-                    <td data-label="客诉率">{formatPercent(row.complaint_rate)}</td>
+                    <td data-label={copy.salesQty}>{formatInteger(row.sales_qty)}</td>
+                    <td data-label={copy.complaintCount}>{formatInteger(row.complaint_count)}</td>
+                    <td data-label={copy.complaintRate}>{formatPercent(row.complaint_rate)}</td>
                   </tr>
                 )
 
@@ -218,9 +259,9 @@ export function ProductComplaintRanking({ rows, loading, error }: ProductComplai
                     <td data-label="排名">-</td>
                     <td data-label="SPU">{row.spu}</td>
                     <td data-label="SKC">{child.skc}</td>
-                    <td data-label="销量">{formatInteger(child.sales_qty)}</td>
-                    <td data-label="客诉量">{formatInteger(child.complaint_count)}</td>
-                    <td data-label="客诉率">{formatPercent(child.complaint_rate)}</td>
+                    <td data-label={copy.salesQty}>{formatInteger(child.sales_qty)}</td>
+                    <td data-label={copy.complaintCount}>{formatInteger(child.complaint_count)}</td>
+                    <td data-label={copy.complaintRate}>{formatPercent(child.complaint_rate)}</td>
                   </tr>
                 ))
 

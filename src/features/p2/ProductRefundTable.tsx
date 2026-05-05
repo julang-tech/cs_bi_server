@@ -29,6 +29,29 @@ function formatRate(value: number | null | undefined): string {
 const PRODUCT_REFUND_FETCH_LIMIT = 50
 const PRODUCT_REFUND_PAGE_SIZE_OPTIONS = [10, 20, 50] as const
 
+const PRODUCT_REFUND_COPY = {
+  order_date: {
+    title: '商品退款表现表',
+    note: '订单 cohort 口径：按下单时间圈定商品销售批次，退款量/退款金额统计这批订单当前累计退款；退款率用于判断商品真实退款风险。',
+    salesQty: '销量',
+    salesAmount: '销售额',
+    refundQty: '退款量',
+    refundAmount: '退款金额',
+    refundQtyRatio: '退款量占比',
+    refundAmountRatio: '退款金额占比',
+  },
+  refund_date: {
+    title: '商品退款流入表',
+    note: '退款时间口径：退款流入量/金额按退款发生时间归属；同期销量/销售额仍按下单时间统计，仅作参考分母，不是订单 cohort 退款率。',
+    salesQty: '同期销量',
+    salesAmount: '同期销售额',
+    refundQty: '退款流入量',
+    refundAmount: '退款流入金额',
+    refundQtyRatio: '流入量/同期销量',
+    refundAmountRatio: '流入额/同期销售额',
+  },
+} as const
+
 export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   const [top50Rows, setTop50Rows] = useState<P2SpuRow[]>([])
   const [filteredRows, setFilteredRows] = useState<P2SpuRow[]>([])
@@ -97,7 +120,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
 
     return () => controller.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [baseFilters.grain, baseFilters.channel, baseFilters.date_from, baseFilters.date_to])
+  }, [baseFilters.grain, baseFilters.channel, baseFilters.date_basis, baseFilters.date_from, baseFilters.date_to])
 
   // Filter-driven fetch: top 50 rows scoped by picker selections
   useEffect(() => {
@@ -129,7 +152,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
 
     return () => controller.abort()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSpus, selectedSkcs, baseFilters.grain, baseFilters.channel, baseFilters.date_from, baseFilters.date_to])
+  }, [selectedSpus, selectedSkcs, baseFilters.grain, baseFilters.channel, baseFilters.date_basis, baseFilters.date_from, baseFilters.date_to])
 
   // Reset expanded state when active row set changes
   useEffect(() => {
@@ -157,6 +180,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     sortState,
     baseFilters.grain,
     baseFilters.channel,
+    baseFilters.date_basis,
     baseFilters.date_from,
     baseFilters.date_to,
   ])
@@ -238,13 +262,15 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     selectedSkcs.length > 0
 
   const productFilterCount = pendingSpus.length + pendingSkcs.length
+  const dateBasis = baseFilters.date_basis === 'refund_date' ? 'refund_date' : 'order_date'
+  const copy = PRODUCT_REFUND_COPY[dateBasis]
 
   return (
     <section className="table-wrap">
       <div className="table-head">
         <div>
-          <h3>商品退款表现表</h3>
-          <p className="table-note">默认拉取退款金额 Top50；每页可切换 10 / 20 / 50 条</p>
+          <h3>{copy.title}</h3>
+          <p className="table-note">{copy.note} 默认拉取退款金额 Top50；每页可切换 10 / 20 / 50 条。</p>
         </div>
 
         <div className="table-sort-tools">
@@ -381,7 +407,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
                   ))}
                 </select>
               </label>
-              <div className="pagination-buttons" role="group" aria-label="商品退款表现表分页">
+              <div className="pagination-buttons" role="group" aria-label={`${copy.title}分页`}>
                 <button
                   type="button"
                   className="toolbar-button pagination-button"
@@ -430,12 +456,12 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
               <th className="th-center">SPU</th>
               <th className="th-center">SKC</th>
               {([
-                { key: 'sales_qty', label: '销量' },
-                { key: 'sales_amount', label: '销售额' },
-                { key: 'refund_qty', label: '退款数' },
-                { key: 'refund_amount', label: '退款金额' },
-                { key: 'refund_qty_ratio', label: '退款数占比' },
-                { key: 'refund_amount_ratio', label: '退款金额占比' },
+                { key: 'sales_qty', label: copy.salesQty },
+                { key: 'sales_amount', label: copy.salesAmount },
+                { key: 'refund_qty', label: copy.refundQty },
+                { key: 'refund_amount', label: copy.refundAmount },
+                { key: 'refund_qty_ratio', label: copy.refundQtyRatio },
+                { key: 'refund_amount_ratio', label: copy.refundAmountRatio },
               ] as Array<{ key: SortKey; label: string }>).map((col) => (
                 <th key={col.key}>
                   <button

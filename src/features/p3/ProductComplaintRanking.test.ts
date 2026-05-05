@@ -16,10 +16,22 @@ describe('ProductComplaintRanking pagination', () => {
 
   it('renders sortable column headers for sales/complaint metrics with default 客诉率倒序', () => {
     expect(source).toContain("key: 'complaint_rate', direction: 'desc'")
-    expect(source).toContain("key: 'sales_qty', label: '销量'")
-    expect(source).toContain("key: 'complaint_count', label: '客诉量'")
-    expect(source).toContain("key: 'complaint_rate', label: '客诉率'")
+    expect(source).toContain("key: 'sales_qty', label: copy.salesQty")
+    expect(source).toContain("key: 'complaint_count', label: copy.complaintCount")
+    expect(source).toContain("key: 'complaint_rate', label: copy.complaintRate")
     expect(source).toContain('sort-header-btn')
     expect(source).toContain('toggleSort')
+  })
+
+  it('switches ranking wording between cohort and flow bases', () => {
+    expect(source).toContain("dateBasis: 'record_date' | 'order_date' | 'refund_date'")
+    expect(source).toContain('const COMPLAINT_RANKING_COPY')
+    expect(source).toContain('商品客诉表现表')
+    expect(source).toContain('订单 cohort 口径')
+    expect(source).toContain('商品客诉登记流入表')
+    expect(source).toContain('登记流入率')
+    expect(source).toContain('商品退款客诉流入表')
+    expect(source).toContain('退款流入率')
+    expect(source).toContain('不是订单 cohort 客诉率')
   })
 })

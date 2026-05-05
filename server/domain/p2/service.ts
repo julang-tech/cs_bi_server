@@ -9,6 +9,7 @@ export type P2Filters = {
   date_from: string
   date_to: string
   grain: 'day' | 'week' | 'month'
+  date_basis?: 'order_date' | 'refund_date'
   category?: string
   spu?: string
   skc?: string
@@ -139,7 +140,7 @@ function toText(value: unknown) {
 }
 
 const ADR_0007_METRIC_NOTE =
-  'Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping; refund_amount is now refund-flow (events in window) not cohort (orders in window). See lintico-data-warehouse/shopify_data_sync/docs/decisions/0007-dwd-align-with-cs-bi-finance.md'
+  'Metric definitions aligned with finance team per dwd ADR-0007 (2026-04-30): GMV/revenue include shipping. Refund metrics follow the selected date_basis: order_date uses the selected order cohort current refund state; refund_date uses refund events in the selected window.'
 
 function emptyTrends(): P2OverviewTrends {
   return {
@@ -174,6 +175,10 @@ function emptyDailyAccumulator(): P2DailyAccumulator {
     net_received_amount: 0,
     net_revenue_amount: 0,
   }
+}
+
+function resolveP2DateBasis(filters: P2Filters): 'order_date' | 'refund_date' {
+  return filters.date_basis === 'refund_date' ? 'refund_date' : 'order_date'
 }
 
 export function buildP2TrendsFromBuckets(
@@ -297,6 +302,13 @@ export class P2Service {
     if (cachedFallback) {
       return cachedFallback
     }
+    const dateBasis = resolveP2DateBasis(filters)
+    const refundMetricsDatePredicate =
+      dateBasis === 'refund_date'
+        ? 're.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)'
+        : 'o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)'
+    const dailyRefundBucketDate =
+      dateBasis === 'refund_date' ? 're.refund_date' : 'o.processed_date'
 
     const [
       orderMetricsResult,
@@ -334,7 +346,7 @@ refund_metrics AS (
     SUM(CAST(re.refund_subtotal AS NUMERIC) * COALESCE(CAST(o.usd_fx_rate AS NUMERIC), 1)) AS refund_amount
   FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
   JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o ON re.order_id = o.order_id
-  WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+  WHERE ${refundMetricsDatePredicate}
     AND NOT COALESCE(o.is_gift_card_order, FALSE)
     AND COALESCE(o.is_regular_order, FALSE) = TRUE
     AND (@category = '' OR o.primary_product_type = @category)
@@ -441,12 +453,12 @@ GROUP BY bucket_date
       this.client.query({
         query: `
 SELECT
-  FORMAT_DATE('%Y-%m-%d', re.refund_date) AS bucket_date,
+  FORMAT_DATE('%Y-%m-%d', ${dailyRefundBucketDate}) AS bucket_date,
   COUNT(DISTINCT re.order_id) AS refund_order_count,
   SUM(CAST(re.refund_subtotal AS NUMERIC) * COALESCE(CAST(o.usd_fx_rate AS NUMERIC), 1)) AS refund_amount
 FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
 JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o ON re.order_id = o.order_id
-WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+WHERE ${refundMetricsDatePredicate}
   AND NOT COALESCE(o.is_gift_card_order, FALSE)
   AND COALESCE(o.is_regular_order, FALSE) = TRUE
   AND (@category = '' OR o.primary_product_type = @category)
@@ -585,6 +597,11 @@ GROUP BY bucket_date
     if (cachedFallback) {
       return cachedFallback
     }
+    const dateBasis = resolveP2DateBasis(filters)
+    const refundEventDatePredicate =
+      dateBasis === 'refund_date'
+        ? 're.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)'
+        : 'o.processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)'
 
     const effectiveSpuList = filters.spu_list?.length
       ? filters.spu_list
@@ -710,7 +727,7 @@ refund_event_agg AS (
   FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
   JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
     ON o.order_id = re.order_id
-  WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+  WHERE ${refundEventDatePredicate}
   GROUP BY 1, 2
 ),
 refund_line_dim AS (

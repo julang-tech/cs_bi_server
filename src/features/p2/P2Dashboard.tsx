@@ -19,16 +19,37 @@ import { ProductRefundTable } from './ProductRefundTable'
 import type { Grain, P2Filters, P2Overview, P2OverviewCards, TrendPoint } from '../../api/types'
 
 const STORE_OPTIONS = [
-  { value: '2vnpww-33', label: '2vnpww-33 (US)' },
-  { value: 'lintico-fr', label: 'lintico-fr' },
-  { value: 'lintico-uk', label: 'lintico-uk' },
+  { value: '2vnpww-33.myshopify.com', label: '2vnpww-33 (US)' },
+  { value: 'lintico-fr.myshopify.com', label: 'lintico-fr' },
+  { value: 'lintico-uk.myshopify.com', label: 'lintico-uk' },
 ]
 
 type CardKey = keyof P2OverviewCards
+type P2DateBasis = 'order_date' | 'refund_date'
+
+const REFUND_METRIC_DESCRIPTIONS: Record<P2DateBasis, Partial<Record<CardKey, string>>> = {
+  order_date: {
+    refund_order_count: '订单时间口径：统计所选下单时间范围内，当前累计发生过退款的订单数。',
+    refund_amount: '订单时间口径：统计所选下单时间范围内订单的当前累计退款金额。',
+    refund_amount_ratio: '订单时间口径：所选下单时间范围内订单的当前累计退款金额 ÷ 同批订单净实付金额。',
+  },
+  refund_date: {
+    refund_order_count: '退款时间口径：统计所选时间范围内实际发生退款事件的订单数。',
+    refund_amount: '退款时间口径：统计所选时间范围内实际发生的退款金额。',
+    refund_amount_ratio: '退款时间口径：所选时间范围内实际发生退款金额 ÷ 同期订单时间范围内净实付金额。',
+  },
+}
+
+function getRefundMetricDescription(key: CardKey, dateBasis: P2DateBasis) {
+  const base = getMetricDescription(`p2.${key}`)
+  const basisText = REFUND_METRIC_DESCRIPTIONS[dateBasis][key]
+  return basisText ? `${base} ${basisText}` : base
+}
 
 export default function P2Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
   const [store, setStore] = useState<string>('')
+  const [dateBasis, setDateBasis] = useState<'order_date' | 'refund_date'>('order_date')
   const today = useMemo(() => new Date(), [])
   const [historyRange, setHistoryRange] = useState(() => getRealtimeDefaultHistoryRange('day', today))
   const [activeMetricKey, setActiveMetricKey] = useState<CardKey>('gmv')
@@ -46,9 +67,9 @@ export default function P2Dashboard() {
 
   useEffect(() => {
     setSelectedBucket(null)
-  }, [historyRange.date_from, historyRange.date_to, store])
+  }, [historyRange.date_from, historyRange.date_to, store, dateBasis])
 
-  const baseFilters = { grain, channel: store } as const
+  const baseFilters = { grain, channel: store, date_basis: dateBasis } as const
 
   const { current, previous, history, loading, error } = useDashboardData<typeof baseFilters, P2Overview>({
     baseFilters,
@@ -73,12 +94,12 @@ export default function P2Dashboard() {
   }> = [
     { key: 'order_count', label: '订单数', sparkline: true, formatter: formatInteger, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.order_count') },
     { key: 'sales_qty', label: '销量', sparkline: false, formatter: formatInteger, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.sales_qty') },
-    { key: 'refund_order_count', label: '退款订单数', sparkline: false, formatter: formatInteger, deltaMode: 'percent', polarity: 'negative', isRate: false, description: getMetricDescription('p2.refund_order_count') },
-    { key: 'refund_amount', label: '退款金额', sparkline: true, formatter: formatMoney, deltaMode: 'percent', polarity: 'negative', isRate: false, description: getMetricDescription('p2.refund_amount') },
+    { key: 'refund_order_count', label: '退款订单数', sparkline: false, formatter: formatInteger, deltaMode: 'percent', polarity: 'negative', isRate: false, description: getRefundMetricDescription('refund_order_count', dateBasis) },
+    { key: 'refund_amount', label: '退款金额', sparkline: true, formatter: formatMoney, deltaMode: 'percent', polarity: 'negative', isRate: false, description: getRefundMetricDescription('refund_amount', dateBasis) },
     { key: 'gmv', label: 'GMV', sparkline: true, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.gmv') },
     { key: 'net_received_amount', label: '净实付金额', sparkline: false, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.net_received_amount') },
     { key: 'net_revenue_amount', label: '净 GMV', sparkline: false, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.net_revenue_amount') },
-    { key: 'refund_amount_ratio', label: '退款金额占比', sparkline: true, formatter: formatPercent1, deltaMode: 'pp', polarity: 'negative', isRate: true, description: getMetricDescription('p2.refund_amount_ratio') },
+    { key: 'refund_amount_ratio', label: '退款金额占比', sparkline: true, formatter: formatPercent1, deltaMode: 'pp', polarity: 'negative', isRate: true, description: getRefundMetricDescription('refund_amount_ratio', dateBasis) },
   ]
 
   const enrichedCards = cards.map((c) => {
@@ -139,6 +160,19 @@ export default function P2Dashboard() {
           storeOptions={STORE_OPTIONS}
           store={store}
           onStoreChange={setStore}
+          extras={
+            <div className="filter-bar__group">
+              <span className="filter-bar__label">退款口径</span>
+              <select
+                className="select-control"
+                value={dateBasis}
+                onChange={(e) => setDateBasis(e.target.value as typeof dateBasis)}
+              >
+                <option value="order_date">订单时间</option>
+                <option value="refund_date">退款时间</option>
+              </select>
+            </div>
+          }
         />
       }
       banner={
