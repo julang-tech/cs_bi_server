@@ -312,6 +312,34 @@ type RequestOptions = {
   params?: Record<string, string>
 }
 
+function getAttachmentToken(attachment: Record<string, unknown>) {
+  const token = attachment.file_token ?? attachment.token
+  return typeof token === 'string' && token.trim() ? token.trim() : null
+}
+
+function getAttachmentName(attachment: Record<string, unknown>, fallbackToken: string) {
+  const name = attachment.name ?? attachment.file_name
+  return typeof name === 'string' && name.trim() ? name.trim() : `${fallbackToken}.bin`
+}
+
+function getAttachmentMimeType(attachment: Record<string, unknown>, responseContentType?: string | null) {
+  const rawType = attachment.type ?? attachment.mime_type ?? attachment.mimeType ?? responseContentType
+  if (typeof rawType !== 'string') {
+    return 'application/octet-stream'
+  }
+  const type = rawType.split(';')[0].trim()
+  return type || 'application/octet-stream'
+}
+
+function getAttachmentDownloadUrl(attachment: Record<string, unknown>) {
+  const rawUrl = attachment.tmp_url ?? attachment.url
+  return typeof rawUrl === 'string' && rawUrl.trim() ? rawUrl.trim() : null
+}
+
+function getBitableMediaParentType(mimeType: string) {
+  return mimeType.toLowerCase().startsWith('image/') ? 'bitable_image' : 'bitable_file'
+}
+
 export class FeishuTableClient {
   private readonly tokenCache = new TtlCache<string>(6_000_000)
 
@@ -466,6 +494,115 @@ export class FeishuTableClient {
       payload: { fields },
     })
     return String((response.data as { record?: { record_id?: string } })?.record?.record_id ?? '')
+  }
+
+  async copyAttachmentToBitable(table: SyncConfig['target'], attachment: Record<string, unknown>) {
+    const token = getAttachmentToken(attachment)
+    if (!token) {
+      throw new Error('Feishu attachment is missing file_token.')
+    }
+
+    const downloaded = await this.downloadMedia(token, getAttachmentDownloadUrl(attachment))
+    const fileName = getAttachmentName(attachment, token)
+    const mimeType = getAttachmentMimeType(attachment, downloaded.contentType)
+    const uploadedToken = await this.uploadBitableMedia(table, {
+      fileName,
+      mimeType,
+      data: downloaded.data,
+    })
+    return { file_token: uploadedToken }
+  }
+
+  private async downloadMedia(fileToken: string, downloadUrl: string | null) {
+    const response = await fetch(
+      downloadUrl ?? `https://open.feishu.cn/open-apis/drive/v1/medias/${encodeURIComponent(fileToken)}/download`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${await this.getTenantAccessToken()}`,
+        },
+      },
+    )
+
+    if (!response.ok) {
+      throw new Error(`Feishu media download failed: ${response.status}`)
+    }
+
+    const contentType = response.headers.get('content-type')
+    if (contentType?.toLowerCase().includes('application/json')) {
+      const payload = (await response.json()) as {
+        code?: number
+        msg?: string
+        data?: {
+          tmp_download_url?: string
+          tmp_download_urls?: Array<{ file_token?: string; tmp_download_url?: string }>
+        }
+      }
+      if (payload.code !== 0) {
+        throw new Error(`Feishu media download URL error ${payload.code}: ${payload.msg}`)
+      }
+      const resolvedUrl =
+        payload.data?.tmp_download_url
+        ?? payload.data?.tmp_download_urls?.find((item) => item.file_token === fileToken)?.tmp_download_url
+        ?? payload.data?.tmp_download_urls?.[0]?.tmp_download_url
+      if (!resolvedUrl) {
+        throw new Error('Feishu media download URL response missing tmp_download_url.')
+      }
+      return this.downloadResolvedMedia(resolvedUrl)
+    }
+
+    const data = new Uint8Array(await response.arrayBuffer())
+    return {
+      data,
+      contentType,
+    }
+  }
+
+  private async downloadResolvedMedia(downloadUrl: string) {
+    const response = await fetch(downloadUrl, { method: 'GET' })
+    if (!response.ok) {
+      throw new Error(`Feishu resolved media download failed: ${response.status}`)
+    }
+    return {
+      data: new Uint8Array(await response.arrayBuffer()),
+      contentType: response.headers.get('content-type'),
+    }
+  }
+
+  private async uploadBitableMedia(
+    table: SyncConfig['target'],
+    file: { fileName: string; mimeType: string; data: Uint8Array },
+  ) {
+    const form = new FormData()
+    form.set('file_name', file.fileName)
+    form.set('parent_type', getBitableMediaParentType(file.mimeType))
+    form.set('parent_node', table.app_token)
+    form.set('size', String(file.data.byteLength))
+    form.set('file', new Blob([Buffer.from(file.data)], { type: file.mimeType }), file.fileName)
+
+    const response = await fetch('https://open.feishu.cn/open-apis/drive/v1/medias/upload_all', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${await this.getTenantAccessToken()}`,
+      },
+      body: form,
+    })
+
+    if (!response.ok) {
+      throw new Error(`Feishu media upload failed: ${response.status}`)
+    }
+
+    const payload = (await response.json()) as {
+      code?: number
+      msg?: string
+      data?: { file_token?: string }
+    }
+
+    if (payload.code !== 0 || !payload.data?.file_token) {
+      throw new Error(`Feishu media upload error ${payload.code}: ${payload.msg}`)
+    }
+
+    return payload.data.file_token
   }
 
   private async request(options: RequestOptions) {

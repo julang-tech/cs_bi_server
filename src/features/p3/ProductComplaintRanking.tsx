@@ -4,6 +4,12 @@ import type { P3ProductRankingRow } from '../../api/types'
 
 const RANKING_PAGE_SIZE_OPTIONS = [10, 20, 50]
 
+type SortKey = 'sales_qty' | 'complaint_count' | 'complaint_rate'
+interface SortState {
+  key: SortKey
+  direction: 'asc' | 'desc'
+}
+
 interface ProductComplaintRankingProps {
   rows: P3ProductRankingRow[]
   loading: boolean
@@ -78,8 +84,30 @@ export function ProductComplaintRanking({ rows, loading, error }: ProductComplai
   const [expandedSpus, setExpandedSpus] = useState<Set<string>>(() => new Set())
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
+  // Default 客诉率倒序 — match user's spec for "异常商品先看到的"工作流.
+  const [sortState, setSortState] = useState<SortState>({ key: 'complaint_rate', direction: 'desc' })
 
-  const topRows = useMemo(() => rows.slice(0, 50), [rows])
+  // First slice the upstream Top50 (which is server-sorted by 客诉量 desc),
+  // then re-sort locally by the user's chosen column. SKC children re-sort
+  // by the same key so parent + child stays consistent.
+  const topRows = useMemo(() => {
+    const sliced = rows.slice(0, 50)
+    const sorted = [...sliced].sort((a, b) => {
+      const av = a[sortState.key] ?? 0
+      const bv = b[sortState.key] ?? 0
+      const diff = av - bv
+      return sortState.direction === 'asc' ? diff : -diff
+    })
+    return sorted.map((row) => ({
+      ...row,
+      children: [...row.children].sort((a, b) => {
+        const av = a[sortState.key] ?? 0
+        const bv = b[sortState.key] ?? 0
+        const diff = av - bv
+        return sortState.direction === 'asc' ? diff : -diff
+      }),
+    }))
+  }, [rows, sortState])
 
   function toggleSpu(spu: string) {
     setExpandedSpus((current) => {
@@ -93,6 +121,16 @@ export function ProductComplaintRanking({ rows, loading, error }: ProductComplai
     })
   }
 
+  function toggleSort(key: SortKey) {
+    setSortState((current) => {
+      if (current.key === key) {
+        return { ...current, direction: current.direction === 'desc' ? 'asc' : 'desc' }
+      }
+      return { key, direction: 'desc' }
+    })
+    setPage(1)
+  }
+
   const pageCount = Math.max(1, Math.ceil(topRows.length / pageSize))
   const safePage = Math.min(page, pageCount)
   const startIndex = (safePage - 1) * pageSize
@@ -103,7 +141,7 @@ export function ProductComplaintRanking({ rows, loading, error }: ProductComplai
       <div className="table-card__header">
         <div>
           <h3>商品客诉表现表</h3>
-          <p className="table-card__hint">默认按客诉量排序拉取 Top50 SPU，每页展示 10 条，可展开查看对应 SKC 明细。</p>
+          <p className="table-card__hint">默认按客诉率倒序展示 Top50 SPU，每页 10 / 20 / 50 条可切换；点击表头列名可切换排序，可展开查看对应 SKC 明细。</p>
         </div>
         {topRows.length ? (
           <RankingPagination
@@ -130,9 +168,22 @@ export function ProductComplaintRanking({ rows, loading, error }: ProductComplai
                 <th>排名</th>
                 <th>SPU</th>
                 <th>SKC</th>
-                <th>销量</th>
-                <th>客诉量</th>
-                <th>客诉率</th>
+                {([
+                  { key: 'sales_qty', label: '销量' },
+                  { key: 'complaint_count', label: '客诉量' },
+                  { key: 'complaint_rate', label: '客诉率' },
+                ] as Array<{ key: SortKey; label: string }>).map((col) => (
+                  <th key={col.key}>
+                    <button
+                      type="button"
+                      className={`sort-header-btn ${sortState.key === col.key ? 'sort-header-btn--active' : ''}`}
+                      onClick={() => toggleSort(col.key)}
+                    >
+                      {col.label}
+                      {sortState.key === col.key ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : ''}
+                    </button>
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>

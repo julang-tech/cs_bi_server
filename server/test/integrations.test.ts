@@ -6,7 +6,7 @@ import {
   BigQueryOrderEnrichmentRepository,
   BigQuerySalesRepository,
 } from '../integrations/bigquery.js'
-import { FeishuIssueProvider } from '../integrations/feishu.js'
+import { FeishuIssueProvider, FeishuTableClient } from '../integrations/feishu.js'
 import { SqliteIssueProvider, SqliteMirrorRepository } from '../integrations/sqlite.js'
 import { createP3Service } from '../domain/p3/service.js'
 
@@ -323,6 +323,107 @@ async function testFeishuIssueProviderFailure() {
   }
 }
 
+async function testFeishuTableClientCopiesAttachmentToTargetBitable() {
+  const originalFetch = globalThis.fetch
+  const urls: string[] = []
+  let uploadBody: FormData | null = null
+
+  globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
+    const url = String(input)
+    urls.push(url)
+    if (url.includes('/auth/v3/tenant_access_token/internal')) {
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          tenant_access_token: 'tenant-token',
+        }),
+        { status: 200 },
+      )
+    }
+
+    if (url.includes('/drive/v1/medias/source-file-token/download-url')) {
+      assert.equal(init?.headers && (init.headers as Record<string, string>).Authorization, 'Bearer tenant-token')
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: {
+            tmp_download_urls: [
+              {
+                file_token: 'source-file-token',
+                tmp_download_url: 'https://internal-api-drive-stream.feishu.cn/download/source-file-token',
+              },
+            ],
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json; charset=utf-8' },
+        },
+      )
+    }
+
+    if (url.includes('internal-api-drive-stream.feishu.cn/download/source-file-token')) {
+      assert.equal(init?.headers && (init.headers as Record<string, string>).Authorization, undefined)
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { 'content-type': 'image/jpeg' },
+      })
+    }
+
+    if (url.includes('/drive/v1/medias/upload_all')) {
+      assert.equal(init?.headers && (init.headers as Record<string, string>).Authorization, 'Bearer tenant-token')
+      assert.ok(init?.body instanceof FormData)
+      uploadBody = init.body
+      return new Response(
+        JSON.stringify({
+          code: 0,
+          data: { file_token: 'target-file-token' },
+        }),
+        { status: 200 },
+      )
+    }
+
+    throw new Error(`unexpected Feishu request: ${url}`)
+  }) as typeof fetch
+
+  try {
+    const client = new FeishuTableClient({
+      feishu: { app_id: 'cli_xxx', app_secret: 'secret' },
+      source: { app_token: 'source-app', table_id: 'source-table', view_id: 'source-view' },
+      target: { app_token: 'target-app', table_id: 'target-table', view_id: 'target-view' },
+      runtime: {
+        state_path: './data/state.json',
+        log_path: './data/sync.log',
+        sqlite_path: './data/issues.sqlite',
+      },
+    })
+
+    const result = await client.copyAttachmentToBitable(
+      { app_token: 'target-app', table_id: 'target-table', view_id: 'target-view' },
+      {
+        file_token: 'source-file-token',
+        name: 'defect.jpg',
+        type: 'image/jpeg',
+        tmp_url: 'https://open.feishu.cn/open-apis/drive/v1/medias/source-file-token/download-url',
+      },
+    )
+
+    assert.deepEqual(result, { file_token: 'target-file-token' })
+    assert.ok(urls.some((url) => url.includes('/drive/v1/medias/source-file-token/download-url')))
+    assert.ok(urls.some((url) => url.includes('internal-api-drive-stream.feishu.cn/download/source-file-token')))
+    assert.ok(urls.some((url) => url.includes('/drive/v1/medias/upload_all')))
+    const sentUploadBody = uploadBody as FormData | null
+    assert.ok(sentUploadBody)
+    assert.equal(sentUploadBody.get('file_name'), 'defect.jpg')
+    assert.equal(sentUploadBody.get('parent_type'), 'bitable_image')
+    assert.equal(sentUploadBody.get('parent_node'), 'target-app')
+    assert.equal(sentUploadBody.get('size'), '3')
+    assert.ok(sentUploadBody.get('file') instanceof Blob)
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+}
+
 async function testSqliteIssueProviderAndP3Service() {
   const tmpDir = createTempDir()
   const configPath = path.join(tmpDir, 'config', 'sync', 'config.json')
@@ -510,6 +611,7 @@ async function run() {
   await testBigQuerySalesRepository()
   await testFeishuIssueProviderSuccess()
   await testFeishuIssueProviderFailure()
+  await testFeishuTableClientCopiesAttachmentToTargetBitable()
   await testSqliteIssueProviderAndP3Service()
   await testP3ServiceFallsBackToFeishuWhenSqliteMirrorMissing()
   testCreateP3ServiceAppliesBigQueryProxyConfig()

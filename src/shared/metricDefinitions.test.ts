@@ -36,13 +36,13 @@ describe('metric definitions', () => {
 
   it('uses current table display copy in metric documentation', () => {
     expect(getMetricDefinition('global.history_range')?.name).toBe('时间范围')
-    expect(getMetricDefinition('p1.agent_reply_span_hours')?.name).toBe('回信时长')
+    expect(getMetricDefinition('p1.agent_reply_span_hours')?.name).toBe('在席时长')
     expect(getMetricDefinition('p1.agent_hourly_reply_span')?.name).toBe('每小时回信均值')
     expect(getMetricDefinition('p1.agent_hourly_reply_schedule')).toBeUndefined()
     expect(getMetricDefinition('p2.product_refund_table')?.short).toContain('Top50')
-    expect(getMetricDefinition('p2.product_refund_table')?.short).toMatch(/每页\s*10\s*行/)
+    expect(getMetricDefinition('p2.product_refund_table')?.short).toMatch(/每页.*10.*20.*50/)
     expect(getMetricDefinition('p3.product_ranking')?.short).toContain('Top50')
-    expect(getMetricDefinition('p3.product_ranking')?.short).toMatch(/每页\s*10\s*行/)
+    expect(getMetricDefinition('p3.product_ranking')?.short).toMatch(/每页.*10.*20.*50/)
     expect(getMetricDefinition('p3.date_basis')?.short).toContain('客诉登记时间')
     expect(getMetricDefinition('p3.issue_refund_count')?.name).toContain('退款')
     expect(getMetricDefinition('p1.agent_qa_reply_counts')?.short).toContain('优秀')

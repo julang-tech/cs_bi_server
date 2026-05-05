@@ -485,6 +485,374 @@ async function testSourceToTargetRebuildDeletesTargetAndWritesArtifacts() {
   })
 }
 
+async function testSourceToTargetCreateStripsForeignAttachmentTokensOnRetry() {
+  const tmpDir = createTempDir()
+  const configPath = path.join(tmpDir, 'config', 'config.json')
+  writeJson(configPath, {
+    feishu: { app_id: 'cli_xxx', app_secret: 'secret' },
+    sources: [
+      {
+        name: '瑕疵反馈',
+        transformer_kind: 'defect_feedback',
+        app_token: 'source-app',
+        table_id: 'defect-source-table',
+        view_id: 'source-view',
+      },
+    ],
+    target: {
+      app_token: 'target-app',
+      table_id: 'target-table',
+      view_id: 'target-view',
+    },
+    runtime: {
+      state_path: './data/state.json',
+      log_path: './data/sync.log',
+      sqlite_path: './data/issues.sqlite',
+      refresh_interval_minutes: 120,
+    },
+  })
+
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+    { field_id: '5', field_name: '客诉SKU', field_type: 1, property: null },
+    { field_id: '6', field_name: '客诉类型', field_type: 1, property: null },
+    { field_id: '7', field_name: '客诉方案', field_type: 4, property: null },
+    { field_id: '8', field_name: '待跟进客诉备注', field_type: 1, property: null },
+    { field_id: '9', field_name: '命中视图', field_type: 4, property: null },
+    { field_id: '10', field_name: '退货/瑕疵凭证原图', field_type: 17, property: null },
+  ]
+  const attemptedCreates: Array<Record<string, unknown>> = []
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords(table) {
+        if (table.table_id === 'defect-source-table') {
+          return [
+            {
+              record_id: 'defect-rec-1',
+              fields: {
+                反馈日期: '2026/05/05',
+                订单号: 'LC900',
+                产品sku: 'SKU-A',
+                瑕疵说明: '衣服有破洞',
+                照片核实: [{ file_token: 'foreign-file-token', name: 'defect.jpg' }],
+              },
+            },
+          ]
+        }
+        return []
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord() {
+        throw new Error('sync should use batchCreateRecords')
+      },
+      async updateRecord() {
+        throw new Error('create path should not update')
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        attemptedCreates.push(...fieldsList)
+        if (fieldsList.some((fields) => fields['退货/瑕疵凭证原图'])) {
+          throw new Error('Feishu API error 1254303: The attachment does not belong to this bitable.')
+        }
+        return fieldsList.map((fields) => `target-${String(fields['订单号'])}-${String(fields['客诉SKU'])}`)
+      },
+    }),
+    createShopifyClient: () => null,
+  })
+
+  const result = await service.syncSourceToTarget({ config: configPath, date: '2026-05-05' })
+
+  assert.equal(result.created, 1)
+  assert.equal(attemptedCreates.length, 2)
+  assert.ok(attemptedCreates[0]?.['退货/瑕疵凭证原图'])
+  assert.equal(attemptedCreates[1]?.['退货/瑕疵凭证原图'], undefined)
+}
+
+async function testSourceToTargetUpdateSkipsAttachmentMigrationAndOmitsAttachmentField() {
+  const tmpDir = createTempDir()
+  const configPath = path.join(tmpDir, 'config', 'config.json')
+  writeJson(configPath, {
+    feishu: { app_id: 'cli_xxx', app_secret: 'secret' },
+    sources: [
+      {
+        name: '瑕疵反馈',
+        transformer_kind: 'defect_feedback',
+        app_token: 'source-app',
+        table_id: 'defect-source-table',
+        view_id: 'source-view',
+      },
+    ],
+    target: {
+      app_token: 'target-app',
+      table_id: 'target-table',
+      view_id: 'target-view',
+    },
+    runtime: {
+      state_path: './data/state.json',
+      log_path: './data/sync.log',
+      sqlite_path: './data/issues.sqlite',
+      refresh_interval_minutes: 120,
+    },
+  })
+  writeJson(path.join(tmpDir, 'data', 'state.json'), {
+    source_to_target_ids: {
+      'merged:LC901|SKU-B': ['target-rec-existing'],
+    },
+  })
+
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+    { field_id: '5', field_name: '客诉SKU', field_type: 1, property: null },
+    { field_id: '6', field_name: '客诉类型', field_type: 1, property: null },
+    { field_id: '7', field_name: '客诉方案', field_type: 4, property: null },
+    { field_id: '8', field_name: '待跟进客诉备注', field_type: 1, property: null },
+    { field_id: '9', field_name: '命中视图', field_type: 4, property: null },
+    { field_id: '10', field_name: '退货/瑕疵凭证原图', field_type: 17, property: null },
+  ]
+  const attemptedUpdates: Array<Record<string, unknown>> = []
+  let copyAttachmentCalls = 0
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords(table) {
+        if (table.table_id === 'defect-source-table') {
+          return [
+            {
+              record_id: 'defect-rec-2',
+              fields: {
+                反馈日期: '2026/05/05',
+                订单号: 'LC901',
+                产品sku: 'SKU-B',
+                瑕疵说明: '衣服有破洞',
+                照片核实: [{ file_token: 'foreign-file-token', name: 'defect.jpg' }],
+              },
+            },
+          ]
+        }
+        return []
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord() {
+        throw new Error('update path should not create')
+      },
+      async updateRecord(_table, recordId, fields) {
+        attemptedUpdates.push(fields)
+        return recordId
+      },
+      async batchCreateRecords() {
+        throw new Error('update path should not batch create')
+      },
+      async copyAttachmentToBitable() {
+        copyAttachmentCalls += 1
+        throw new Error('update path should not migrate attachments')
+      },
+    }),
+    createShopifyClient: () => null,
+  })
+
+  const result = await service.syncSourceToTarget({ config: configPath, date: '2026-05-05' })
+
+  assert.equal(result.updated, 1)
+  assert.equal(copyAttachmentCalls, 0)
+  assert.equal(attemptedUpdates.length, 1)
+  assert.equal(attemptedUpdates[0]?.['退货/瑕疵凭证原图'], undefined)
+}
+
+async function testSourceToTargetCreateMigratesAttachmentsToTargetBitable() {
+  const tmpDir = createTempDir()
+  const configPath = path.join(tmpDir, 'config', 'config.json')
+  writeJson(configPath, {
+    feishu: { app_id: 'cli_xxx', app_secret: 'secret' },
+    sources: [
+      {
+        name: '瑕疵反馈',
+        transformer_kind: 'defect_feedback',
+        app_token: 'source-app',
+        table_id: 'defect-source-table',
+        view_id: 'source-view',
+      },
+    ],
+    target: {
+      app_token: 'target-app',
+      table_id: 'target-table',
+      view_id: 'target-view',
+    },
+    runtime: {
+      state_path: './data/state.json',
+      log_path: './data/sync.log',
+      sqlite_path: './data/issues.sqlite',
+      refresh_interval_minutes: 120,
+    },
+  })
+
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+    { field_id: '5', field_name: '客诉SKU', field_type: 1, property: null },
+    { field_id: '6', field_name: '客诉类型', field_type: 1, property: null },
+    { field_id: '7', field_name: '客诉方案', field_type: 4, property: null },
+    { field_id: '8', field_name: '待跟进客诉备注', field_type: 1, property: null },
+    { field_id: '9', field_name: '命中视图', field_type: 4, property: null },
+    { field_id: '10', field_name: '退货/瑕疵凭证原图', field_type: 17, property: null },
+  ]
+  const copiedAttachments: Array<Record<string, unknown>> = []
+  const createdRecords: Array<Record<string, unknown>> = []
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords(table) {
+        if (table.table_id === 'defect-source-table') {
+          return [
+            {
+              record_id: 'defect-rec-migrate',
+              fields: {
+                反馈日期: '2026/05/05',
+                订单号: 'LC902',
+                产品sku: 'SKU-C',
+                瑕疵说明: '衣服有破洞',
+                照片核实: [{ file_token: 'source-file-token', name: 'defect.jpg', type: 'image/jpeg' }],
+              },
+            },
+          ]
+        }
+        return []
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord() {
+        throw new Error('sync should use batchCreateRecords')
+      },
+      async updateRecord() {
+        throw new Error('create path should not update')
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        createdRecords.push(...fieldsList)
+        return fieldsList.map((fields) => {
+          const attachments = fields['退货/瑕疵凭证原图'] as Array<Record<string, unknown>> | undefined
+          assert.deepEqual(attachments, [{ file_token: 'target-file-token' }])
+          return `target-${String(fields['订单号'])}-${String(fields['客诉SKU'])}`
+        })
+      },
+      async copyAttachmentToBitable(
+        _table: SyncConfig['target'],
+        attachment: Record<string, unknown>,
+      ) {
+        copiedAttachments.push(attachment)
+        assert.equal(attachment.file_token, 'source-file-token')
+        assert.equal(attachment.name, 'defect.jpg')
+        return { file_token: 'target-file-token' }
+      },
+    }),
+    createShopifyClient: () => null,
+  })
+
+  const result = await service.syncSourceToTarget({ config: configPath, date: '2026-05-05' })
+
+  assert.equal(result.created, 1)
+  assert.equal(copiedAttachments.length, 1)
+  assert.deepEqual(createdRecords[0]?.['退货/瑕疵凭证原图'], [{ file_token: 'target-file-token' }])
+}
+
+async function testSourceToTargetAttachmentMigrationFailureDoesNotBlockCreate() {
+  const tmpDir = createTempDir()
+  const configPath = path.join(tmpDir, 'config', 'config.json')
+  writeJson(configPath, {
+    feishu: { app_id: 'cli_xxx', app_secret: 'secret' },
+    sources: [
+      {
+        name: '瑕疵反馈',
+        transformer_kind: 'defect_feedback',
+        app_token: 'source-app',
+        table_id: 'defect-source-table',
+        view_id: 'source-view',
+      },
+    ],
+    target: {
+      app_token: 'target-app',
+      table_id: 'target-table',
+      view_id: 'target-view',
+    },
+    runtime: {
+      state_path: './data/state.json',
+      log_path: './data/sync.log',
+      sqlite_path: './data/issues.sqlite',
+      refresh_interval_minutes: 120,
+    },
+  })
+
+  const targetFields: FeishuField[] = [
+    { field_id: '1', field_name: '订单号', field_type: 1, property: null },
+    { field_id: '2', field_name: '记录日期', field_type: 5, property: null },
+    { field_id: '3', field_name: '问题处理状态', field_type: 3, property: { options: [{ name: '待处理' }] } },
+    { field_id: '4', field_name: '跟进组', field_type: 1, property: null },
+    { field_id: '5', field_name: '客诉SKU', field_type: 1, property: null },
+    { field_id: '6', field_name: '客诉类型', field_type: 1, property: null },
+    { field_id: '7', field_name: '客诉方案', field_type: 4, property: null },
+    { field_id: '8', field_name: '待跟进客诉备注', field_type: 1, property: null },
+    { field_id: '9', field_name: '命中视图', field_type: 4, property: null },
+    { field_id: '10', field_name: '退货/瑕疵凭证原图', field_type: 17, property: null },
+  ]
+  const createdRecords: Array<Record<string, unknown>> = []
+
+  const service = new SyncService({
+    createClient: () => ({
+      async listRecords(table) {
+        if (table.table_id === 'defect-source-table') {
+          return [
+            {
+              record_id: 'defect-rec-migrate-fail',
+              fields: {
+                反馈日期: '2026/05/05',
+                订单号: 'LC903',
+                产品sku: 'SKU-D',
+                瑕疵说明: '衣服有破洞',
+                照片核实: [{ file_token: 'source-file-token', name: 'defect.jpg', type: 'image/jpeg' }],
+              },
+            },
+          ]
+        }
+        return []
+      },
+      async listFields() {
+        return targetFields
+      },
+      async createRecord() {
+        throw new Error('sync should use batchCreateRecords')
+      },
+      async updateRecord() {
+        throw new Error('create path should not update')
+      },
+      async batchCreateRecords(_table, fieldsList) {
+        createdRecords.push(...fieldsList)
+        return fieldsList.map((fields) => `target-${String(fields['订单号'])}-${String(fields['客诉SKU'])}`)
+      },
+      async copyAttachmentToBitable() {
+        throw new Error('download failed')
+      },
+    }),
+    createShopifyClient: () => null,
+  })
+
+  const result = await service.syncSourceToTarget({ config: configPath, date: '2026-05-05' })
+
+  assert.equal(result.created, 1)
+  assert.equal(createdRecords.length, 1)
+  assert.equal(createdRecords[0]?.['退货/瑕疵凭证原图'], undefined)
+}
+
 async function testShopifyBackfillOnlyFillsEmptyFields() {
   const tmpDir = createTempDir()
   const configPath = createConfig(tmpDir)
@@ -3260,6 +3628,10 @@ async function run() {
   testShopifyHelpers()
   await testSyncPreviewAndRun()
   await testSourceToTargetRebuildDeletesTargetAndWritesArtifacts()
+  await testSourceToTargetCreateStripsForeignAttachmentTokensOnRetry()
+  await testSourceToTargetUpdateSkipsAttachmentMigrationAndOmitsAttachmentField()
+  await testSourceToTargetCreateMigratesAttachmentsToTargetBitable()
+  await testSourceToTargetAttachmentMigrationFailureDoesNotBlockCreate()
   await testShopifyBackfillOnlyFillsEmptyFields()
   await testLiveLogisticsBackfillUsesCarrierStatus()
   await testReceivedGoodsComplaintSkipsLiveLogisticsLookup()

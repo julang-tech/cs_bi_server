@@ -1,7 +1,7 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
-import { WorkloadAnalysis, buildWorkloadTableRows, getReplySpanHours } from './WorkloadAnalysis'
+import { WorkloadAnalysis, buildWorkloadTableRows, getAttendanceHours, getStandardAttendanceHours } from './WorkloadAnalysis'
 import type { P1AgentRow } from '../../api/types'
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -46,36 +46,67 @@ afterEach(() => {
 })
 
 describe('WorkloadAnalysis table rows', () => {
-  it('derives first-to-last reply span from outbound count and span hourly average', () => {
-    expect(getReplySpanHours(rows[0])).toBe(2)
-    expect(getReplySpanHours(rows[1])).toBe(6)
+  it('derives 在席时长 from outbound count and span hourly average (legacy formula renamed)', () => {
+    // 12 / 6 = 2 hours actual span
+    expect(getAttendanceHours(rows[0])).toBe(2)
+    // 24 / 4 = 6 hours actual span
+    expect(getAttendanceHours(rows[1])).toBe(6)
   })
 
-  it('adds a single agent-average row before individual agents', () => {
+  it('derives 标准在席时长 by dividing outbound count by the 30/h baseline', () => {
+    // 12 / 30 = 0.4 hours
+    expect(getStandardAttendanceHours(rows[0])).toBeCloseTo(0.4)
+    // 24 / 30 = 0.8 hours
+    expect(getStandardAttendanceHours(rows[1])).toBeCloseTo(0.8)
+  })
+
+  it('appends a 坐席总量 sum row and a 坐席均值 average row at the bottom', () => {
     const tableRows = buildWorkloadTableRows(rows)
 
-    expect(tableRows).toHaveLength(3)
-    expect(tableRows[0]).toMatchObject({
+    expect(tableRows).toHaveLength(4)
+    expect(tableRows[0].agent_name).toBe('Mira')
+    expect(tableRows[1].agent_name).toBe('Wendy')
+
+    // Average row first (just below individuals).
+    const averageRow = tableRows[2]
+    expect(averageRow).toMatchObject({
       agent_name: '坐席均值',
-      outbound_email_count: 18,
-      reply_span_hours: 4,
+      isAverage: true,
+      outbound_email_count: 18,                    // (12 + 24) / 2
       avg_outbound_emails_per_hour_by_span: 5,
       avg_outbound_emails_per_hour_by_schedule: 2.5,
       qa_reply_counts: { excellent: 4, pass: 6.5, fail: 1 },
     })
-    expect(tableRows[1].agent_name).toBe('Mira')
-    expect(tableRows[2].agent_name).toBe('Wendy')
+    expect(averageRow.attendance_hours).toBe(4)
+    expect(averageRow.standard_attendance_hours).toBeCloseTo(0.6)
+
+    // Total row at the very bottom: simple sums.
+    const totalRow = tableRows[3]
+    expect(totalRow).toMatchObject({
+      agent_name: '坐席总量',
+      isTotal: true,
+      outbound_email_count: 36,                    // 12 + 24
+      qa_reply_counts: { excellent: 8, pass: 13, fail: 2 },
+    })
+    expect(totalRow.attendance_hours).toBe(8)      // 2 + 6
+    expect(totalRow.standard_attendance_hours).toBeCloseTo(1.2) // 0.4 + 0.8
+    // 团队节奏 = 36 / 8 = 4.5 (NOT mean of 6 and 4 = 5)
+    expect(totalRow.avg_outbound_emails_per_hour_by_span).toBeCloseTo(4.5)
   })
 
   it('does not add an average row when no agents are present', () => {
     expect(buildWorkloadTableRows([])).toEqual([])
   })
 
-  it('shows reply duration alongside the span-based hourly average column', () => {
+  it('shows both 在席时长 / 标准在席时长 columns plus 坐席总量 row', () => {
     renderWorkloadAnalysis()
 
-    expect(host?.textContent).toContain('回信时长')
+    expect(host?.textContent).toContain('在席时长')
+    expect(host?.textContent).toContain('标准在席时长')
     expect(host?.textContent).toContain('每小时回信均值')
+    expect(host?.textContent).toContain('坐席总量')
+    expect(host?.textContent).toContain('坐席均值')
+    expect(host?.textContent).not.toContain('回信时长')
     expect(host?.textContent).not.toContain('每小时回邮数均值（工时表）')
     expect(host?.textContent).not.toContain('首末封')
     expect(host?.textContent).not.toContain('首尾封')
