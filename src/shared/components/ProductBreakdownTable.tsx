@@ -192,14 +192,15 @@ export function ProductBreakdownTable<Row>({
   function renderHeaderLabel(key: string, label: string, sortMarker = '') {
     const tooltip = headerTooltips?.[key]
     if (!tooltip) return <>{label}{sortMarker}</>
+    const tooltipText = tooltip
     function showTooltip(target: EventTarget | null) {
       if (!(target instanceof HTMLElement)) return
       const rect = target.getBoundingClientRect()
-      const width = Math.min(300, Math.max(220, tooltip.length * 7))
+      const width = Math.min(300, Math.max(220, tooltipText.length * 7))
       const margin = 12
       const x = Math.max(margin + width / 2, Math.min(window.innerWidth - margin - width / 2, rect.left + rect.width / 2))
       const y = rect.bottom + 8
-      setActiveTooltip({ text: tooltip, x, y })
+      setActiveTooltip({ text: tooltipText, x, y })
     }
     return (
       <span

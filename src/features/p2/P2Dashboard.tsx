@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DashboardShell } from '../../shared/components/DashboardShell'
 import { FilterBar } from '../../shared/components/FilterBar'
-import { FocusLineChart, type FocusMetricSpec, type FocusMetricSummary } from '../../shared/components/FocusLineChart'
+import { FocusLineChart } from '../../shared/components/FocusLineChart'
+import { FocusSummaryBlock } from '../../shared/components/FocusSummaryBlock'
 import { KpiCard, type MetricTone } from '../../shared/components/KpiCard'
 import { KpiSection } from '../../shared/components/KpiSection'
 import { useDashboardData } from '../../shared/hooks/useDashboardData'
 import { fetchRefundOverview } from '../../api/p2'
 import { formatInteger, formatMoney, formatPercent } from '../../shared/utils/format'
 import { buildFocusTrend, formatFocusBucketLabel } from '../../shared/utils/focusTrend'
+import { aggregateFocusMetric, type FocusAggregationMetric, type FocusSelection } from '../../shared/utils/focusAggregation'
 import { buildDirectionalDelta, type DeltaMode, type MetricPolarity } from '../../shared/utils/delta'
 import {
-  getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange, getPeriodCount,
+  getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange,
   getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel, getRealtimePresetHistoryRange,
 } from '../../shared/utils/datePeriod'
 import { resolveDataAsOfLabel } from '../../shared/utils/dataAsOf'
@@ -66,7 +68,7 @@ export default function P2Dashboard() {
   const today = useMemo(() => new Date(), [])
   const [historyRange, setHistoryRange] = useState(() => getRealtimeDefaultHistoryRange('day', today))
   const [activeMetricKey, setActiveMetricKey] = useState<CardKey>('gmv')
-  const [selectedBucket, setSelectedBucket] = useState<string | null>(null)
+  const [focusSelection, setFocusSelection] = useState<FocusSelection>({ type: 'all' })
 
   const currentPeriod = useMemo(() => getRealtimeCurrentPeriod(grain, today), [grain, today])
   const previousPeriod = useMemo(() => getRealtimePreviousPeriod(grain, today), [grain, today])
@@ -75,11 +77,11 @@ export default function P2Dashboard() {
   function handleGrainChange(next: Grain) {
     setGrain(next)
     setHistoryRange(getRealtimeDefaultHistoryRange(next, today))
-    setSelectedBucket(null)
+    setFocusSelection({ type: 'all' })
   }
 
   useEffect(() => {
-    setSelectedBucket(null)
+    setFocusSelection({ type: 'all' })
   }, [historyRange.date_from, historyRange.date_to, store, dateBasis])
 
   const baseFilters = { grain, channel: store, date_basis: dateBasis } as const
@@ -90,8 +92,6 @@ export default function P2Dashboard() {
     fetcher: (filters, signal) => fetchRefundOverview(filters as never, signal),
   })
   const dataAsOfLabel = resolveDataAsOfLabel(current?.meta, { cadence: 'hourly' }) ?? currentPeriod.date_to
-
-  const periodCount = getPeriodCount(historyRange, grain)
 
   const formatPercent1 = (n: number) => formatPercent(n, 1)
 
@@ -123,7 +123,7 @@ export default function P2Dashboard() {
     return { ...c, currentValue, previousValue, historyTrend }
   })
 
-  const focusMetrics: FocusMetricSpec[] = enrichedCards.map((c) => {
+  const focusMetrics: FocusAggregationMetric[] = enrichedCards.map((c) => {
     const trend = buildFocusTrend(c.historyTrend, grain, currentPeriod, c.currentValue, {
       currentDayIsIncomplete: true,
     })
@@ -134,35 +134,16 @@ export default function P2Dashboard() {
       history: trend.history,
       current: trend.current,
       tone: c.tone,
+      aggregationMode: c.isRate ? 'nonAdditive' : 'additive',
     }
   })
 
-  // Per-metric summary line for focus chart
-  const rangeLabel = grain === 'day' ? `近 ${periodCount} 天`
-    : grain === 'week' ? `近 ${periodCount} 周`
-    : `近 ${periodCount} 月`
-  const summaryByKey: Record<string, FocusMetricSummary> = {}
-  for (const c of enrichedCards) {
-    const total = c.historyTrend.reduce((s, p) => s + p.value, 0)
-    const count = c.historyTrend.length
-    const mean = count ? total / count : 0
-    const peak = count ? Math.max(...c.historyTrend.map((p) => p.value)) : 0
-    if (c.isRate) {
-      summaryByKey[c.key] = {
-        items: [
-          { label: '区间均值', value: count ? c.formatter(mean) : '--' },
-          { label: '区间峰值', value: count ? c.formatter(peak) : '--' },
-        ],
-      }
-    } else {
-      summaryByKey[c.key] = {
-        items: [
-          { label: `${rangeLabel}累计`, value: count ? c.formatter(total) : '--' },
-          { label: '区间均值', value: count ? c.formatter(mean) : '--' },
-        ],
-      }
-    }
-  }
+  const activeFocusMetric = focusMetrics.find((metric) => metric.key === activeMetricKey) ?? focusMetrics[0]
+  const focusSummary = aggregateFocusMetric(
+    activeFocusMetric,
+    focusSelection,
+    (bucket) => formatFocusBucketLabel(bucket, grain),
+  )
 
   return (
     <DashboardShell
@@ -198,59 +179,30 @@ export default function P2Dashboard() {
           </section>
         ) : null
       }
-      currentPeriodSection={(() => {
-        const isHistorical = selectedBucket !== null
-        const sectionTitle = isHistorical
-          ? formatFocusBucketLabel(selectedBucket, grain)
-          : getRealtimeCurrentPeriodLabel(grain)
-        const sectionSubtitle = isHistorical
-          ? '点击图表上的其他点切换，或重置回当前周期'
-          : `数据截至 ${dataAsOfLabel}`
-        return (
-          <KpiSection
-            title={sectionTitle}
-            subtitle={sectionSubtitle}
+      currentPeriodSection={
+        <KpiSection
+            title={getRealtimeCurrentPeriodLabel(grain)}
+            subtitle={`数据截至 ${dataAsOfLabel}`}
             variant="current"
-            action={isHistorical ? (
-              <button type="button" onClick={() => setSelectedBucket(null)}>重置当前周期</button>
-            ) : undefined}
           >
             {enrichedCards.map((c) => {
-              let displayCurrent = c.currentValue
-              let displayPrev: number | null | undefined = c.previousValue
-              let displayPrevLabel = previousPeriodLabel
-              let showDelta = true
-              if (isHistorical) {
-                const idx = c.historyTrend.findIndex((p) => p.bucket === selectedBucket)
-                if (idx >= 0) {
-                  displayCurrent = c.historyTrend[idx].value
-                  if (idx > 0) {
-                    displayPrev = c.historyTrend[idx - 1].value
-                    displayPrevLabel = `vs ${formatFocusBucketLabel(c.historyTrend[idx - 1].bucket, grain)}`
-                  } else {
-                    displayPrev = null
-                    displayPrevLabel = '区间起点'
-                    showDelta = false
-                  }
-                }
-              }
-              const secondaryValue = loading || displayPrev === undefined || displayPrev === null
+              const secondaryValue = loading || c.previousValue === undefined || c.previousValue === null
                 ? '--'
-                : c.formatter(displayPrev)
+                : c.formatter(c.previousValue)
               return (
                 <KpiCard
                   key={c.key}
                   variant="current"
                   label={c.label}
                   description={c.description}
-                  value={loading ? '--' : c.formatter(displayCurrent ?? 0)}
-                  delta={loading || !showDelta ? undefined : buildDirectionalDelta(
-                    displayCurrent,
-                    displayPrev,
+                  value={loading ? '--' : c.formatter(c.currentValue ?? 0)}
+                  delta={loading ? undefined : buildDirectionalDelta(
+                    c.currentValue,
+                    c.previousValue,
                     c.deltaMode,
                     c.polarity,
                   )}
-                  secondaryLabel={displayPrevLabel}
+                  secondaryLabel={previousPeriodLabel}
                   secondaryValue={secondaryValue}
                   metricKey={c.key}
                   active={activeMetricKey === c.key}
@@ -261,18 +213,24 @@ export default function P2Dashboard() {
                 />
               )
             })}
-          </KpiSection>
-        )
-      })()}
+        </KpiSection>
+      }
+      focusSummaryBlock={loading || !activeFocusMetric ? null : (
+        <FocusSummaryBlock
+          metricLabel={activeFocusMetric.label}
+          selection={focusSelection}
+          summary={focusSummary}
+          onReset={() => setFocusSelection({ type: 'all' })}
+        />
+      )}
       focusChart={loading ? null : (
         <FocusLineChart
           metrics={focusMetrics}
           activeKey={activeMetricKey}
           onActiveKeyChange={(next) => setActiveMetricKey(next as CardKey)}
           bucketFormatter={(bucket) => formatFocusBucketLabel(bucket, grain)}
-          summaryByKey={summaryByKey}
-          selectedBucket={selectedBucket}
-          onBucketSelect={setSelectedBucket}
+          selection={focusSelection}
+          onSelectionChange={setFocusSelection}
         />
       )}
       extensions={

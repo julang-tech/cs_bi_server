@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import {
   Area,
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -12,6 +13,7 @@ import {
 } from 'recharts'
 import type { TooltipProps } from 'recharts'
 import type { TrendPoint } from '../../api/types'
+import type { FocusSelection } from '../utils/focusAggregation'
 
 export interface FocusMetricSpec {
   key: string
@@ -22,18 +24,6 @@ export interface FocusMetricSpec {
   tone?: 'sales' | 'complaints' | 'rate' | 'refund' | 'neutral'
 }
 
-export interface FocusMetricSummary {
-  // Pre-formatted aggregate items, e.g.:
-  //   absolute: [{label: "近 14 天累计", value: "9,170"}, {label: "区间均值", value: "655"}]
-  //   rate:     [{label: "区间均值", value: "7.5%"}, {label: "区间峰值", value: "15.8%"}]
-  items: Array<{ label: string; value: string }>
-  delta?: {
-    tone: 'up' | 'down' | 'neutral' | 'muted'
-    text: string                   // e.g. "↑ 12.3%" or "-"
-    label?: string                 // e.g. "vs 上 14 天" (default "vs 上一区间")
-  }
-}
-
 interface FocusLineChartProps {
   metrics: FocusMetricSpec[]
   defaultKey?: string
@@ -41,14 +31,8 @@ interface FocusLineChartProps {
   onActiveKeyChange?: (next: string) => void
   ariaLabel?: string
   bucketFormatter?: (bucket: string) => string
-  // Optional summary line shown between the tabs and the plot. Map keyed by
-  // metric.key so the summary updates when the active tab changes.
-  summaryByKey?: Record<string, FocusMetricSummary | undefined>
-  // When set, the chart renders the bucket as a highlighted "selected" dot;
-  // clicking another dot fires onBucketSelect with the new bucket; clicking
-  // the already-selected dot fires onBucketSelect(null) to deselect.
-  selectedBucket?: string | null
-  onBucketSelect?: (bucket: string | null) => void
+  selection?: FocusSelection
+  onSelectionChange?: (selection: FocusSelection) => void
 }
 
 interface ChartRow {
@@ -139,9 +123,8 @@ export function FocusLineChart({
   onActiveKeyChange,
   ariaLabel,
   bucketFormatter = (bucket) => bucket,
-  summaryByKey,
-  selectedBucket = null,
-  onBucketSelect,
+  selection = { type: 'all' },
+  onSelectionChange,
 }: FocusLineChartProps) {
   const [internalActiveKey, setInternalActiveKey] = useState<string>(defaultKey ?? metrics[0]?.key ?? '')
   const selectedKey = activeKey ?? internalActiveKey
@@ -151,7 +134,6 @@ export function FocusLineChart({
     [metrics, selectedKey],
   )
 
-  const summary = active ? summaryByKey?.[active.key] : undefined
 
   const data = useMemo(() => (active ? buildSeries(active.history, active.current) : []), [active])
 
@@ -167,6 +149,26 @@ export function FocusLineChart({
   const firstBucket = data[0]?.bucket
   const lastBucket = data[data.length - 1]?.bucket
   const xTickFormatter = (v: string) => (v === firstBucket || v === lastBucket ? bucketFormatter(v) : '')
+
+  const selectedBucket = selection.type === 'bucket' ? selection.bucket : null
+  const selectedRange = selection.type === 'range' ? selection : null
+  const [dragStartBucket, setDragStartBucket] = useState<string | null>(null)
+  const [dragCurrentBucket, setDragCurrentBucket] = useState<string | null>(null)
+  const suppressNextClickRef = useRef(false)
+
+  const dragRange = dragStartBucket && dragCurrentBucket && dragStartBucket !== dragCurrentBucket
+    ? { fromBucket: dragStartBucket, toBucket: dragCurrentBucket }
+    : null
+  const visibleRange = dragRange ?? selectedRange
+
+  const toOrderedRange = (fromBucket: string, toBucket: string): { fromBucket: string; toBucket: string } => {
+    const fromIndex = data.findIndex((row) => row.bucket === fromBucket)
+    const toIndex = data.findIndex((row) => row.bucket === toBucket)
+    if (fromIndex >= 0 && toIndex >= 0 && fromIndex > toIndex) {
+      return { fromBucket: toBucket, toBucket: fromBucket }
+    }
+    return { fromBucket, toBucket }
+  }
 
   // Highlight the latest (rightmost) point with a larger filled dot. Recharts'
   // `dot` prop accepts a function so we can render conditionally per-point.
@@ -205,7 +207,7 @@ export function FocusLineChart({
     if (cx == null || cy == null || !payload || payload.value == null) {
       return <circle key={k} cx={cx ?? 0} cy={cy ?? 0} r={0} fill="none" />
     }
-    if (payload.bucket !== selectedBucket) {
+    if (!(selection.type === 'bucket' && payload.bucket === selection.bucket)) {
       return <circle key={k} cx={cx} cy={cy} r={0} fill="none" />
     }
     return (
@@ -280,40 +282,48 @@ export function FocusLineChart({
           </button>
         ))}
       </div>
-      {summary ? (
-        <div className="focus-chart__summary">
-          {summary.items.map((item, idx) => (
-            <span key={item.label} className="focus-chart__summary-item">
-              {idx > 0 ? <span className="focus-chart__summary-divider" aria-hidden="true">·</span> : null}
-              <small>{item.label}</small>
-              <strong>{item.value}</strong>
-            </span>
-          ))}
-          {summary.delta ? (
-            <span className="focus-chart__summary-item">
-              <span className="focus-chart__summary-divider" aria-hidden="true">·</span>
-              <small>{summary.delta.label ?? 'vs 上一区间'}</small>
-              <strong className={`focus-chart__summary-delta focus-chart__summary-delta--${summary.delta.tone}`}>
-                {summary.delta.text}
-              </strong>
-            </span>
-          ) : null}
-        </div>
-      ) : null}
       <div className="focus-chart__plot">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart
             data={data}
             margin={{ top: 24, right: 56, left: 0, bottom: 4 }}
-            // Click anywhere on the chart → pin to that column's bucket. The
-            // Tooltip cursor below paints a wide hover band so users see the
-            // whole column is clickable. activeLabel is the X-axis value.
-            onClick={onBucketSelect ? (state: { activeLabel?: string | null } | null) => {
+            onMouseDown={onSelectionChange ? (state: { activeLabel?: string | null } | null) => {
               const label = state?.activeLabel
               if (typeof label !== 'string' || !label) return
-              onBucketSelect(label === selectedBucket ? null : label)
+              setDragStartBucket(label)
+              setDragCurrentBucket(label)
             } : undefined}
-            style={onBucketSelect ? { cursor: 'pointer' } : undefined}
+            onMouseMove={onSelectionChange ? (state: { activeLabel?: string | null } | null) => {
+              if (!dragStartBucket) return
+              const label = state?.activeLabel
+              if (typeof label !== 'string' || !label) return
+              setDragCurrentBucket(label)
+            } : undefined}
+            onMouseUp={onSelectionChange ? () => {
+              if (!dragStartBucket || !dragCurrentBucket) return
+              if (dragStartBucket !== dragCurrentBucket) {
+                suppressNextClickRef.current = true
+                onSelectionChange({ type: 'range', ...toOrderedRange(dragStartBucket, dragCurrentBucket) })
+              }
+              setDragStartBucket(null)
+              setDragCurrentBucket(null)
+            } : undefined}
+            onMouseLeave={() => {
+              setDragStartBucket(null)
+              setDragCurrentBucket(null)
+            }}
+            onClick={onSelectionChange ? (state: { activeLabel?: string | null } | null) => {
+              if (suppressNextClickRef.current) {
+                suppressNextClickRef.current = false
+                return
+              }
+              const label = state?.activeLabel
+              if (typeof label !== 'string' || !label) return
+              onSelectionChange(selection.type === 'bucket' && selection.bucket === label
+                ? { type: 'all' }
+                : { type: 'bucket', bucket: label })
+            } : undefined}
+            style={onSelectionChange ? { cursor: dragStartBucket ? 'grabbing' : 'crosshair' } : undefined}
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
@@ -347,7 +357,7 @@ export function FocusLineChart({
               // Wide semi-transparent band on hover signals the whole column
               // is clickable — keeps the thin line for non-interactive charts.
               cursor={
-                onBucketSelect
+                onSelectionChange
                   ? { fill: 'var(--focus-chart-accent, var(--accent))', fillOpacity: 0.06, stroke: 'var(--focus-chart-accent, var(--accent))', strokeOpacity: 0.4, strokeWidth: 1 }
                   : { stroke: 'var(--border)', strokeWidth: 1 }
               }
@@ -359,6 +369,16 @@ export function FocusLineChart({
                 />
               }
             />
+            {visibleRange ? (
+              <ReferenceArea
+                x1={visibleRange.fromBucket}
+                x2={visibleRange.toBucket}
+                fill="var(--accent)"
+                fillOpacity={0.08}
+                stroke="var(--accent)"
+                strokeOpacity={0.28}
+              />
+            ) : null}
             {/* Persistent highlight band on the pinned column. */}
             {selectedBucket ? (
               <ReferenceLine

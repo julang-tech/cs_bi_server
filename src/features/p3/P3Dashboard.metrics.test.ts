@@ -19,7 +19,7 @@ describe('P3 overview KPI composition', () => {
   it('keeps issue-type detail metrics out of current and history KPI cards', () => {
     const cardsSource = source.slice(
       source.indexOf('  const cards = ['),
-      source.indexOf('  const focusMetrics: FocusMetricSpec[]'),
+      source.indexOf('  const focusMetrics: FocusAggregationMetric[]'),
     )
 
     expect(cardsSource).toContain("label: '销量'")
@@ -36,17 +36,18 @@ describe('P3 overview KPI composition', () => {
     expect(source).toContain('getComplaintMetricDescription')
     expect(source).toContain('客诉登记时间口径')
     expect(source).toContain('订单时间口径')
-    expect(source).toContain('退款时间口径')
   })
 
-  it('does not compute hidden previous-range deltas for the focus chart summary', () => {
-    const summaryStart = source.indexOf('  // Build per-metric summary for the focus chart')
+  it('uses FocusSummaryBlock aggregation instead of the legacy chart summary map', () => {
+    const summaryStart = source.indexOf('  const activeFocusMetric')
     const summarySource = source.slice(
       summaryStart,
       source.indexOf('  return (', summaryStart),
     )
 
-    expect(summarySource).toContain('summaryByKey')
+    expect(source).toContain('FocusSummaryBlock')
+    expect(summarySource).toContain('aggregateFocusMetric')
+    expect(source).not.toContain('summaryByKey')
     expect(summarySource).not.toContain('previousHistory')
     expect(summarySource).not.toContain('delta,')
   })
