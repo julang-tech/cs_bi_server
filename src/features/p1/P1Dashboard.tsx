@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { DashboardShell } from '../../shared/components/DashboardShell'
 import { FilterBar } from '../../shared/components/FilterBar'
 import { FocusLineChart } from '../../shared/components/FocusLineChart'
@@ -79,7 +79,7 @@ export default function P1Dashboard() {
 
   const baseFilters = { grain, agent_name: agentName } as const
 
-  const { current, previous, history, loading, error } = useDashboardData<typeof baseFilters, P1DashboardData>({
+  const { current, previous, history, loading, error, refetch } = useDashboardData<typeof baseFilters, P1DashboardData>({
     baseFilters,
     currentPeriod,
     previousPeriod,
@@ -88,15 +88,11 @@ export default function P1Dashboard() {
   })
   const dataAsOfLabel = resolveDataAsOfLabel(current?.meta, { cadence: '5min' }) ?? currentPeriod.date_to
 
-  async function loadBacklogMails(signal?: AbortSignal) {
+  const loadBacklogMails = useCallback(async (signal?: AbortSignal) => {
     setBacklogLoading(true)
     setBacklogError(null)
     try {
       const result = await fetchP1BacklogMails({
-        date_from: currentPeriod.date_from,
-        date_to: currentPeriod.date_to,
-        grain,
-        agent_name: agentName,
         limit: 100,
       }, signal)
       const sortedItems = sortBacklogMailsByWaitDesc(result.items)
@@ -112,14 +108,14 @@ export default function P1Dashboard() {
     } finally {
       if (!signal?.aborted) setBacklogLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     if (!backlogModalOpen) return
     const controller = new AbortController()
     void loadBacklogMails(controller.signal)
     return () => controller.abort()
-  }, [backlogModalOpen, currentPeriod.date_from, currentPeriod.date_to, grain, agentName])
+  }, [backlogModalOpen, loadBacklogMails])
 
   async function markMail(mailId: number, needsReply: boolean) {
     setMarkingMailId(mailId)
@@ -127,6 +123,7 @@ export default function P1Dashboard() {
     try {
       await markP1BacklogMailNeedsReply(mailId, needsReply)
       await loadBacklogMails()
+      refetch()
     } catch (err) {
       setBacklogError(err instanceof Error ? err.message : '标记失败')
     } finally {
@@ -257,7 +254,7 @@ export default function P1Dashboard() {
       currentPeriodSection={
         <KpiSection
           title={getRealtimeCurrentPeriodLabel(grain)}
-          subtitle={`数据截至 ${dataAsOfLabel}`}
+          subtitle={`数据截至 ${dataAsOfLabel}；KPI 主值为当前周期，迷你趋势和下方趋势图为所选历史范围`}
           variant="current"
           className="kpi-section--p1-current"
         >
@@ -295,7 +292,7 @@ export default function P1Dashboard() {
           >
             <div className="p1-backlog-snapshot__header">
               <h3>当前积压</h3>
-              <span>待 review &gt;</span>
+              <span>当前快照，不受历史范围影响 · 待 review &gt;</span>
             </div>
             <dl className="p1-backlog-snapshot__items">
               <div>
@@ -330,7 +327,7 @@ export default function P1Dashboard() {
       )}
       extensions={
         <WorkloadAnalysis
-          workloadRows={current?.agent_workload ?? []}
+          workloadRows={history?.agent_workload ?? []}
           loading={loading}
         />
       }
@@ -342,7 +339,7 @@ export default function P1Dashboard() {
           <header className="p1-backlog-modal__header">
             <div>
               <h2>当前积压邮件</h2>
-              <span>{backlogMails.length} 项</span>
+              <span>{backlogMails.length} 项 · 当前快照，不受历史时间范围影响</span>
             </div>
             <button type="button" onClick={() => setBacklogModalOpen(false)}>关闭</button>
           </header>

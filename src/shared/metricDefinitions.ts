@@ -117,9 +117,9 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p1.outbound_email_count',
             name: '回邮数',
-            short: '统计周期内客服发出的回复邮件数。',
+            short: '当前周期内客服发出的回复邮件数；卡片趋势展示所选历史范围。',
             detail:
-              '衡量客服处理的产出量。下方坐席工作量表会按客服拆分回邮效率（在席时长 / 标准在席时长 / 每小时回信均值 / 质检结果分布）。',
+              '衡量客服处理的产出量。KPI 主值和同比使用当前周期，卡片迷你趋势 / 下方趋势图使用筛选器选择的历史范围。下方坐席工作量表按所选历史范围拆分回邮效率（在席时长 / 标准在席时长 / 每小时回信均值 / 质检结果分布）。',
           },
           {
             id: 'p1.avg_queue_hours',
@@ -164,9 +164,9 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p1.agent_outbound_email_count',
             name: '总回邮数',
-            short: '该客服在统计周期内的回邮总数。',
+            short: '该客服在所选历史时间范围内的回邮总数。',
             detail:
-              '与上方 KPI 区"回邮数"同口径，这里按客服分行展示。坐席均值行展示算术平均。',
+              '跟随筛选器的历史时间范围，按客服分行展示。注意上方 KPI 区"回邮数"主值是当前周期；若历史范围与当前周期不同，两者不应直接对账。坐席均值行展示算术平均。',
           },
           {
             id: 'p1.agent_reply_span_hours',
@@ -195,9 +195,9 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
           {
             id: 'p1.agent_qa_reply_counts',
             name: '质检结果回邮数',
-            short: '该客服回邮按质检结果分桶：优秀 / 达标 / 不合格。',
+            short: '所选历史范围内，该客服已质检回邮按质检结果分桶：优秀 / 达标 / 不合格。',
             detail:
-              '展示顺序固定为"优秀 / 达标 / 不合格"。坐席均值行展示算术平均（保留小数）。仅统计有质检结果的回邮，没质检的不计入任何桶。',
+              '展示顺序固定为"优秀 / 达标 / 不合格"。坐席均值行展示算术平均（保留小数）。仅统计有质检结果的回邮，没质检的不计入任何桶，因此三档合计不等于总回邮数是正常现象。',
           },
         ],
       },

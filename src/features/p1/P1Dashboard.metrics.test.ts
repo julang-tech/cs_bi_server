@@ -34,6 +34,8 @@ describe('P1 overview KPI composition', () => {
     expect(source).toContain('markP1BacklogMailNeedsReply')
     expect(source).toContain('p1-backlog-modal')
     expect(source).toContain('待 review')
+    expect(source).toContain('当前快照，不受历史范围影响')
+    expect(source).toContain('当前快照，不受历史时间范围影响')
     expect(source).toContain('customer_email')
     expect(source).toContain('客户邮箱')
     expect(source).toContain('发件邮箱')
@@ -49,12 +51,49 @@ describe('P1 overview KPI composition', () => {
     expect(focusSource).not.toContain('avg_unreplied_wait_hours')
   })
 
+  it('uses history agent workload for the selected time range table', () => {
+    const workloadSource = source.slice(
+      source.indexOf('      extensions={'),
+      source.indexOf('    />', source.indexOf('      extensions={')),
+    )
+
+    expect(workloadSource).toContain('workloadRows={history?.agent_workload ?? []}')
+    expect(workloadSource).not.toContain('workloadRows={current?.agent_workload ?? []}')
+  })
+
+  it('loads backlog mails as a current snapshot without unsupported agent filters', () => {
+    const backlogFetchSource = source.slice(
+      source.indexOf('  const loadBacklogMails'),
+      source.indexOf('  useEffect(() => {', source.indexOf('  const loadBacklogMails')),
+    )
+
+    expect(backlogFetchSource).toContain('fetchP1BacklogMails')
+    expect(backlogFetchSource).toContain('limit: 100')
+    expect(backlogFetchSource).not.toContain('agent_name')
+    expect(backlogFetchSource).not.toContain('date_from')
+    expect(backlogFetchSource).not.toContain('date_to')
+    expect(backlogFetchSource).not.toContain('grain')
+  })
+
+  it('refreshes dashboard data after marking a backlog mail', () => {
+    const markSource = source.slice(
+      source.indexOf('  async function markMail'),
+      source.indexOf('  const visibleP1Note'),
+    )
+
+    expect(markSource).toContain('markP1BacklogMailNeedsReply')
+    expect(markSource).toContain('loadBacklogMails')
+    expect(markSource).toContain('refetch()')
+  })
+
   it('uses MailDB realtime periods instead of global data readiness periods', () => {
     expect(source).toContain('getRealtimeCurrentPeriod')
     expect(source).toContain('getRealtimeDefaultHistoryRange')
     expect(source).toContain('getRealtimeCurrentPeriodLabel')
     expect(source).toContain('resolveDataAsOfLabel')
     expect(source).toContain('currentDayIsIncomplete: true')
+    expect(source).toContain('KPI 主值为当前周期')
+    expect(source).toContain('迷你趋势和下方趋势图为所选历史范围')
     expect(source).not.toContain('getCurrentPeriod(grain)')
     expect(source).not.toContain('getDefaultHistoryRange(next)')
   })

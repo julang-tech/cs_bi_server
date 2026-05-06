@@ -20,6 +20,7 @@ interface UseDashboardDataResult<TResponse> {
   previousHistory: TResponse | null
   loading: boolean
   error: string
+  refetch: () => void
 }
 
 export function useDashboardData<TBaseFilters, TResponse>(
@@ -32,6 +33,7 @@ export function useDashboardData<TBaseFilters, TResponse>(
   const [previousHistory, setPreviousHistory] = useState<TResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
 
   // Stringify date windows for stable dep comparison
   const cKey = `${currentPeriod.date_from}|${currentPeriod.date_to}`
@@ -83,7 +85,15 @@ export function useDashboardData<TBaseFilters, TResponse>(
       controller.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fKey, cKey, pKey, hKey, phKey])
+  }, [fKey, cKey, pKey, hKey, phKey, reloadKey])
 
-  return { current, previous, history, previousHistory, loading, error }
+  return {
+    current,
+    previous,
+    history,
+    previousHistory,
+    loading,
+    error,
+    refetch: () => setReloadKey((key) => key + 1),
+  }
 }
