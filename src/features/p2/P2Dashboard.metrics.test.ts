@@ -44,13 +44,15 @@ describe('P2 overview focus chart summary', () => {
     expect(source).toContain("value: 'lintico-uk.myshopify.com'")
   })
 
-  it('does not compute hidden previous-range deltas for the focus chart summary', () => {
+  it('uses FocusSummaryBlock aggregation instead of the legacy chart summary map', () => {
     const summarySource = source.slice(
-      source.indexOf('  // Per-metric summary line for focus chart'),
+      source.indexOf('  const activeFocusMetric'),
       source.indexOf('  return ('),
     )
 
-    expect(summarySource).toContain('summaryByKey')
+    expect(source).toContain('FocusSummaryBlock')
+    expect(summarySource).toContain('aggregateFocusMetric')
+    expect(source).not.toContain('summaryByKey')
     expect(summarySource).not.toContain('previousHistory')
     expect(summarySource).not.toContain('delta,')
   })
