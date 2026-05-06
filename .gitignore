@@ -41,3 +41,5 @@ __pycache__/
 # Claude Code session noise
 .claude/
 AGENTS.md
+
+config/sync/config.local.json

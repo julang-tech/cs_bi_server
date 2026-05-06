@@ -4,13 +4,14 @@ import type { TrendPoint } from '../../api/types'
 
 interface MiniSparklineProps {
   items: TrendPoint[]
-  tone?: 'sales' | 'complaints' | 'rate' | 'neutral'
+  tone?: 'sales' | 'complaints' | 'rate' | 'refund' | 'neutral'
 }
 
 const TONE_VARS: Record<NonNullable<MiniSparklineProps['tone']>, string> = {
   sales: 'var(--tone-sales)',
   complaints: 'var(--tone-complaints)',
   rate: 'var(--tone-rate)',
+  refund: 'var(--tone-refund)',
   neutral: 'var(--accent)',
 }
 

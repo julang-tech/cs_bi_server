@@ -12,6 +12,7 @@ import {
   type P3Filters,
   type ProductRankingEntry,
   type ProductRankingResponse,
+  type ProductRefundPoint,
   type ProductSalesPoint,
   type StandardIssueRecord,
   type SummaryMetrics,
@@ -114,10 +115,6 @@ function resolveIssueDateByBasis(issue: StandardIssueRecord, dateBasis: DateBasi
   if (dateBasis === 'record_date') {
     return issue.record_date ?? null
   }
-  if (dateBasis === 'refund_date') {
-    return issue.refund_date ?? null
-  }
-
   return issue.order_date ?? issue.record_date ?? null
 }
 
@@ -394,10 +391,15 @@ function sortRankingRows<T extends { complaint_count: number; complaint_rate: nu
 
 export function computeProductRanking(
   salesRows: ProductSalesPoint[],
+  refundRows: ProductRefundPoint[],
   issues: StandardIssueRecord[],
 ): ProductRankingEntry[] {
   const spuSales = new Map<string, number>()
   const skcSales = new Map<string, number>()
+  const spuRefundQty = new Map<string, number>()
+  const spuRefundAmount = new Map<string, number>()
+  const skcRefundQty = new Map<string, number>()
+  const skcRefundAmount = new Map<string, number>()
 
   for (const row of salesRows) {
     if (!row.spu || !row.skc) {
@@ -405,6 +407,17 @@ export function computeProductRanking(
     }
     spuSales.set(row.spu, (spuSales.get(row.spu) ?? 0) + row.sales_qty)
     skcSales.set(`${row.spu}__${row.skc}`, (skcSales.get(`${row.spu}__${row.skc}`) ?? 0) + row.sales_qty)
+  }
+
+  for (const row of refundRows) {
+    if (!row.spu || !row.skc) {
+      continue
+    }
+    const pairKey = `${row.spu}__${row.skc}`
+    spuRefundQty.set(row.spu, (spuRefundQty.get(row.spu) ?? 0) + row.refund_qty)
+    spuRefundAmount.set(row.spu, (spuRefundAmount.get(row.spu) ?? 0) + row.refund_amount)
+    skcRefundQty.set(pairKey, (skcRefundQty.get(pairKey) ?? 0) + row.refund_qty)
+    skcRefundAmount.set(pairKey, (skcRefundAmount.get(pairKey) ?? 0) + row.refund_amount)
   }
 
   const spuComplaints = new Map<string, number>()
@@ -442,7 +455,12 @@ export function computeProductRanking(
     skcComplaints.set(`${issue.spu}__${issue.skc}`, (skcComplaints.get(`${issue.spu}__${issue.skc}`) ?? 0) + 1)
   }
 
-  const spus = new Set<string>([...spuSales.keys(), ...spuComplaints.keys()])
+  const spus = new Set<string>([
+    ...spuSales.keys(),
+    ...spuComplaints.keys(),
+    ...spuRefundQty.keys(),
+    ...spuRefundAmount.keys(),
+  ])
   const ranking: ProductRankingEntry[] = [...spus]
     .map((spu) => {
       const childPairs = new Set<string>()
@@ -456,14 +474,23 @@ export function computeProductRanking(
           childPairs.add(key)
         }
       }
+      for (const key of skcRefundQty.keys()) {
+        if (key.startsWith(`${spu}__`)) {
+          childPairs.add(key)
+        }
+      }
 
       const children = [...childPairs]
         .map((pairKey) => {
           const skc = pairKey.slice(spu.length + 2)
           const sales_qty = skcSales.get(pairKey) ?? 0
+          const refund_qty = skcRefundQty.get(pairKey) ?? 0
+          const refund_amount = skcRefundAmount.get(pairKey) ?? 0
           const complaint_count = skcComplaints.get(pairKey) ?? 0
           return {
             skc,
+            refund_qty,
+            refund_amount,
             sales_qty,
             complaint_count,
             complaint_rate: safeRate(complaint_count, sales_qty),
@@ -472,11 +499,16 @@ export function computeProductRanking(
         .sort((left, right) => sortRankingRows(left.skc, right.skc, left, right))
 
       const sales_qty = spuSales.get(spu) ?? children.reduce((sum, child) => sum + child.sales_qty, 0)
+      const refund_qty = spuRefundQty.get(spu) ?? children.reduce((sum, child) => sum + child.refund_qty, 0)
+      const refund_amount =
+        spuRefundAmount.get(spu) ?? children.reduce((sum, child) => sum + child.refund_amount, 0)
       const complaint_count =
         spuComplaints.get(spu) ?? children.reduce((sum, child) => sum + child.complaint_count, 0)
 
       return {
         spu,
+        refund_qty,
+        refund_amount,
         sales_qty,
         complaint_count,
         complaint_rate: safeRate(complaint_count, sales_qty),

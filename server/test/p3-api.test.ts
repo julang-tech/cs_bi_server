@@ -5,6 +5,7 @@ import type {
   IssueProvider,
   OrderEnrichmentRepository,
   P3Filters,
+  ProductRefundPoint,
   ProductSalesPoint,
   SalesRepository,
   StandardIssueRecord,
@@ -30,6 +31,15 @@ class StubSalesRepository implements SalesRepository {
       { spu: 'SPU-2', skc: 'SKC-2', sales_qty: 8 },
       { spu: 'SPU-3', skc: 'SKC-3', sales_qty: 5 },
       { spu: 'SPU-4', skc: 'SKC-4', sales_qty: 4 },
+    ]
+  }
+
+  async fetchProductRefunds(_filters: P3Filters): Promise<ProductRefundPoint[]> {
+    return [
+      { spu: 'SPU-1', skc: 'SKC-1', refund_qty: 1, refund_amount: 10 },
+      { spu: 'SPU-2', skc: 'SKC-2', refund_qty: 0, refund_amount: 0 },
+      { spu: 'SPU-3', skc: 'SKC-3', refund_qty: 1, refund_amount: 8 },
+      { spu: 'SPU-4', skc: 'SKC-4', refund_qty: 1, refund_amount: 12 },
     ]
   }
 
@@ -168,11 +178,11 @@ async function run() {
 
   const optionsResponse = await app.inject({
     method: 'GET',
-    url: '/api/bi/p3/drilldown-options?date_from=2026-03-01&date_to=2026-03-31&date_basis=refund_date',
+    url: '/api/bi/p3/drilldown-options?date_from=2026-03-01&date_to=2026-03-31&date_basis=order_date',
   })
   const optionsPayload = optionsResponse.json()
   assert.equal(optionsResponse.statusCode, 200)
-  assert.equal(optionsPayload.filters.date_basis, 'refund_date')
+  assert.equal(optionsPayload.filters.date_basis, 'order_date')
   assert.equal(optionsPayload.options[0].target_page, 'p4')
   assert.equal(optionsPayload.options[2].major_issue_type, 'logistics')
 

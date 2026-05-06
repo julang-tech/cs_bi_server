@@ -19,6 +19,7 @@ export interface FocusMetricSpec {
   formatter: (n: number) => string
   history: TrendPoint[]
   current: TrendPoint[]
+  tone?: 'sales' | 'complaints' | 'rate' | 'refund' | 'neutral'
 }
 
 export interface FocusMetricSummary {
@@ -186,7 +187,7 @@ export function FocusLineChart({
         cx={cx}
         cy={cy}
         r={4}
-        fill="var(--accent)"
+        fill="var(--focus-chart-accent, var(--accent))"
         stroke="var(--surface)"
         strokeWidth={1.5}
       />
@@ -213,7 +214,7 @@ export function FocusLineChart({
         cx={cx}
         cy={cy}
         r={5}
-        fill="var(--accent)"
+        fill="var(--focus-chart-accent, var(--accent))"
         stroke="var(--surface)"
         strokeWidth={2}
       />
@@ -236,7 +237,7 @@ export function FocusLineChart({
           cy={cy}
           r={5}
           fill="var(--surface)"
-          stroke="var(--accent)"
+          stroke="var(--focus-chart-accent, var(--accent))"
           strokeWidth={2}
         />
         <text
@@ -261,7 +262,10 @@ export function FocusLineChart({
   }
 
   return (
-    <section className="focus-chart" aria-label={ariaLabel ?? active.label}>
+    <section
+      className={`focus-chart ${active.tone && active.tone !== 'neutral' ? `focus-chart--tone-${active.tone}` : ''}`}
+      aria-label={ariaLabel ?? active.label}
+    >
       <div className="focus-chart__tabs" role="tablist">
         {metrics.map((m) => (
           <button
@@ -313,8 +317,8 @@ export function FocusLineChart({
           >
             <defs>
               <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.18} />
-                <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
+                <stop offset="0%" stopColor="var(--focus-chart-accent, var(--accent))" stopOpacity={0.18} />
+                <stop offset="100%" stopColor="var(--focus-chart-accent, var(--accent))" stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid
@@ -344,7 +348,7 @@ export function FocusLineChart({
               // is clickable — keeps the thin line for non-interactive charts.
               cursor={
                 onBucketSelect
-                  ? { fill: 'var(--accent)', fillOpacity: 0.06, stroke: 'var(--accent)', strokeOpacity: 0.4, strokeWidth: 1 }
+                  ? { fill: 'var(--focus-chart-accent, var(--accent))', fillOpacity: 0.06, stroke: 'var(--focus-chart-accent, var(--accent))', strokeOpacity: 0.4, strokeWidth: 1 }
                   : { stroke: 'var(--border)', strokeWidth: 1 }
               }
               content={
@@ -359,7 +363,7 @@ export function FocusLineChart({
             {selectedBucket ? (
               <ReferenceLine
                 x={selectedBucket}
-                stroke="var(--accent)"
+                stroke="var(--focus-chart-accent, var(--accent))"
                 strokeWidth={1.5}
                 strokeOpacity={0.6}
               />
@@ -394,10 +398,10 @@ export function FocusLineChart({
             <Line
               type="monotone"
               dataKey="value"
-              stroke="var(--accent)"
+              stroke="var(--focus-chart-accent, var(--accent))"
               strokeWidth={2}
               dot={renderSelectedDot}
-              activeDot={{ r: 4, fill: 'var(--accent)', stroke: 'var(--surface)', strokeWidth: 1.5 }}
+              activeDot={{ r: 4, fill: 'var(--focus-chart-accent, var(--accent))', stroke: 'var(--surface)', strokeWidth: 1.5 }}
               isAnimationActive={false}
               connectNulls={false}
             />
@@ -405,11 +409,11 @@ export function FocusLineChart({
             <Line
               type="monotone"
               dataKey="valueDashed"
-              stroke="var(--accent)"
+              stroke="var(--focus-chart-accent, var(--accent))"
               strokeWidth={2}
               strokeDasharray="4 4"
               dot={renderLatestDot}
-              activeDot={{ r: 4, fill: 'var(--accent)', stroke: 'var(--surface)', strokeWidth: 1.5 }}
+              activeDot={{ r: 4, fill: 'var(--focus-chart-accent, var(--accent))', stroke: 'var(--surface)', strokeWidth: 1.5 }}
               isAnimationActive={false}
               connectNulls={false}
             />
