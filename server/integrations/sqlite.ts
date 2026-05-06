@@ -7,6 +7,7 @@ import type {
   OrderEnrichmentRepository,
   OrderLineContext,
   P3Filters,
+  ProductRefundPoint,
   ProductSalesPoint,
   SalesRepository,
   SourceBundle,
@@ -715,6 +716,7 @@ export class SqliteP3BigQueryCacheRepository implements SalesRepository, OrderEn
   private readonly summaryCache = new TtlCache<SummaryMetrics>(300_000)
   private readonly trendCache = new TtlCache<TrendPoint[]>(300_000)
   private readonly productSalesCache = new TtlCache<ProductSalesPoint[]>(300_000)
+  private readonly productRefundCache = new TtlCache<ProductRefundPoint[]>(300_000)
 
   constructor(
     private readonly dbPath: string,
@@ -791,6 +793,15 @@ export class SqliteP3BigQueryCacheRepository implements SalesRepository, OrderEn
       }))
     })
     return this.productSalesCache.set(cacheKey, result)
+  }
+
+  async fetchProductRefunds(filters: P3Filters): Promise<ProductRefundPoint[]> {
+    const cacheKey = JSON.stringify(['product-refunds', filters])
+    const cached = this.productRefundCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+    return this.productRefundCache.set(cacheKey, [])
   }
 
   async enrichIssues(issues: StandardIssueRecord[]) {

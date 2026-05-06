@@ -160,7 +160,7 @@ export interface P2SpuRow {
 export type MajorIssueType = 'product' | 'logistics' | 'warehouse' | 'refund' | 'other'
 export interface P3Filters extends PeriodWindow {
   grain: Grain
-  date_basis: 'record_date' | 'order_date' | 'refund_date'
+  date_basis: 'record_date' | 'order_date'
   spu?: string
   skc?: string
   sku?: string
@@ -195,11 +195,15 @@ export interface P3Dashboard {
 }
 export interface P3ProductRankingRow {
   spu: string
+  refund_qty: number
+  refund_amount: number
   sales_qty: number
   complaint_count: number
   complaint_rate: number
   children: Array<{
     skc: string
+    refund_qty: number
+    refund_amount: number
     sales_qty: number
     complaint_count: number
     complaint_rate: number

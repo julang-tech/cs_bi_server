@@ -2367,13 +2367,22 @@ parsed2 AS (
         END
     END AS parsed_spu
   FROM parsed
+),
+parsed3 AS (
+  SELECT
+    *,
+    CASE
+      WHEN REGEXP_CONTAINS(parsed_spu, r'(?i)^lws-') THEN REGEXP_REPLACE(parsed_spu, r'(?i)^lws-', '')
+      ELSE parsed_spu
+    END AS normalized_spu
+  FROM parsed2
 )
 SELECT
   CAST(order_id AS STRING) AS order_id,
   CAST(order_name AS STRING) AS order_no,
   COALESCE(
-    JSON_VALUE(TO_JSON_STRING(parsed2), '$.line_item_id'),
-    JSON_VALUE(TO_JSON_STRING(parsed2), '$.id'),
+    JSON_VALUE(TO_JSON_STRING(parsed3), '$.line_item_id'),
+    JSON_VALUE(TO_JSON_STRING(parsed3), '$.id'),
     TO_HEX(SHA256(CONCAT(
       COALESCE(CAST(order_id AS STRING), ''),
       '|',
@@ -2396,7 +2405,7 @@ SELECT
   ) AS line_key,
   CAST(sku AS STRING) AS sku,
   parsed_skc AS skc,
-  parsed_spu AS spu,
+  normalized_spu AS spu,
   CAST(product_id AS STRING) AS product_id,
   CAST(variant_id AS STRING) AS variant_id,
   COALESCE(quantity, 0) AS quantity,
@@ -2404,7 +2413,7 @@ SELECT
   COALESCE(is_insurance_item, FALSE) AS is_insurance_item,
   COALESCE(is_price_adjustment, FALSE) AS is_price_adjustment,
   COALESCE(is_shipping_cost, FALSE) AS is_shipping_cost
-FROM parsed2
+FROM parsed3
       `,
       params: { date_from: dateFrom, date_to: dateTo },
     }))

@@ -504,6 +504,31 @@
   background: #f0f8f4;
 }
 
+.kpi-card--tone-refund {
+  border-color: rgba(194, 77, 91, 0.22);
+  background: #fff6f4;
+}
+
+.kpi-card--tone-refund.kpi-card--selectable:hover {
+  border-color: rgba(194, 77, 91, 0.4);
+}
+
+.kpi-card--tone-refund.kpi-card--active {
+  border-color: rgba(194, 77, 91, 0.58);
+  background: #fff0ed;
+  box-shadow: inset 0 0 0 1px rgba(194, 77, 91, 0.1);
+}
+
+.kpi-card--tone-refund .kpi-card__info {
+  border-color: rgba(194, 77, 91, 0.28);
+  color: var(--tone-refund);
+  background: #fffafa;
+}
+
+.kpi-card--tone-refund .kpi-card__tooltip {
+  border-color: rgba(194, 77, 91, 0.24);
+}
+
 .kpi-card__header {
   display: flex;
   align-items: center;
@@ -1082,6 +1107,10 @@
 .focus-chart__summary-delta--down { color: var(--tone-down); }
 .focus-chart__summary-delta--neutral { color: var(--muted); }
 .focus-chart__summary-delta--muted { color: var(--muted-strong); }
+
+.focus-chart--tone-refund {
+  --focus-chart-accent: var(--tone-refund);
+}
 
 .focus-chart__peak-label {
   fill: var(--muted-strong);

@@ -7,6 +7,8 @@ interface DeltaInfo {
   text: string
 }
 
+export type MetricTone = 'sales' | 'complaints' | 'rate' | 'refund' | 'neutral'
+
 interface KpiCardBaseProps {
   metricKey?: string
   active?: boolean
@@ -14,7 +16,8 @@ interface KpiCardBaseProps {
   label: string
   description?: string
   sparkline?: TrendPoint[]
-  sparklineTone?: 'sales' | 'complaints' | 'rate' | 'neutral'
+  sparklineTone?: MetricTone
+  tone?: MetricTone
 }
 
 export interface KpiCardCurrentProps extends KpiCardBaseProps {
@@ -40,6 +43,7 @@ export function KpiCard(props: KpiCardProps) {
   const className = [
     'kpi-card',
     `kpi-card--${props.variant}`,
+    props.tone && props.tone !== 'neutral' ? `kpi-card--tone-${props.tone}` : '',
     props.active ? 'kpi-card--active' : '',
     isSelectable ? 'kpi-card--selectable' : '',
   ].filter(Boolean).join(' ')

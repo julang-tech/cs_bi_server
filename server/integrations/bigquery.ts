@@ -5,6 +5,7 @@ import type {
   OrderEnrichmentRepository,
   OrderLineContext,
   P3Filters,
+  ProductRefundPoint,
   ProductSalesPoint,
   SalesRepository,
   StandardIssueRecord,
@@ -46,6 +47,10 @@ export class SampleSalesRepository implements SalesRepository {
   }
 
   async fetchProductSales(): Promise<ProductSalesPoint[]> {
+    return []
+  }
+
+  async fetchProductRefunds(): Promise<ProductRefundPoint[]> {
     return []
   }
 }
@@ -125,6 +130,7 @@ export class BigQuerySalesRepository implements SalesRepository {
   private readonly summaryCache = new TtlCache<SummaryMetrics>(300_000)
   private readonly trendCache = new TtlCache<TrendPoint[]>(300_000)
   private readonly productSalesCache = new TtlCache<ProductSalesPoint[]>(300_000)
+  private readonly productRefundCache = new TtlCache<ProductRefundPoint[]>(300_000)
 
   constructor(private readonly client: BigQueryLike) {}
 
@@ -295,6 +301,15 @@ GROUP BY 1, 2
       sales_qty: Number(row.sales_qty ?? 0),
     }))
     return this.productSalesCache.set(cacheKey, result)
+  }
+
+  async fetchProductRefunds(filters: P3Filters): Promise<ProductRefundPoint[]> {
+    const cacheKey = JSON.stringify(['product-refunds', filters])
+    const cached = this.productRefundCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+    return this.productRefundCache.set(cacheKey, [])
   }
 }
 

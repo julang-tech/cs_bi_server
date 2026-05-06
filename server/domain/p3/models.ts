@@ -1,7 +1,7 @@
 export const GRAINS = ['day', 'week', 'month'] as const
 export type Grain = (typeof GRAINS)[number]
 
-export const DATE_BASES = ['record_date', 'order_date', 'refund_date'] as const
+export const DATE_BASES = ['record_date', 'order_date'] as const
 export type DateBasis = (typeof DATE_BASES)[number]
 
 export const MAJOR_ISSUE_TYPES = ['product', 'warehouse', 'logistics', 'refund', 'other'] as const
@@ -54,6 +54,13 @@ export type ProductSalesPoint = {
   spu: string
   skc: string
   sales_qty: number
+}
+
+export type ProductRefundPoint = {
+  spu: string
+  skc: string
+  refund_qty: number
+  refund_amount: number
 }
 
 export type IssueSharePoint = {
@@ -118,6 +125,8 @@ export type DashboardComputation = {
 
 export type ProductRankingChild = {
   skc: string
+  refund_qty: number
+  refund_amount: number
   sales_qty: number
   complaint_count: number
   complaint_rate: number
@@ -125,6 +134,8 @@ export type ProductRankingChild = {
 
 export type ProductRankingEntry = {
   spu: string
+  refund_qty: number
+  refund_amount: number
   sales_qty: number
   complaint_count: number
   complaint_rate: number
@@ -202,6 +213,7 @@ export interface SalesRepository {
   fetchSummary(filters: P3Filters): Promise<SummaryMetrics>
   fetchTrends(filters: P3Filters): Promise<TrendPoint[]>
   fetchProductSales(filters: P3Filters): Promise<ProductSalesPoint[]>
+  fetchProductRefunds(filters: P3Filters): Promise<ProductRefundPoint[]>
   getDataAsOf?: (dateFrom: string, dateTo: string) => string | null | Promise<string | null>
 }
 

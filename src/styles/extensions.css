@@ -192,16 +192,22 @@
 
 .table-wrap {
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--border);
   background: var(--surface);
   box-shadow: none;
 }
 
+.table-wrap .table-scroll {
+  overflow-x: auto;
+  overflow-y: visible;
+}
+
 .table-head {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   flex-wrap: wrap;
   gap: var(--space-3);
   padding: 12px 14px 8px;
@@ -234,7 +240,9 @@
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
+  width: 100%;
 }
 
 .table-sort-tools-row {
@@ -242,6 +250,10 @@
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
+}
+
+.table-sort-tools-row:first-child {
+  order: 3;
 }
 
 .table-sort-tools-row--actions {
@@ -323,6 +335,12 @@
 
 .picker-trigger--clear {
   color: var(--muted);
+}
+
+.view-toggle-trigger {
+  border-color: rgba(11, 110, 79, 0.24);
+  background: #f4faf7;
+  color: var(--accent);
 }
 
 .picker-panel {
@@ -430,6 +448,10 @@
   display: grid;
   grid-template-columns: minmax(180px, 0.85fr) minmax(240px, 1fr);
   min-height: 300px;
+}
+
+.product-picker-body--skc-only {
+  grid-template-columns: minmax(260px, 1fr);
 }
 
 .product-picker-column {
@@ -542,13 +564,37 @@
 }
 
 .skc-row td {
-  background: rgba(31, 41, 37, 0.025);
+  background: #e8f4ee;
   color: var(--muted-strong);
   font-size: var(--fs-sm);
 }
 
 .skc-row td:first-child {
-  padding-left: 24px;
+  position: relative;
+  padding-left: 30px;
+}
+
+.skc-row td:first-child::before {
+  content: '';
+  position: absolute;
+  left: 14px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 999px;
+  background: rgba(11, 110, 79, 0.32);
+}
+
+.skc-row:hover td {
+  background: #dceee5;
+}
+
+.skc-row--flat td:first-child {
+  padding-left: 12px;
+}
+
+.skc-row--flat td:first-child::before {
+  content: none;
 }
 
 .spu-cell-btn {
@@ -570,6 +616,11 @@
 .skc-cell {
   color: var(--text);
   font-weight: 500;
+}
+
+.skc-expand-cell {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .sort-header-btn {
@@ -597,6 +648,71 @@
   color: var(--accent);
 }
 
+.table-header-tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 18px;
+}
+
+.table-header-tooltip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid rgba(102, 115, 109, 0.32);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.table-header-tooltip {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  z-index: 9999;
+  width: min(300px, 72vw);
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -4px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease;
+}
+
+.table-header-tooltip-wrap:hover .table-header-tooltip,
+.sort-header-btn:focus .table-header-tooltip {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.table-header-tooltip--portal {
+  position: fixed;
+  z-index: 2000;
+  opacity: 1;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
 .refund-metric-cell {
   font-variant-numeric: tabular-nums;
   text-align: center;
@@ -605,6 +721,18 @@
 .sorted-metric-cell {
   background: rgba(11, 110, 79, 0.045) !important;
   font-weight: 600;
+}
+
+.table-wrap tbody tr.skc-row > td {
+  background: #edf7f2 !important;
+}
+
+.table-wrap tbody tr.skc-row > td.sorted-metric-cell {
+  background: #e4f2eb !important;
+}
+
+.table-wrap tbody tr.skc-row:hover > td {
+  background: #dceee5 !important;
 }
 
 .empty-cell {
@@ -966,12 +1094,15 @@
 
   .table-sort-tools {
     width: 100%;
-    justify-items: stretch;
+    justify-content: flex-end;
   }
 
   .table-sort-tools-row {
-    width: 100%;
-    justify-content: flex-start;
+    justify-content: flex-end;
+  }
+
+  .table-sort-tools-row:first-child {
+    justify-content: flex-end;
   }
 }
 

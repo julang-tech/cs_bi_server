@@ -19,7 +19,7 @@ import { IssueStructure } from './IssueStructure'
 import { ProductComplaintRanking } from './ProductComplaintRanking'
 import type { Grain, P3Dashboard as P3DashboardData, P3IssueShareItem, P3ProductRankingRow } from '../../api/types'
 
-type P3DateBasis = 'record_date' | 'order_date' | 'refund_date'
+type P3DateBasis = 'record_date' | 'order_date'
 
 const COMPLAINT_METRIC_DESCRIPTIONS: Record<P3DateBasis, Partial<Record<string, string>>> = {
   record_date: {
@@ -29,10 +29,6 @@ const COMPLAINT_METRIC_DESCRIPTIONS: Record<P3DateBasis, Partial<Record<string, 
   order_date: {
     complaint_count: '订单时间口径：按客诉关联订单的下单日期归属客诉量。',
     complaint_rate: '订单时间口径：该批订单产生的客诉量 ÷ 该批订单销量，是最接近 cohort 的客诉率。',
-  },
-  refund_date: {
-    complaint_count: '退款时间口径：按客诉关联退款事件的发生日期归属客诉量。',
-    complaint_rate: '退款时间口径：退款时间客诉量 ÷ 同期订单销量，适合看退款流入视角，不是严格订单 cohort 率。',
   },
 }
 
@@ -199,7 +195,6 @@ export default function P3Dashboard() {
               >
                 <option value="record_date">客诉登记时间</option>
                 <option value="order_date">订单时间</option>
-                <option value="refund_date">退款时间</option>
               </select>
             </div>
           }

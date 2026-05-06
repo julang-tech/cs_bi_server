@@ -2027,7 +2027,7 @@ async function testSyncRefreshesShopifyBiV2Cache() {
             line_key: 'order-v2-1:SKU-800:0',
             sku: 'LWS-PT21BK-M',
             skc: usesParsedSkuSpu ? 'LWS-PT21BK' : 'prod-123',
-            spu: usesParsedSkuSpu ? 'LWS-PT21BK' : 'prod-123',
+            spu: usesParsedSkuSpu ? 'PT21' : 'prod-123',
             product_id: 'prod-123',
             variant_id: 'var-800',
             quantity: 1,
@@ -2095,16 +2095,16 @@ async function testSyncRefreshesShopifyBiV2Cache() {
     date_to: '2026-04-30',
     grain: 'month',
   }, 20)
-  assert.equal(table.rows[0]?.spu, 'LWS-PT21BK')
+  assert.equal(table.rows[0]?.spu, 'PT21')
   assert.notEqual(table.rows[0]?.spu, 'prod-123')
   const options = cache.queryP2SpuSkcOptions({
     date_from: '2026-04-01',
     date_to: '2026-04-30',
     grain: 'month',
   }).options
-  assert.deepEqual(options.spus, ['LWS-PT21BK'])
+  assert.deepEqual(options.spus, ['PT21'])
   assert.deepEqual(options.skcs, ['LWS-PT21BK'])
-  assert.deepEqual(options.pairs, [{ spu: 'LWS-PT21BK', skc: 'LWS-PT21BK' }])
+  assert.deepEqual(options.pairs, [{ spu: 'PT21', skc: 'LWS-PT21BK' }])
   cache.close()
 }
 

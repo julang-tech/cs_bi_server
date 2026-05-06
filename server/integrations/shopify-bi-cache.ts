@@ -7,6 +7,7 @@ import type {
   OrderEnrichmentRepository,
   OrderLineContext,
   P3Filters,
+  ProductRefundPoint,
   ProductSalesPoint,
   SalesRepository,
   StandardIssueRecord,
@@ -226,6 +227,7 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
   private readonly summaryCache = new TtlCache<SummaryMetrics>(300_000)
   private readonly trendCache = new TtlCache<TrendPoint[]>(300_000)
   private readonly productSalesCache = new TtlCache<ProductSalesPoint[]>(300_000)
+  private readonly productRefundCache = new TtlCache<ProductRefundPoint[]>(300_000)
   private readonly db: DatabaseSync
 
   constructor(
@@ -477,6 +479,59 @@ export class SqliteShopifyBiCacheRepository implements SalesRepository, OrderEnr
 
     const result = [...grouped.values()]
     return this.productSalesCache.set(cacheKey, result)
+  }
+
+  async fetchProductRefunds(filters: P3Filters): Promise<ProductRefundPoint[]> {
+    const cacheKey = JSON.stringify(['p3-product-refunds', filters])
+    const cached = this.productRefundCache.get(cacheKey)
+    if (cached) {
+      return cached
+    }
+
+    const params = this.buildP3Params(filters)
+    const productFilter = this.buildP3ProductFilter()
+    const datePredicate =
+      filters.date_basis === 'order_date'
+        ? 'o.processed_date BETWEEN @date_from AND @date_to'
+        : 're.refund_date BETWEEN @date_from AND @date_to'
+
+    const rows = this.db
+      .prepare(`
+        SELECT
+          li.spu AS spu,
+          li.skc AS skc,
+          SUM(COALESCE(re.refund_quantity, 0)) AS refund_qty,
+          SUM(COALESCE(re.refund_subtotal_usd, 0)) AS refund_amount
+        FROM shopify_bi_refund_events re
+        JOIN shopify_bi_orders o ON o.order_id = re.order_id
+        JOIN shopify_bi_order_lines li
+          ON li.order_id = re.order_id
+         AND li.sku = re.sku
+        WHERE ${datePredicate}
+          AND li.is_insurance_item = 0
+          AND li.is_price_adjustment = 0
+          AND li.is_shipping_cost = 0
+          AND ${productFilter}
+          AND li.spu IS NOT NULL
+          AND TRIM(li.spu) != ''
+          AND li.skc IS NOT NULL
+          AND TRIM(li.skc) != ''
+        GROUP BY li.spu, li.skc
+      `)
+      .all(params) as Array<{
+      spu: string
+      skc: string
+      refund_qty: number
+      refund_amount: number
+    }>
+
+    const result: ProductRefundPoint[] = rows.map((row) => ({
+      spu: row.spu,
+      skc: row.skc,
+      refund_qty: Number(row.refund_qty ?? 0),
+      refund_amount: Number(row.refund_amount ?? 0),
+    }))
+    return this.productRefundCache.set(cacheKey, result)
   }
 
   async enrichIssues(issues: StandardIssueRecord[]) {

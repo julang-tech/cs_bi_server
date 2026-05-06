@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { DashboardShell } from '../../shared/components/DashboardShell'
 import { FilterBar } from '../../shared/components/FilterBar'
 import { FocusLineChart, type FocusMetricSpec, type FocusMetricSummary } from '../../shared/components/FocusLineChart'
-import { KpiCard } from '../../shared/components/KpiCard'
+import { KpiCard, type MetricTone } from '../../shared/components/KpiCard'
 import { KpiSection } from '../../shared/components/KpiSection'
 import { useDashboardData } from '../../shared/hooks/useDashboardData'
 import { fetchRefundOverview } from '../../api/p2'
@@ -29,15 +29,28 @@ type P2DateBasis = 'order_date' | 'refund_date'
 
 const REFUND_METRIC_DESCRIPTIONS: Record<P2DateBasis, Partial<Record<CardKey, string>>> = {
   order_date: {
-    refund_order_count: '订单时间口径：统计所选下单时间范围内，当前累计发生过退款的订单数。',
-    refund_amount: '订单时间口径：统计所选下单时间范围内订单的当前累计退款金额。',
-    refund_amount_ratio: '订单时间口径：所选下单时间范围内订单的当前累计退款金额 ÷ 同批订单净实付金额。',
+    refund_order_count: '退款影响：该指标会随退款发生而增加，并受页面“退款口径”影响。订单时间口径：统计所选下单时间范围内，当前累计发生过退款的订单数。',
+    refund_amount: '退款影响：该指标会随退款发生而增加，并直接扣减净 GMV。订单时间口径：统计所选下单时间范围内订单的当前累计退款金额。',
+    net_revenue_amount: '退款影响：净 GMV 会扣除退款，退款金额越高，该指标越低；订单时间口径下反映同批订单的累计退款扣减。',
+    refund_amount_ratio: '退款影响：分子是退款金额，退款越高该占比越高；净实付金额只作为分母，不扣退款。订单时间口径：所选下单时间范围内订单的当前累计退款金额 ÷ 同批订单净实付金额。',
   },
   refund_date: {
-    refund_order_count: '退款时间口径：统计所选时间范围内实际发生退款事件的订单数。',
-    refund_amount: '退款时间口径：统计所选时间范围内实际发生的退款金额。',
-    refund_amount_ratio: '退款时间口径：所选时间范围内实际发生退款金额 ÷ 同期订单时间范围内净实付金额。',
+    refund_order_count: '退款影响：该指标会随退款发生而增加，并受页面“退款口径”影响。退款时间口径：统计所选时间范围内实际发生退款事件的订单数。',
+    refund_amount: '退款影响：该指标会随退款发生而增加，并直接扣减净 GMV。退款时间口径：统计所选时间范围内实际发生的退款金额。',
+    net_revenue_amount: '退款影响：净 GMV 会扣除退款，退款金额越高，该指标越低；退款时间口径下反映当期退款流入造成的扣减。',
+    refund_amount_ratio: '退款影响：分子是退款金额，退款越高该占比越高；净实付金额只作为分母，不扣退款。退款时间口径：所选时间范围内实际发生退款金额 ÷ 同期订单时间范围内净实付金额。',
   },
+}
+
+const REFUND_TONE_METRICS = new Set<CardKey>([
+  'refund_order_count',
+  'refund_amount',
+  'net_revenue_amount',
+  'refund_amount_ratio',
+])
+
+function getMetricTone(key: CardKey): MetricTone {
+  return REFUND_TONE_METRICS.has(key) ? 'refund' : 'neutral'
 }
 
 function getRefundMetricDescription(key: CardKey, dateBasis: P2DateBasis) {
@@ -91,15 +104,16 @@ export default function P2Dashboard() {
     polarity: MetricPolarity
     isRate: boolean
     description: string
+    tone: MetricTone
   }> = [
-    { key: 'order_count', label: '订单数', sparkline: true, formatter: formatInteger, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.order_count') },
-    { key: 'sales_qty', label: '销量', sparkline: false, formatter: formatInteger, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.sales_qty') },
-    { key: 'refund_order_count', label: '退款订单数', sparkline: false, formatter: formatInteger, deltaMode: 'percent', polarity: 'negative', isRate: false, description: getRefundMetricDescription('refund_order_count', dateBasis) },
-    { key: 'refund_amount', label: '退款金额', sparkline: true, formatter: formatMoney, deltaMode: 'percent', polarity: 'negative', isRate: false, description: getRefundMetricDescription('refund_amount', dateBasis) },
-    { key: 'gmv', label: 'GMV', sparkline: true, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.gmv') },
-    { key: 'net_received_amount', label: '净实付金额', sparkline: false, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.net_received_amount') },
-    { key: 'net_revenue_amount', label: '净 GMV', sparkline: false, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.net_revenue_amount') },
-    { key: 'refund_amount_ratio', label: '退款金额占比', sparkline: true, formatter: formatPercent1, deltaMode: 'pp', polarity: 'negative', isRate: true, description: getRefundMetricDescription('refund_amount_ratio', dateBasis) },
+    { key: 'order_count', label: '订单数', sparkline: true, formatter: formatInteger, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.order_count'), tone: getMetricTone('order_count') },
+    { key: 'sales_qty', label: '销量', sparkline: false, formatter: formatInteger, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.sales_qty'), tone: getMetricTone('sales_qty') },
+    { key: 'refund_order_count', label: '退款订单数', sparkline: false, formatter: formatInteger, deltaMode: 'percent', polarity: 'negative', isRate: false, description: getRefundMetricDescription('refund_order_count', dateBasis), tone: getMetricTone('refund_order_count') },
+    { key: 'refund_amount', label: '退款金额', sparkline: true, formatter: formatMoney, deltaMode: 'percent', polarity: 'negative', isRate: false, description: getRefundMetricDescription('refund_amount', dateBasis), tone: getMetricTone('refund_amount') },
+    { key: 'gmv', label: 'GMV', sparkline: true, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.gmv'), tone: getMetricTone('gmv') },
+    { key: 'net_received_amount', label: '净实付金额', sparkline: false, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getMetricDescription('p2.net_received_amount'), tone: getMetricTone('net_received_amount') },
+    { key: 'net_revenue_amount', label: '净 GMV', sparkline: false, formatter: formatMoney, deltaMode: 'percent', polarity: 'positive', isRate: false, description: getRefundMetricDescription('net_revenue_amount', dateBasis), tone: getMetricTone('net_revenue_amount') },
+    { key: 'refund_amount_ratio', label: '退款金额占比', sparkline: true, formatter: formatPercent1, deltaMode: 'pp', polarity: 'negative', isRate: true, description: getRefundMetricDescription('refund_amount_ratio', dateBasis), tone: getMetricTone('refund_amount_ratio') },
   ]
 
   const enrichedCards = cards.map((c) => {
@@ -119,6 +133,7 @@ export default function P2Dashboard() {
       formatter: c.formatter,
       history: trend.history,
       current: trend.current,
+      tone: c.tone,
     }
   })
 
@@ -241,6 +256,8 @@ export default function P2Dashboard() {
                   active={activeMetricKey === c.key}
                   onSelect={(next) => setActiveMetricKey(next as CardKey)}
                   sparkline={c.historyTrend}
+                  sparklineTone={c.tone}
+                  tone={c.tone}
                 />
               )
             })}

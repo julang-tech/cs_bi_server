@@ -162,12 +162,13 @@ export class P3Service {
       return cached
     }
 
-    const [salesRows, filtered] = await Promise.all([
+    const [salesRows, refundRows, filtered] = await Promise.all([
       this.salesRepository.fetchProductSales(filters),
+      this.salesRepository.fetchProductRefunds(filters),
       this.getFilteredIssues(filters),
     ])
 
-    const ranking = computeProductRanking(salesRows, filtered.issues)
+    const ranking = computeProductRanking(salesRows, refundRows, filtered.issues)
     const payload = buildProductRankingPayload(
       filters,
       ranking,
