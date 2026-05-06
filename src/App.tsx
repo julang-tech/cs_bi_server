@@ -50,8 +50,8 @@ function App() {
       <aside className="side-nav">
         <div className="side-nav__brand">
           <div className="side-nav__brand-copy">
-            <span className="eyebrow">Julang BI</span>
-            <strong>客服看板</strong>
+            <span className="eyebrow">linco bi</span>
+            <strong>小灵看板</strong>
           </div>
         </div>
         <nav className="side-nav__menu" aria-label="看板导航">
