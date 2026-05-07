@@ -1542,6 +1542,40 @@
    Focus summary block (区块 A)
    =========================================================================== */
 
+
+.focus-summary-blocks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.focus-summary-blocks .focus-summary-block {
+  min-width: 0;
+  box-shadow: none;
+}
+
+.focus-summary-blocks .focus-summary-block__header {
+  margin-bottom: var(--space-2);
+}
+
+.focus-summary-blocks .focus-summary-block h3 {
+  font-size: var(--fs-sm);
+}
+
+.focus-summary-blocks .focus-summary-block__grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.focus-summary-blocks .focus-summary-block__item {
+  padding: 8px 7px;
+}
+
+.focus-summary-blocks .focus-summary-block__item dd {
+  font-size: clamp(14px, 1.2vw, 18px);
+  overflow-wrap: anywhere;
+}
+
 .focus-summary-block {
   padding: 14px;
   border: 1px solid rgba(11, 110, 79, 0.18);
@@ -1620,8 +1654,22 @@
   font-variant-numeric: tabular-nums;
 }
 
+@media (max-width: 1100px) {
+  .focus-summary-blocks {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 760px) {
+  .focus-summary-blocks {
+    grid-template-columns: 1fr;
+  }
+
   .focus-summary-block__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .focus-summary-blocks .focus-summary-block__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

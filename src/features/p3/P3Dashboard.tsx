@@ -151,12 +151,16 @@ export default function P3Dashboard() {
     }
   })
 
-  const activeFocusMetric = focusMetrics.find((metric) => metric.key === activeMetricKey) ?? focusMetrics[0]
-  const focusSummary = aggregateFocusMetric(
-    activeFocusMetric,
-    focusSelection,
-    (bucket) => formatFocusBucketLabel(bucket, grain),
-  )
+  const focusSummarySelection: FocusSelection = { type: 'all' }
+  const focusSummaryBlocks = focusMetrics.map((metric, index) => ({
+    metric,
+    blockLabel: `区块 ${String.fromCharCode(65 + index)} · ${metric.label}`,
+    summary: aggregateFocusMetric(
+      metric,
+      focusSummarySelection,
+      (bucket) => formatFocusBucketLabel(bucket, grain),
+    ),
+  }))
 
   return (
     <DashboardShell
@@ -223,13 +227,18 @@ export default function P3Dashboard() {
             })}
         </KpiSection>
       }
-      focusSummaryBlock={loading || !activeFocusMetric ? null : (
-        <FocusSummaryBlock
-          metricLabel={activeFocusMetric.label}
-          selection={focusSelection}
-          summary={focusSummary}
-          onReset={() => setFocusSelection({ type: 'all' })}
-        />
+      focusSummaryBlock={loading ? null : (
+        <div className="focus-summary-blocks" aria-label="四个 KPI 的焦点范围统计">
+          {focusSummaryBlocks.map(({ metric, blockLabel, summary }) => (
+            <FocusSummaryBlock
+              key={metric.key}
+              metricLabel={metric.label}
+              blockLabel={blockLabel}
+              selection={focusSummarySelection}
+              summary={summary}
+            />
+          ))}
+        </div>
       )}
       focusChart={loading ? null : (
         <FocusLineChart
