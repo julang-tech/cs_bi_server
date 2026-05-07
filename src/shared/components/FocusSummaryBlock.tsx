@@ -20,7 +20,7 @@ export function FocusSummaryBlock({ metricLabel, selection, summary, blockLabel,
         </div>
         {canReset ? (
           <button type="button" className="focus-summary-block__reset" onClick={onReset}>
-            reset 完整范围
+            重置为完整范围
           </button>
         ) : null}
       </div>
