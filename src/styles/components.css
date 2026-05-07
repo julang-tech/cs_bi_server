@@ -1565,74 +1565,42 @@
    Focus summary block (区块 A)
    =========================================================================== */
 
-
-.focus-summary-blocks {
+.focus-summary-panel {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
-}
-
-.focus-summary-blocks .focus-summary-block {
-  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(11, 110, 79, 0.16);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(135deg, rgba(11, 110, 79, 0.055), rgba(11, 110, 79, 0.015) 48%, transparent),
+    var(--surface);
   box-shadow: none;
 }
 
-.focus-summary-blocks .focus-summary-block__header {
-  margin-bottom: var(--space-2);
-}
-
-.focus-summary-blocks .focus-summary-block h3 {
-  font-size: var(--fs-sm);
-}
-
-.focus-summary-blocks .focus-summary-block__grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.focus-summary-blocks .focus-summary-block__item {
-  padding: 8px 7px;
-}
-
-.focus-summary-blocks .focus-summary-block__item dd {
-  font-size: clamp(14px, 1.2vw, 18px);
-  overflow-wrap: anywhere;
-}
-
-.focus-summary-block {
-  padding: 14px;
-  border: 1px solid rgba(11, 110, 79, 0.18);
-  border-radius: var(--radius-lg);
-  background:
-    linear-gradient(135deg, rgba(11, 110, 79, 0.08), rgba(11, 110, 79, 0.02) 42%, transparent),
-    var(--surface);
-  box-shadow: var(--shadow-soft);
-}
-
-.focus-summary-block__header {
+.focus-summary-panel__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-bottom: var(--space-3);
 }
 
-.focus-summary-block__eyebrow {
+.focus-summary-panel__eyebrow {
   display: block;
   margin-bottom: 3px;
   color: var(--accent);
   font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  font-weight: 750;
+  letter-spacing: 0.04em;
 }
 
-.focus-summary-block h3 {
+.focus-summary-panel h2 {
   margin: 0;
   color: var(--heading);
-  font-size: var(--fs-lg);
+  font-size: var(--fs-md);
   font-weight: 700;
 }
 
+.focus-summary-panel__reset,
 .focus-summary-block__reset {
   min-height: 30px;
   padding: 0 12px;
@@ -1643,38 +1611,106 @@
   font: inherit;
   font-size: var(--fs-sm);
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.focus-summary-panel__reset:hover,
+.focus-summary-block__reset:hover {
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  border-color: rgba(11, 110, 79, 0.36);
+}
+
+.focus-summary-blocks {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.focus-summary-block {
+  min-width: 0;
+  padding: 11px 12px 10px;
+  border: 1px solid rgba(15, 35, 27, 0.10);
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: none;
+}
+
+.focus-summary-block__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: 9px;
+}
+
+.focus-summary-block__eyebrow {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.025em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.focus-summary-block h3 {
+  margin: 0;
+  color: var(--muted-strong);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .focus-summary-block__grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-3);
+  gap: 0;
   margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(15, 35, 27, 0.08);
 }
 
 .focus-summary-block__item {
   min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.66);
+  padding: 0 6px;
+  border-left: 1px solid rgba(15, 35, 27, 0.08);
+}
+
+.focus-summary-block__item:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.focus-summary-block__item:last-child {
+  padding-right: 0;
 }
 
 .focus-summary-block__item dt {
-  margin: 0 0 4px;
+  margin: 0 0 3px;
   color: var(--muted);
-  font-size: var(--fs-xs);
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .focus-summary-block__item dd {
   margin: 0;
   color: var(--heading);
-  font-size: clamp(18px, 2.1vw, 26px);
+  font-size: clamp(12px, 0.95vw, 15px);
   font-weight: 750;
-  line-height: 1.1;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @media (max-width: 1100px) {
@@ -1684,16 +1720,27 @@
 }
 
 @media (max-width: 760px) {
+  .focus-summary-panel__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .focus-summary-blocks {
     grid-template-columns: 1fr;
   }
 
   .focus-summary-block__grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 8px;
   }
 
-  .focus-summary-blocks .focus-summary-block__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .focus-summary-block__item:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .focus-summary-block__item dd {
+    font-size: clamp(13px, 3.4vw, 16px);
   }
 }
 
