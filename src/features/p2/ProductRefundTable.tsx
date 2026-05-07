@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useSpuSkcPicker } from './useSpuSkcPicker'
 import { fetchRefundSpuTable, fetchRefundSpuSkcOptions } from '../../api/p2'
 import { formatInteger, formatMoney, formatPercent } from '../../shared/utils/format'
+import { getMetricDescription } from '../../shared/metricDefinitions'
 import type { P2Filters, P2SpuRow } from '../../api/types'
 
 interface ProductRefundTableProps {
@@ -66,6 +68,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   const [activeSpu, setActiveSpu] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [activeTooltip, setActiveTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
 
   const picker = useSpuSkcPicker({ spuOptions, skcOptions, pairs: spuSkcPairs })
   const {
@@ -264,6 +267,42 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   const productFilterCount = pendingSpus.length + pendingSkcs.length
   const dateBasis = baseFilters.date_basis === 'refund_date' ? 'refund_date' : 'order_date'
   const copy = PRODUCT_REFUND_COPY[dateBasis]
+
+  const columnTooltips: Record<string, string> = {
+    sales_qty: getMetricDescription('p2.product_refund_table_sales_qty'),
+    sales_amount: getMetricDescription('p2.product_refund_table_sales_amount'),
+    refund_qty: getMetricDescription('p2.product_refund_table_refund_qty'),
+    refund_amount: getMetricDescription('p2.product_refund_table_refund_amount'),
+    refund_qty_ratio: getMetricDescription('p2.refund_qty_ratio'),
+    refund_amount_ratio: getMetricDescription('p2.refund_amount_ratio'),
+  }
+
+  function renderHeaderLabel(key: string, label: string, sortMarker = '') {
+    const tooltip = columnTooltips[key]
+    if (!tooltip) return <>{label}{sortMarker}</>
+    function showTooltip(target: EventTarget | null) {
+      if (!(target instanceof HTMLElement)) return
+      const rect = target.getBoundingClientRect()
+      const width = Math.min(300, Math.max(220, tooltip.length * 7))
+      const margin = 12
+      const x = Math.max(margin + width / 2, Math.min(window.innerWidth - margin - width / 2, rect.left + rect.width / 2))
+      const y = rect.bottom + 8
+      setActiveTooltip({ text: tooltip, x, y })
+    }
+    return (
+      <span
+        className="table-header-tooltip-wrap"
+        onMouseEnter={(event) => showTooltip(event.currentTarget)}
+        onMouseLeave={() => setActiveTooltip(null)}
+        onFocus={(event) => showTooltip(event.currentTarget)}
+        onBlur={() => setActiveTooltip(null)}
+      >
+        <span>{label}</span>
+        {sortMarker ? <span aria-hidden>{sortMarker}</span> : null}
+        <span className="table-header-tooltip-icon" aria-hidden>i</span>
+      </span>
+    )
+  }
 
   return (
     <section className="table-wrap">
@@ -469,8 +508,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
                     className={`sort-header-btn ${sortState.key === col.key ? 'sort-header-btn--active' : ''}`}
                     onClick={() => toggleSort(col.key)}
                   >
-                    {col.label}
-                    {sortState.key === col.key ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : ''}
+                    {renderHeaderLabel(col.key, col.label, sortState.key === col.key ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : '')}
                   </button>
                 </th>
               ))}
@@ -545,6 +583,18 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
           </tbody>
         </table>
       </div>
+      {activeTooltip
+        ? createPortal(
+            <span
+              className="table-header-tooltip table-header-tooltip--portal"
+              role="tooltip"
+              style={{ left: `${activeTooltip.x}px`, top: `${activeTooltip.y}px` }}
+            >
+              {activeTooltip.text}
+            </span>,
+            document.body,
+          )
+        : null}
     </section>
   )
 }

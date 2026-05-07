@@ -42,7 +42,7 @@ function getComplaintMetricDescription(key: string, dateBasis: P3DateBasis) {
 
 export default function P3Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
-  const [dateBasis, setDateBasis] = useState<P3DateBasis>('record_date')
+  const [dateBasis, setDateBasis] = useState<P3DateBasis>('order_date')
   const today = useMemo(() => new Date(), [])
   const [historyRange, setHistoryRange] = useState(() => getRealtimeDefaultHistoryRange('day', today))
   const [activeMetricKey, setActiveMetricKey] = useState('complaint_rate')
