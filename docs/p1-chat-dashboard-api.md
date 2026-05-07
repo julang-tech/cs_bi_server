@@ -13,8 +13,9 @@
   - 所有趋势最细粒度统一到天，并支持按天 / 周 / 月聚合。
   - 周 / 月趋势 bucket 从 `date_to` 往前切分，不按自然周或自然月切分。
 - 坐席识别
-  - 客服姓名按邮件正文落款识别。
-  - 第一版使用既有姓名映射，不在页面内维护映射关系。
+  - 上游 `agent_workload` 按邮件正文落款名（`replier_name`）聚合。
+  - cs_bi_server 支持维护「客服姓名 → 邮件留名[]」映射，在坐席工作量表展示前把多个落款名行合并为一个客服姓名行。
+  - 未配置映射的落款名保持原行展示；`未识别` 行不参与映射。
 
 ## Endpoint 1: Dashboard
 
@@ -87,6 +88,36 @@
 }
 ```
 
+
+## Endpoint 1.1: Agent Mail Name Mappings
+
+- Method: `GET`
+- Path: `/api/bi/p1/agent-mail-name-mappings`
+
+返回坐席工作量表使用的「客服姓名 → 邮件留名[]」映射配置。
+
+```json
+{
+  "mappings": [
+    { "agent_name": "Mira", "mail_names": ["Mira", "Mia"] }
+  ]
+}
+```
+
+- Method: `PUT`
+- Path: `/api/bi/p1/agent-mail-name-mappings`
+- Body: 同上。
+
+存储位置：`config/data/p1-agent-mail-name-mapping.json`。
+
+展示合并规则：
+
+- 未配置：按上游落款名原行展示。
+- 已配置：多个 `mail_names` 行合并为一行，行名显示 `agent_name`。
+- `outbound_email_count`、`reply_span_hours`、`qa_reply_counts.excellent/pass/fail` 求和。
+- `avg_outbound_emails_per_hour_by_span = 合并后 outbound_email_count / 合并后 reply_span_hours`（在席时长不为 0 时）。
+- 质检结果若上游为 `0/0/0`，本层只合并展示，不修正上游质检来源。
+
 ## Metric Definitions
 
 - `summary.inbound_email_count`
@@ -114,7 +145,11 @@
   - `month` 从 `date_to` 往前每 30 天一组，最前面的 bucket 允许不足 30 天。
   - `bucket` 使用该 bucket 的起始日期。
 - `agent_workload.outbound_email_count`
-  - 坐席总回邮数。
+  - 坐席总回邮数。坐席工作量表时间范围超过 1 天时展示为 `总值 / 日均`，日均 = 总值 / `getPeriodLengthDays(date_from, date_to)`。
+- `agent_workload.reply_span_hours`
+  - 坐席在席时长，单位小时。坐席工作量表时间范围超过 1 天时展示为 `总值 / 日均`。
+- `agent_workload.standard_attendance_hours`
+  - 前端按 `outbound_email_count / 30` 计算的标准在席时长，单位小时。坐席工作量表时间范围超过 1 天时展示为 `总值 / 日均`。
 - `agent_workload.avg_outbound_emails_per_hour_by_span`
   - 每小时回邮数均值（首末封邮件时差）。
   - 计算方式：总回邮数 / 当日首封到末封回邮时间差。

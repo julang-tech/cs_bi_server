@@ -1,6 +1,7 @@
 import { request } from '../shared/utils/apiClient'
 import type {
   P1BacklogMailList,
+  P1AgentMailNameMappings,
   P1BacklogMailNeedsReplyResult,
   P1Dashboard,
   P1Filters,
@@ -52,4 +53,27 @@ export async function markP1BacklogMailNeedsReply(
     throw new Error(`请求失败：${response.status} ${response.statusText}`)
   }
   return response.json() as Promise<P1BacklogMailNeedsReplyResult>
+}
+
+
+export function fetchP1AgentMailNameMappings(
+  signal?: AbortSignal,
+): Promise<P1AgentMailNameMappings> {
+  return request<P1AgentMailNameMappings>('/api/bi/p1/agent-mail-name-mappings', {}, signal)
+}
+
+export async function saveP1AgentMailNameMappings(
+  mappings: P1AgentMailNameMappings,
+  signal?: AbortSignal,
+): Promise<P1AgentMailNameMappings> {
+  const response = await fetch('/api/bi/p1/agent-mail-name-mappings', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(mappings),
+    signal,
+  })
+  if (!response.ok) {
+    throw new Error(`请求失败：${response.status} ${response.statusText}`)
+  }
+  return response.json() as Promise<P1AgentMailNameMappings>
 }

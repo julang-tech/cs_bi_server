@@ -6,7 +6,13 @@ import { FocusSummaryBlock } from '../../shared/components/FocusSummaryBlock'
 import { KpiCard } from '../../shared/components/KpiCard'
 import { KpiSection } from '../../shared/components/KpiSection'
 import { useDashboardData } from '../../shared/hooks/useDashboardData'
-import { fetchP1BacklogMails, fetchP1Dashboard, markP1BacklogMailNeedsReply } from '../../api/p1'
+import {
+  fetchP1AgentMailNameMappings,
+  fetchP1BacklogMails,
+  fetchP1Dashboard,
+  markP1BacklogMailNeedsReply,
+  saveP1AgentMailNameMappings,
+} from '../../api/p1'
 import { formatHours, formatInteger } from '../../shared/utils/format'
 import { buildFocusTrend, formatFocusBucketLabel } from '../../shared/utils/focusTrend'
 import { aggregateFocusMetric, type FocusAggregationMetric, type FocusSelection } from '../../shared/utils/focusAggregation'
@@ -18,8 +24,9 @@ import {
 import { resolveDataAsOfLabel } from '../../shared/utils/dataAsOf'
 import { getMetricDescription } from '../../shared/metricDefinitions'
 import { WorkloadAnalysis } from './WorkloadAnalysis'
+import { AgentNameMappingModal } from './AgentNameMappingModal'
 import { sortBacklogMailsByWaitDesc } from './backlogMails'
-import type { Grain, P1BacklogMail, P1Dashboard as P1DashboardData, TrendPoint } from '../../api/types'
+import type { Grain, P1AgentMailNameMapping, P1BacklogMail, P1Dashboard as P1DashboardData, TrendPoint } from '../../api/types'
 
 const AGENT_OPTIONS = [
   { value: '', label: '全部客服' },
@@ -62,6 +69,10 @@ export default function P1Dashboard() {
   const [backlogNotes, setBacklogNotes] = useState<string[]>([])
   const [expandedMailId, setExpandedMailId] = useState<number | null>(null)
   const [markingMailId, setMarkingMailId] = useState<number | null>(null)
+  const [mappingModalOpen, setMappingModalOpen] = useState(false)
+  const [agentMailNameMappings, setAgentMailNameMappings] = useState<P1AgentMailNameMapping[]>([])
+  const [mappingLoadingError, setMappingLoadingError] = useState<string | null>(null)
+  const [mappingSaving, setMappingSaving] = useState(false)
 
   const currentPeriod = useMemo(() => getRealtimeCurrentPeriod(grain, today), [grain, today])
   const previousPeriod = useMemo(() => getRealtimePreviousPeriod(grain, today), [grain, today])
@@ -128,6 +139,38 @@ export default function P1Dashboard() {
       setBacklogError(err instanceof Error ? err.message : '标记失败')
     } finally {
       setMarkingMailId(null)
+    }
+  }
+
+
+  const loadAgentMailNameMappings = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const result = await fetchP1AgentMailNameMappings(signal)
+      setAgentMailNameMappings(result.mappings)
+      setMappingLoadingError(null)
+    } catch (err) {
+      if (signal?.aborted) return
+      setMappingLoadingError(err instanceof Error ? err.message : '映射配置加载失败')
+    }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    void loadAgentMailNameMappings(controller.signal)
+    return () => controller.abort()
+  }, [loadAgentMailNameMappings])
+
+  async function saveAgentMailNameMappingConfig(mappings: P1AgentMailNameMapping[]) {
+    setMappingSaving(true)
+    setMappingLoadingError(null)
+    try {
+      const result = await saveP1AgentMailNameMappings({ mappings })
+      setAgentMailNameMappings(result.mappings)
+      setMappingModalOpen(false)
+    } catch (err) {
+      setMappingLoadingError(err instanceof Error ? err.message : '映射配置保存失败')
+    } finally {
+      setMappingSaving(false)
     }
   }
 
@@ -328,9 +371,21 @@ export default function P1Dashboard() {
         <WorkloadAnalysis
           workloadRows={history?.agent_workload ?? []}
           loading={loading}
+          historyRange={historyRange}
+          mappings={agentMailNameMappings}
+          onOpenMappingConfig={() => setMappingModalOpen(true)}
         />
       }
     />
+    {mappingModalOpen ? (
+      <AgentNameMappingModal
+        mappings={agentMailNameMappings}
+        saving={mappingSaving}
+        error={mappingLoadingError}
+        onClose={() => setMappingModalOpen(false)}
+        onSave={(mappings) => void saveAgentMailNameMappingConfig(mappings)}
+      />
+    ) : null}
     {backlogModalOpen ? (
       <div className="p1-backlog-modal" role="dialog" aria-modal="true" aria-label="当前积压邮件列表">
         <div className="p1-backlog-modal__backdrop" onClick={() => setBacklogModalOpen(false)} />

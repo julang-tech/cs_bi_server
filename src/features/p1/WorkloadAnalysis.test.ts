@@ -1,7 +1,13 @@
 import { act, createElement } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
-import { WorkloadAnalysis, buildWorkloadTableRows, getAttendanceHours, getStandardAttendanceHours } from './WorkloadAnalysis'
+import {
+  WorkloadAnalysis,
+  buildWorkloadTableRows,
+  getAttendanceHours,
+  getStandardAttendanceHours,
+  mergeRowsByAgentMailNameMappings,
+} from './WorkloadAnalysis'
 import type { P1AgentRow } from '../../api/types'
 
 ;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -32,7 +38,13 @@ function renderWorkloadAnalysis() {
   root = createRoot(host)
 
   act(() => {
-    root?.render(createElement(WorkloadAnalysis, { workloadRows: rows, loading: false }))
+    root?.render(createElement(WorkloadAnalysis, {
+      workloadRows: rows,
+      loading: false,
+      historyRange: { date_from: '2026-05-01', date_to: '2026-05-03' },
+      mappings: [],
+      onOpenMappingConfig: () => undefined,
+    }))
   })
 }
 
@@ -94,6 +106,47 @@ describe('WorkloadAnalysis table rows', () => {
     expect(totalRow.avg_outbound_emails_per_hour_by_span).toBeCloseTo(4.5)
   })
 
+
+
+  it('merges mail signature rows into configured customer service agent rows', () => {
+    const merged = mergeRowsByAgentMailNameMappings([
+      {
+        agent_name: 'Mira Mail',
+        outbound_email_count: 12,
+        reply_span_hours: 2,
+        avg_outbound_emails_per_hour_by_span: 6,
+        avg_outbound_emails_per_hour_by_schedule: 0,
+        qa_reply_counts: { excellent: 1, pass: 2, fail: 0 },
+      },
+      {
+        agent_name: 'Mia Sign',
+        outbound_email_count: 18,
+        reply_span_hours: 3,
+        avg_outbound_emails_per_hour_by_span: 6,
+        avg_outbound_emails_per_hour_by_schedule: 0,
+        qa_reply_counts: { excellent: 3, pass: 4, fail: 1 },
+      },
+      {
+        agent_name: '未识别',
+        outbound_email_count: 9,
+        reply_span_hours: 3,
+        avg_outbound_emails_per_hour_by_span: 3,
+        avg_outbound_emails_per_hour_by_schedule: 0,
+        qa_reply_counts: { excellent: 0, pass: 0, fail: 0 },
+      },
+    ], [{ agent_name: 'Mira', mail_names: ['Mira Mail', 'Mia Sign', '未识别'] }])
+
+    expect(merged).toHaveLength(2)
+    expect(merged[0]).toMatchObject({
+      agent_name: 'Mira',
+      outbound_email_count: 30,
+      attendance_hours: 5,
+      qa_reply_counts: { excellent: 4, pass: 6, fail: 1 },
+    })
+    expect(merged[0].avg_outbound_emails_per_hour_by_span).toBeCloseTo(6)
+    expect(merged[1].agent_name).toBe('未识别')
+  })
+
   it('does not add an average row when no agents are present', () => {
     expect(buildWorkloadTableRows([])).toEqual([])
   })
@@ -108,6 +161,9 @@ describe('WorkloadAnalysis table rows', () => {
     expect(host?.textContent).toContain('坐席均值')
     expect(host?.textContent).toContain('跟随筛选器所选历史时间范围')
     expect(host?.textContent).toContain('质检结果仅统计已质检回邮')
+    expect(host?.textContent).toContain('映射配置')
+    expect(host?.textContent).toContain('12 / 4')
+    expect(host?.textContent).toContain('2.0h / 0.7h')
     expect(host?.textContent).not.toContain('回信时长')
     expect(host?.textContent).not.toContain('每小时回邮数均值（工时表）')
     expect(host?.textContent).not.toContain('首末封')

@@ -100,6 +100,13 @@ export interface P1BacklogMailNeedsReplyResult {
   needs_reply: boolean
   is_manually_reviewed: boolean
 }
+export interface P1AgentMailNameMapping {
+  agent_name: string
+  mail_names: string[]
+}
+export interface P1AgentMailNameMappings {
+  mappings: P1AgentMailNameMapping[]
+}
 
 // ----- P2 -----
 export interface P2Filters extends PeriodWindow {

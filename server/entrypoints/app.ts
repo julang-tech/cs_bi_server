@@ -13,6 +13,7 @@ import {
 import { createP3Service } from '../domain/p3/service.js'
 import { createP2Service } from '../domain/p2/service.js'
 import { getSyncCacheStatus } from '../domain/sync/cache-status.js'
+import { createP1AgentMailNameMappingStore } from '../domain/p1/agent-name-mapping-store.js'
 
 const p1FilterSchema = z.object({
   date_from: z.string(),
@@ -40,6 +41,13 @@ const p1NeedsReplyBodySchema = z.object({
   needs_reply: z.boolean(),
   reason: z.string().optional(),
   operator: z.string().optional(),
+})
+
+const p1AgentMailNameMappingsSchema = z.object({
+  mappings: z.array(z.object({
+    agent_name: z.string(),
+    mail_names: z.array(z.string()),
+  })),
 })
 
 const filterSchema = z.object({
@@ -99,6 +107,7 @@ export async function buildApp(overrides?: {
     error: (message) => app.log.error(message),
   })
   const p2Service = createP2Service()
+  const p1AgentMailNameMappingStore = createP1AgentMailNameMappingStore(env.repoRoot)
 
   app.addHook('onClose', async () => {
     p2Service.close()
@@ -107,6 +116,19 @@ export async function buildApp(overrides?: {
   app.get('/healthz', async () => ({ status: 'ok' }))
 
   app.get('/api/bi/cache-status', async () => getSyncCacheStatus(env.syncConfigPath))
+
+
+  app.get('/api/bi/p1/agent-mail-name-mappings', async () => {
+    return p1AgentMailNameMappingStore.read()
+  })
+
+  app.put('/api/bi/p1/agent-mail-name-mappings', async (request, reply) => {
+    const parsed = p1AgentMailNameMappingsSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.status(400).send({ detail: parsed.error.flatten() })
+    }
+    return p1AgentMailNameMappingStore.write(parsed.data)
+  })
 
   app.get('/api/bi/p1/dashboard', async (request, reply) => {
     const parsed = p1FilterSchema.safeParse(request.query)
