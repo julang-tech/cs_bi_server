@@ -1,5 +1,6 @@
 import { Table } from '../../shared/components/Table'
 import { formatDecimal, formatHours, formatInteger } from '../../shared/utils/format'
+import { getMetricDescription } from '../../shared/metricDefinitions'
 import type { P1AgentRow } from '../../api/types'
 
 // "标准在席时长"假设客服按 30 封/小时的标准节奏处理，反映"如果按标准
@@ -142,26 +143,31 @@ export function WorkloadAnalysis({ workloadRows, loading }: WorkloadAnalysisProp
     {
       key: 'outbound_email_count',
       label: '总回邮数',
+      tooltip: getMetricDescription('p1.agent_outbound_email_count'),
       render: (row: WorkloadTableRow) => formatCount(row, row.outbound_email_count),
     },
     {
       key: 'attendance_hours',
       label: '在席时长',
+      tooltip: getMetricDescription('p1.agent_reply_span_hours'),
       render: (row: WorkloadTableRow) => formatNullableHours(row.attendance_hours),
     },
     {
       key: 'standard_attendance_hours',
       label: '标准在席时长',
+      tooltip: getMetricDescription('p1.agent_standard_attendance_hours'),
       render: (row: WorkloadTableRow) => formatNullableHours(row.standard_attendance_hours),
     },
     {
       key: 'avg_outbound_emails_per_hour_by_span',
       label: '每小时回信均值',
+      tooltip: getMetricDescription('p1.agent_hourly_reply_span'),
       render: (row: WorkloadTableRow) => formatDecimal(row.avg_outbound_emails_per_hour_by_span),
     },
     {
       key: 'qa_reply_counts',
       label: '质检结果回邮数',
+      tooltip: getMetricDescription('p1.agent_qa_reply_counts'),
       render: (row: WorkloadTableRow) => {
         const qa = row.qa_reply_counts ?? { excellent: 0, pass: 0, fail: 0 }
         // Average 行用小数（均值），其它（个人 + 总量）按整数显示。

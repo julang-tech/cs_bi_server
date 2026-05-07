@@ -1,7 +1,9 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useSpuSkcPicker } from './useSpuSkcPicker'
 import { fetchRefundSpuTable, fetchRefundSpuSkcOptions } from '../../api/p2'
 import { formatInteger, formatMoney, formatPercent } from '../../shared/utils/format'
+import { getMetricDescription } from '../../shared/metricDefinitions'
 import type { P2Filters, P2SpuRow } from '../../api/types'
 
 interface ProductRefundTableProps {
@@ -19,6 +21,17 @@ type SortKey =
 interface SortState {
   key: SortKey
   direction: 'asc' | 'desc'
+}
+
+type TableView = 'spu' | 'skc'
+
+type P2SkcRow = P2SpuRow['skc_rows'][number]
+
+interface FlatSkcRow {
+  id: string
+  spu: string
+  parent: P2SpuRow
+  row: P2SkcRow
 }
 
 function formatRate(value: number | null | undefined): string {
@@ -61,11 +74,13 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
   const [expandedSpu, setExpandedSpu] = useState<Record<string, boolean>>({})
   const [sortState, setSortState] = useState<SortState>({ key: 'refund_amount', direction: 'desc' })
   const [productPickerOpen, setProductPickerOpen] = useState(false)
+  const [tableView, setTableView] = useState<TableView>('spu')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState<number>(PRODUCT_REFUND_PAGE_SIZE_OPTIONS[0])
-  const [activeSpu, setActiveSpu] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [activeTooltip, setActiveTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
+  const productPickerRef = useRef<HTMLDivElement | null>(null)
 
   const picker = useSpuSkcPicker({ spuOptions, skcOptions, pairs: spuSkcPairs })
   const {
@@ -86,6 +101,23 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     }
     return map
   }, [spuSkcPairs])
+
+  useEffect(() => {
+    if (!productPickerOpen) return
+
+    function closeOnOutsidePointer(event: MouseEvent | TouchEvent) {
+      if (!(event.target instanceof Node)) return
+      if (productPickerRef.current?.contains(event.target)) return
+      setProductPickerOpen(false)
+    }
+
+    document.addEventListener('mousedown', closeOnOutsidePointer)
+    document.addEventListener('touchstart', closeOnOutsidePointer)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsidePointer)
+      document.removeEventListener('touchstart', closeOnOutsidePointer)
+    }
+  }, [productPickerOpen])
 
   // Initial / base-filter-driven fetch: top 50 rows + SPU/SKC options
   useEffect(() => {
@@ -208,26 +240,55 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     return rows
   }, [top50Rows, filteredRows, selectedSpus, selectedSkcs, sortState])
 
-  const pageCount = Math.max(1, Math.ceil(displayedRows.length / pageSize))
+  const getSkcMetricValue = (item: FlatSkcRow): number => {
+    if (sortState.key === 'sales_qty') return item.row.sales_qty ?? 0
+    if (sortState.key === 'sales_amount') return item.row.sales_amount ?? 0
+    if (sortState.key === 'refund_qty') return item.row.refund_qty ?? 0
+    if (sortState.key === 'refund_qty_ratio') {
+      return item.parent.sales_qty ? item.row.refund_qty / item.parent.sales_qty : 0
+    }
+    if (sortState.key === 'refund_amount_ratio') {
+      return item.parent.sales_amount ? item.row.refund_amount / item.parent.sales_amount : 0
+    }
+    return item.row.refund_amount ?? 0
+  }
+
+  const flatSkcRows = useMemo(() => {
+    const rows = displayedRows.flatMap((spuRow) =>
+      (spuRow.skc_rows ?? [])
+        .filter((skcRow) => skcRow.skc && skcRow.skc !== 'UNKNOWN_SKC')
+        .map((skcRow) => ({
+          id: `${spuRow.spu}-${skcRow.skc}`,
+          spu: spuRow.spu,
+          parent: spuRow,
+          row: skcRow,
+        })),
+    )
+
+    rows.sort((a, b) => {
+      const diff = getSkcMetricValue(a) - getSkcMetricValue(b)
+      return sortState.direction === 'asc' ? diff : -diff
+    })
+
+    return rows
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayedRows, sortState])
+
+  const activeRowCount = tableView === 'skc' ? flatSkcRows.length : displayedRows.length
+  const pageCount = Math.max(1, Math.ceil(activeRowCount / pageSize))
   const safePage = Math.min(page, pageCount)
   const startIndex = (safePage - 1) * pageSize
   const visibleRows = displayedRows.slice(startIndex, startIndex + pageSize)
-
-  const visibleActiveSpu = useMemo(() => {
-    if (activeSpu && filteredSpuOptions.includes(activeSpu)) return activeSpu
-    if (pendingSpus.length) {
-      const firstPending = filteredSpuOptions.find((spu) => pendingSpus.includes(spu))
-      if (firstPending) return firstPending
-    }
-    return filteredSpuOptions[0] ?? ''
-  }, [activeSpu, filteredSpuOptions, pendingSpus])
+  const visibleSkcRows = flatSkcRows.slice(startIndex, startIndex + pageSize)
 
   const activeSkcOptions = useMemo(() => {
-    const source = visibleActiveSpu ? (skcsBySpu.get(visibleActiveSpu) ?? []) : skcOptions
+    const source = tableView === 'skc'
+      ? skcOptions
+      : pendingSpus[0] ? (skcsBySpu.get(pendingSpus[0]) ?? []) : skcOptions
     const keyword = skcKeyword.trim().toLowerCase()
     if (!keyword) return source
     return source.filter((skc) => skc.toLowerCase().includes(keyword))
-  }, [skcKeyword, skcOptions, skcsBySpu, visibleActiveSpu])
+  }, [pendingSpus, skcKeyword, skcOptions, skcsBySpu, tableView])
 
   const getMetricClass = (key: SortKey) =>
     `refund-metric-cell ${sortState.key === key ? 'sorted-metric-cell' : ''}`.trim()
@@ -261,9 +322,47 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
     selectedSpus.length > 0 ||
     selectedSkcs.length > 0
 
-  const productFilterCount = pendingSpus.length + pendingSkcs.length
+  const productFilterCount = tableView === 'skc'
+    ? pendingSkcs.length
+    : pendingSpus.length + pendingSkcs.length
   const dateBasis = baseFilters.date_basis === 'refund_date' ? 'refund_date' : 'order_date'
   const copy = PRODUCT_REFUND_COPY[dateBasis]
+
+  const columnTooltips: Record<string, string> = {
+    sales_qty: getMetricDescription('p2.product_refund_table_sales_qty'),
+    sales_amount: getMetricDescription('p2.product_refund_table_sales_amount'),
+    refund_qty: getMetricDescription('p2.product_refund_table_refund_qty'),
+    refund_amount: getMetricDescription('p2.product_refund_table_refund_amount'),
+    refund_qty_ratio: getMetricDescription('p2.refund_qty_ratio'),
+    refund_amount_ratio: getMetricDescription('p2.refund_amount_ratio'),
+  }
+
+  function renderHeaderLabel(key: string, label: string, sortMarker = '') {
+    const tooltip = columnTooltips[key]
+    if (!tooltip) return <>{label}{sortMarker}</>
+    function showTooltip(target: EventTarget | null) {
+      if (!(target instanceof HTMLElement)) return
+      const rect = target.getBoundingClientRect()
+      const width = Math.min(300, Math.max(220, tooltip.length * 7))
+      const margin = 12
+      const x = Math.max(margin + width / 2, Math.min(window.innerWidth - margin - width / 2, rect.left + rect.width / 2))
+      const y = rect.bottom + 8
+      setActiveTooltip({ text: tooltip, x, y })
+    }
+    return (
+      <span
+        className="table-header-tooltip-wrap"
+        onMouseEnter={(event) => showTooltip(event.currentTarget)}
+        onMouseLeave={() => setActiveTooltip(null)}
+        onFocus={(event) => showTooltip(event.currentTarget)}
+        onBlur={() => setActiveTooltip(null)}
+      >
+        <span>{label}</span>
+        {sortMarker ? <span aria-hidden>{sortMarker}</span> : null}
+        <span className="table-header-tooltip-icon" aria-hidden>i</span>
+      </span>
+    )
+  }
 
   return (
     <section className="table-wrap">
@@ -275,68 +374,62 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
 
         <div className="table-sort-tools">
           <div className="table-sort-tools-row">
-            <div className="picker-wrap product-picker-wrap">
+            <div className="picker-wrap product-picker-wrap" ref={productPickerRef}>
               <button
                 type="button"
                 className="picker-trigger"
                 onClick={() => setProductPickerOpen((v) => !v)}
               >
-                商品筛选 {productFilterCount ? `(${productFilterCount})` : ''}
+                {tableView === 'skc' ? 'SKC 筛选' : '商品筛选'} {productFilterCount ? `(${productFilterCount})` : ''}
               </button>
               {productPickerOpen ? (
                 <div className="product-picker-panel">
                   <div className="product-picker-header">
                     <div>
-                      <strong>商品筛选</strong>
-                      <span>先选 SPU，再精确到 SKC</span>
+                      <strong>{tableView === 'skc' ? 'SKC 筛选' : '商品筛选'}</strong>
+                      <span>{tableView === 'skc' ? '按 SKC 直接过滤明细行' : '先选 SPU，再精确到 SKC'}</span>
                     </div>
-                    <span>{pendingSpus.length} SPU / {pendingSkcs.length} SKC</span>
+                    <span>{tableView === 'skc' ? `${pendingSkcs.length} SKC` : `${pendingSpus.length} SPU / ${pendingSkcs.length} SKC`}</span>
                   </div>
 
-                  <div className="product-picker-body">
-                    <div className="product-picker-column">
-                      <label className="product-picker-search">
-                        <span>SPU</span>
-                        <input
-                          placeholder="搜索 SPU"
-                          value={spuKeyword}
-                          onChange={(e) => setSpuKeyword(e.target.value)}
-                        />
-                      </label>
-                      <div className="product-picker-list">
-                        {filteredSpuOptions.map((item) => {
-                          const checked = pendingSpus.includes(item)
-                          const active = item === visibleActiveSpu
-                          return (
-                            <label
-                              key={item}
-                              className={[
-                                'product-picker-item',
-                                active ? 'product-picker-item--active' : '',
-                              ].filter(Boolean).join(' ')}
-                              onMouseEnter={() => setActiveSpu(item)}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={(e) => {
-                                  toggleSpuPending(item, e.target.checked)
-                                  setActiveSpu(item)
-                                }}
-                              />
-                              <span>{item}</span>
-                              <small>{skcsBySpu.get(item)?.length ?? 0}</small>
-                            </label>
-                          )
-                        })}
+                  <div className={`product-picker-body ${tableView === 'skc' ? 'product-picker-body--skc-only' : ''}`}>
+                    {tableView === 'spu' ? (
+                      <div className="product-picker-column">
+                        <label className="product-picker-search">
+                          <span>SPU</span>
+                          <input
+                            placeholder="搜索 SPU"
+                            value={spuKeyword}
+                            onChange={(e) => setSpuKeyword(e.target.value)}
+                          />
+                        </label>
+                        <div className="product-picker-list">
+                          {filteredSpuOptions.map((item) => {
+                            const checked = pendingSpus.includes(item)
+                            return (
+                              <label
+                                key={item}
+                                className="product-picker-item"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) => toggleSpuPending(item, e.target.checked)}
+                                />
+                                <span>{item}</span>
+                                <small>{skcsBySpu.get(item)?.length ?? 0}</small>
+                              </label>
+                            )
+                          })}
+                        </div>
                       </div>
-                    </div>
+                    ) : null}
 
                     <div className="product-picker-column">
                       <label className="product-picker-search">
                         <span>SKC</span>
                         <input
-                          placeholder={visibleActiveSpu ? `搜索 ${visibleActiveSpu} 的 SKC` : '搜索 SKC'}
+                          placeholder="搜索 SKC"
                           value={skcKeyword}
                           onChange={(e) => setSkcKeyword(e.target.value)}
                         />
@@ -377,6 +470,16 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
                 </div>
               ) : null}
             </div>
+            <button
+              type="button"
+              className="picker-trigger view-toggle-trigger"
+              onClick={() => {
+                setTableView((current) => current === 'spu' ? 'skc' : 'spu')
+                setPage(1)
+              }}
+            >
+              {tableView === 'spu' ? 'SKC 明细' : 'SPU 汇总'}
+            </button>
           </div>
 
           {showActions ? (
@@ -391,7 +494,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
             </div>
           ) : null}
 
-          {displayedRows.length ? (
+          {activeRowCount ? (
             <div className="ranking-pagination product-table-pagination">
               <label className="page-size-control">
                 <span>每页</span>
@@ -469,8 +572,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
                     className={`sort-header-btn ${sortState.key === col.key ? 'sort-header-btn--active' : ''}`}
                     onClick={() => toggleSort(col.key)}
                   >
-                    {col.label}
-                    {sortState.key === col.key ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : ''}
+                    {renderHeaderLabel(col.key, col.label, sortState.key === col.key ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : '')}
                   </button>
                 </th>
               ))}
@@ -478,7 +580,24 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
           </thead>
 
           <tbody>
-            {visibleRows.map((spuRow) => {
+            {tableView === 'skc' ? visibleSkcRows.map((item) => (
+              <tr key={`${item.id}-flat`} className="skc-row skc-row--flat">
+                <td className="spu-click-cell skc-spu-cell">
+                  <span>{item.spu}</span>
+                </td>
+                <td className="skc-cell">{item.row.skc}</td>
+                <td className={getMetricClass('sales_qty')}>{formatInteger(item.row.sales_qty)}</td>
+                <td className={getMetricClass('sales_amount')}>{formatMoney(item.row.sales_amount)}</td>
+                <td className={getMetricClass('refund_qty')}>{formatInteger(item.row.refund_qty)}</td>
+                <td className={getMetricClass('refund_amount')}>{formatMoney(item.row.refund_amount)}</td>
+                <td className={getMetricClass('refund_qty_ratio')}>
+                  {formatRate(item.parent.sales_qty ? item.row.refund_qty / item.parent.sales_qty : 0)}
+                </td>
+                <td className={getMetricClass('refund_amount_ratio')}>
+                  {formatRate(item.parent.sales_amount ? item.row.refund_amount / item.parent.sales_amount : 0)}
+                </td>
+              </tr>
+            )) : visibleRows.map((spuRow) => {
               const firstSkc = (spuRow.skc_rows ?? []).find(
                 (row) => row.skc && row.skc !== 'UNKNOWN_SKC',
               )?.skc
@@ -537,7 +656,7 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
                 </Fragment>
               )
             })}
-            {!loading && displayedRows.length === 0 ? (
+            {!loading && activeRowCount === 0 ? (
               <tr key="empty">
                 <td colSpan={8} className="empty-cell">暂无符合条件的数据</td>
               </tr>
@@ -545,6 +664,18 @@ export function ProductRefundTable({ baseFilters }: ProductRefundTableProps) {
           </tbody>
         </table>
       </div>
+      {activeTooltip
+        ? createPortal(
+            <span
+              className="table-header-tooltip table-header-tooltip--portal"
+              role="tooltip"
+              style={{ left: `${activeTooltip.x}px`, top: `${activeTooltip.y}px` }}
+            >
+              {activeTooltip.text}
+            </span>,
+            document.body,
+          )
+        : null}
     </section>
   )
 }

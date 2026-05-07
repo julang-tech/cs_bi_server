@@ -1,8 +1,10 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 
 export interface TableColumn<T> {
   key: string
   label: string
+  tooltip?: string
   render?: (row: T, index: number) => ReactNode
 }
 
@@ -23,6 +25,33 @@ export function Table<T>({
   title, hint, columns, rows, emptyCopy, loading, error,
   onRowClick, rowTone, children,
 }: TableProps<T>) {
+  const [activeTooltip, setActiveTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
+
+  function renderHeaderLabel(label: string, tooltip?: string) {
+    if (!tooltip) return label
+    const tip = tooltip
+    function showTooltip(target: EventTarget | null) {
+      if (!(target instanceof HTMLElement)) return
+      const rect = target.getBoundingClientRect()
+      const width = Math.min(300, Math.max(220, tip.length * 7))
+      const margin = 12
+      const x = Math.max(margin + width / 2, Math.min(window.innerWidth - margin - width / 2, rect.left + rect.width / 2))
+      const y = rect.bottom + 8
+      setActiveTooltip({ text: tip, x, y })
+    }
+    return (
+      <span
+        className="table-header-tooltip-wrap"
+        onMouseEnter={(event) => showTooltip(event.currentTarget)}
+        onMouseLeave={() => setActiveTooltip(null)}
+        onFocus={(event) => showTooltip(event.currentTarget)}
+        onBlur={() => setActiveTooltip(null)}
+      >
+        <span>{label}</span>
+        <span className="table-header-tooltip-icon" aria-hidden>i</span>
+      </span>
+    )
+  }
   return (
     <section className="data-table-card">
       {(title || hint) ? (
@@ -40,7 +69,7 @@ export function Table<T>({
         <div className="table-scroll">
           <table className="data-table">
             <thead>
-              <tr>{columns.map((c) => <th key={c.key}>{c.label}</th>)}</tr>
+              <tr>{columns.map((c) => <th key={c.key}>{renderHeaderLabel(c.label, c.tooltip)}</th>)}</tr>
             </thead>
             <tbody>
               {rows.map((row, index) => {
@@ -66,6 +95,18 @@ export function Table<T>({
       ) : (
         <div className="empty-state empty-state--table">{emptyCopy}</div>
       )}
+      {activeTooltip
+        ? createPortal(
+            <span
+              className="table-header-tooltip table-header-tooltip--portal"
+              role="tooltip"
+              style={{ left: `${activeTooltip.x}px`, top: `${activeTooltip.y}px` }}
+            >
+              {activeTooltip.text}
+            </span>,
+            document.body,
+          )
+        : null}
     </section>
   )
 }

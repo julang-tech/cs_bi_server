@@ -126,8 +126,6 @@ export function ProductComplaintRanking({
       ariaLabel={`${copy.title}分页`}
       filterOptions={filterOptions}
       headerTooltips={{
-        spu: getMetricDescription('p3.product_filter'),
-        skc: getMetricDescription('p3.product_filter'),
         refund_qty: getMetricDescription('p2.product_refund_table_refund_qty'),
         refund_amount: getMetricDescription('p2.product_refund_table_refund_amount'),
         sales_qty: getMetricDescription('p3.product_ranking_sales_qty'),

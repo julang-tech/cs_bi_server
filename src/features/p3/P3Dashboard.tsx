@@ -13,7 +13,7 @@ import { aggregateFocusMetric, type FocusAggregationMetric, type FocusSelection 
 import { buildDirectionalDelta, type DeltaMode, type MetricPolarity } from '../../shared/utils/delta'
 import {
   getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange,
-  getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel, getRealtimePresetHistoryRange,
+  getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel,
 } from '../../shared/utils/datePeriod'
 import { resolveDataAsOfLabel } from '../../shared/utils/dataAsOf'
 import { getMetricDescription } from '../../shared/metricDefinitions'
@@ -42,7 +42,7 @@ function getComplaintMetricDescription(key: string, dateBasis: P3DateBasis) {
 
 export default function P3Dashboard() {
   const [grain, setGrain] = useState<Grain>('day')
-  const [dateBasis, setDateBasis] = useState<P3DateBasis>('record_date')
+  const [dateBasis, setDateBasis] = useState<P3DateBasis>('order_date')
   const today = useMemo(() => new Date(), [])
   const [historyRange, setHistoryRange] = useState(() => getRealtimeDefaultHistoryRange('day', today))
   const [activeMetricKey, setActiveMetricKey] = useState('complaint_rate')
@@ -165,7 +165,6 @@ export default function P3Dashboard() {
           grain={grain} onGrainChange={handleGrainChange}
           historyRange={historyRange} onHistoryRangeChange={setHistoryRange}
           maxDate={today}
-          presetRangeBuilder={(value) => getRealtimePresetHistoryRange(value, today)}
           extras={
             <div className="filter-bar__group">
               <span className="filter-bar__label">时间口径</span>

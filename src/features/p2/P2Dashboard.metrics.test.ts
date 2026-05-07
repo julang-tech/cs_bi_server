@@ -9,7 +9,7 @@ describe('P2 overview focus chart summary', () => {
     expect(source).toContain('getRealtimeCurrentPeriod')
     expect(source).toContain('getRealtimeDefaultHistoryRange')
     expect(source).toContain('getRealtimeCurrentPeriodLabel')
-    expect(source).toContain('getRealtimePresetHistoryRange')
+    expect(source).not.toContain('getRealtimePresetHistoryRange')
     expect(source).toContain('resolveDataAsOfLabel')
     expect(source).toContain('currentDayIsIncomplete: true')
     expect(source).not.toContain('getCurrentPeriod(grain)')

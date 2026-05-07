@@ -317,6 +317,12 @@ export const METRIC_DEFINITION_GROUPS: MetricDefinitionGroup[] = [
             detail: '与上方 KPI"销量"同口径（已剔除非商品行），按 SPU / SKC 分组。',
           },
           {
+            id: 'p2.product_refund_table_sales_amount',
+            name: '— 销售额',
+            short: '该 SPU / SKC 在统计周期内的销售额（美元），含运费不含税。',
+            detail: '与上方 KPI"销售额"同口径，按 SPU / SKC 分组。',
+          },
+          {
             id: 'p2.product_refund_table_refund_qty',
             name: '— 退款件数',
             short: '订单时间下为该批订单当前累计退款件数；退款时间下为区间内退款流入件数。',

@@ -13,7 +13,7 @@ import { aggregateFocusMetric, type FocusAggregationMetric, type FocusSelection 
 import { buildDirectionalDelta, type DeltaMode, type MetricPolarity } from '../../shared/utils/delta'
 import {
   getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange,
-  getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel, getRealtimePresetHistoryRange,
+  getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel,
 } from '../../shared/utils/datePeriod'
 import { resolveDataAsOfLabel } from '../../shared/utils/dataAsOf'
 import { getMetricDescription } from '../../shared/metricDefinitions'
@@ -152,7 +152,6 @@ export default function P2Dashboard() {
           grain={grain} onGrainChange={handleGrainChange}
           historyRange={historyRange} onHistoryRangeChange={setHistoryRange}
           maxDate={today}
-          presetRangeBuilder={(value) => getRealtimePresetHistoryRange(value, today)}
           storeOptions={STORE_OPTIONS}
           store={store}
           onStoreChange={setStore}

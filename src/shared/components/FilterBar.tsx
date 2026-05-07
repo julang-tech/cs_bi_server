@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   alignHistoryRangeToGrain,
-  formatDateInput, getDataReadyDate, getPresetHistoryRange,
+  formatDateInput, getDataReadyDate,
   parseDateInput, shiftDate,
 } from '../utils/datePeriod'
 import type { Grain, PeriodWindow } from '../../api/types'
@@ -13,11 +13,10 @@ const GRAIN_OPTIONS: Array<{ value: Grain; label: string }> = [
 ]
 
 const PRESET_OPTIONS = [
-  { label: '近 7 天', value: 7 },
-  { label: '近 30 天', value: 30 },
-  { label: '近 90 天', value: 90 },
-  { label: '本周至今', value: 'week_to_date' as const },
-  { label: '本月至今', value: 'month_to_date' as const },
+  { label: '昨天', value: 1 },
+  { label: '近3天', value: 3 },
+  { label: '近5天', value: 5 },
+  { label: '近一周', value: 7 },
 ]
 
 const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
@@ -47,7 +46,6 @@ interface FilterBarProps {
   historyRange: PeriodWindow
   onHistoryRangeChange: (next: PeriodWindow) => void
   maxDate?: Date
-  presetRangeBuilder?: (value: number | 'week_to_date' | 'month_to_date') => PeriodWindow
   storeOptions?: Array<{ value: string; label: string }>
   store?: string
   onStoreChange?: (next: string) => void
@@ -58,16 +56,17 @@ export function FilterBar({
   grain, onGrainChange,
   historyRange, onHistoryRangeChange,
   maxDate: maxDateOverride,
-  presetRangeBuilder = getPresetHistoryRange,
   storeOptions, store, onStoreChange,
   extras,
 }: FilterBarProps) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [draftRange, setDraftRange] = useState<PeriodWindow>(historyRange)
-  const [selecting, setSelecting] = useState<'from' | 'to'>('from')
   const pickerRef = useRef<HTMLDivElement | null>(null)
-  const [visibleMonth, setVisibleMonth] = useState(() =>
-    shiftMonth(monthStart(parseDateInput(historyRange.date_to)), -1),
+  const [startMonth, setStartMonth] = useState(() =>
+    monthStart(parseDateInput(historyRange.date_from)),
+  )
+  const [endMonth, setEndMonth] = useState(() =>
+    monthStart(parseDateInput(historyRange.date_to)),
   )
   const maxDate = useMemo(() => maxDateOverride ?? getDataReadyDate(), [maxDateOverride])
   const maxDateText = formatDateInput(maxDate)
@@ -91,8 +90,8 @@ export function FilterBar({
 
   function openPicker() {
     setDraftRange(historyRange)
-    setSelecting('from')
-    setVisibleMonth(shiftMonth(monthStart(parseDateInput(historyRange.date_to)), -1))
+    setStartMonth(monthStart(parseDateInput(historyRange.date_from)))
+    setEndMonth(monthStart(parseDateInput(historyRange.date_to)))
     setPickerOpen(true)
   }
 
@@ -112,34 +111,37 @@ export function FilterBar({
     setPickerOpen(false)
   }
 
-  function selectDate(date: Date) {
+  function selectStartDate(date: Date) {
     const value = formatDateInput(date)
     if (value > maxDateText) return
-    if (selecting === 'from') {
-      setDraftRange((current) => ({
-        date_from: value,
-        date_to: value > current.date_to ? value : current.date_to,
-      }))
-      setSelecting('to')
-      return
-    }
+    setDraftRange((current) => ({
+      date_from: value,
+      date_to: value > current.date_to ? value : current.date_to,
+    }))
+  }
+
+  function selectEndDate(date: Date) {
+    const value = formatDateInput(date)
+    if (value > maxDateText) return
     setDraftRange((current) => ({
       date_from: value < current.date_from ? value : current.date_from,
       date_to: value,
     }))
-    setSelecting('from')
   }
 
-  function applyPreset(value: number | 'week_to_date' | 'month_to_date') {
-    applyRange(presetRangeBuilder(value), { alignToGrain: false })
+  function applyPreset(days: number) {
+    // "昨天" (days=1) is the single day before maxDate.
+    // "近N天" (days>1) spans the last N days ending at maxDate.
+    const end = days === 1 ? shiftDate(maxDate, -1) : maxDate
+    const start = days === 1 ? shiftDate(maxDate, -1) : shiftDate(maxDate, -(days - 1))
+    applyRange({ date_from: formatDateInput(start), date_to: formatDateInput(end) }, { alignToGrain: false })
   }
 
-  function renderMonth(month: Date) {
+  function renderMonth(month: Date, onSelectDate: (date: Date) => void) {
     const cells = buildCalendarCells(month)
     const monthIndex = month.getMonth()
     return (
       <div className="range-calendar-month">
-        <div className="range-calendar-month__title">{formatMonthTitle(month)}</div>
         <div className="range-calendar-weekdays" aria-hidden="true">
           {WEEKDAY_LABELS.map((day) => <span key={day}>{day}</span>)}
         </div>
@@ -162,7 +164,7 @@ export function FilterBar({
                   selectedStart || selectedEnd ? 'range-calendar-day--selected' : '',
                 ].filter(Boolean).join(' ')}
                 disabled={disabled}
-                onClick={() => selectDate(date)}
+                onClick={() => onSelectDate(date)}
               >
                 {date.getDate()}
               </button>
@@ -238,18 +240,31 @@ export function FilterBar({
               </div>
 
               <div className="range-calendar">
-                <div className="range-calendar-toolbar">
-                  <button type="button" onClick={() => setVisibleMonth((m) => shiftMonth(m, -1))}>
-                    上月
-                  </button>
-                  <span>{selecting === 'from' ? '选择开始日期' : '选择结束日期'}</span>
-                  <button type="button" onClick={() => setVisibleMonth((m) => shiftMonth(m, 1))}>
-                    下月
-                  </button>
-                </div>
-                <div className="range-calendar-months">
-                  {renderMonth(visibleMonth)}
-                  {renderMonth(shiftMonth(visibleMonth, 1))}
+                <div className="range-calendars-wrapper">
+                  <div className="range-calendar-side">
+                    <div className="range-calendar-toolbar">
+                      <button type="button" onClick={() => setStartMonth((m) => shiftMonth(m, -1))}>
+                        上月
+                      </button>
+                      <span>{formatMonthTitle(startMonth)}</span>
+                      <button type="button" onClick={() => setStartMonth((m) => shiftMonth(m, 1))}>
+                        下月
+                      </button>
+                    </div>
+                    {renderMonth(startMonth, selectStartDate)}
+                  </div>
+                  <div className="range-calendar-side">
+                    <div className="range-calendar-toolbar">
+                      <button type="button" onClick={() => setEndMonth((m) => shiftMonth(m, -1))}>
+                        上月
+                      </button>
+                      <span>{formatMonthTitle(endMonth)}</span>
+                      <button type="button" onClick={() => setEndMonth((m) => shiftMonth(m, 1))}>
+                        下月
+                      </button>
+                    </div>
+                    {renderMonth(endMonth, selectEndDate)}
+                  </div>
                 </div>
               </div>
 
