@@ -44,7 +44,7 @@ describe('P1 overview KPI composition', () => {
 
     const focusSource = source.slice(
       source.indexOf('  const focusMetrics: FocusAggregationMetric[]'),
-      source.indexOf('  const activeFocusMetric'),
+      source.indexOf('  const focusSummaryBlocks'),
     )
 
     expect(focusSource).not.toContain('unreplied_count')
@@ -98,15 +98,18 @@ describe('P1 overview KPI composition', () => {
     expect(source).not.toContain('getDefaultHistoryRange(next)')
   })
 
-  it('uses FocusSummaryBlock aggregation instead of the legacy chart summary map', () => {
-    const summaryStart = source.indexOf('  const activeFocusMetric')
+  it('uses all KPI FocusSummaryBlock aggregations instead of the legacy chart summary map', () => {
+    const summaryStart = source.indexOf('  const focusSummaryBlocks')
     const summarySource = source.slice(
       summaryStart,
       source.indexOf('  return (', summaryStart),
     )
 
     expect(source).toContain('FocusSummaryBlock')
+    expect(summarySource).toContain('focusSummaryBlocks')
     expect(summarySource).toContain('aggregateFocusMetric')
+    expect(summarySource).toContain('focusSelection')
+    expect(source).toContain('区块 ${String.fromCharCode(65 + index)} · ${metric.label}')
     expect(source).not.toContain('summaryByKey')
     expect(summarySource).not.toContain('previousHistory')
     expect(summarySource).not.toContain('delta,')

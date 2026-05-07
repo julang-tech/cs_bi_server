@@ -44,14 +44,17 @@ describe('P2 overview focus chart summary', () => {
     expect(source).toContain("value: 'lintico-uk.myshopify.com'")
   })
 
-  it('uses FocusSummaryBlock aggregation instead of the legacy chart summary map', () => {
+  it('uses all KPI FocusSummaryBlock aggregations instead of the legacy chart summary map', () => {
     const summarySource = source.slice(
-      source.indexOf('  const activeFocusMetric'),
+      source.indexOf('  const focusSummaryBlocks'),
       source.indexOf('  return ('),
     )
 
     expect(source).toContain('FocusSummaryBlock')
+    expect(summarySource).toContain('focusSummaryBlocks')
     expect(summarySource).toContain('aggregateFocusMetric')
+    expect(summarySource).toContain('focusSelection')
+    expect(source).toContain('区块 ${String.fromCharCode(65 + index)} · ${metric.label}')
     expect(source).not.toContain('summaryByKey')
     expect(summarySource).not.toContain('previousHistory')
     expect(summarySource).not.toContain('delta,')
