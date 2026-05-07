@@ -458,11 +458,14 @@
 }
 
 .kpi-card {
+  container-type: inline-size;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
   min-height: 132px;
+  overflow: hidden;
   padding: 10px 12px 9px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -476,6 +479,7 @@
 .kpi-card__content {
   display: flex;
   flex: 1;
+  min-width: 0;
   flex-direction: column;
   justify-content: space-between;
   gap: 8px;
@@ -542,6 +546,7 @@
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 12px;
+  min-width: 0;
 }
 
 .kpi-card__main {
@@ -556,7 +561,8 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 7px;
-  min-width: max-content;
+  min-width: 0;
+  max-width: min(46%, 116px);
   padding-top: 2px;
   text-align: right;
 }
@@ -627,13 +633,17 @@
   align-items: center;
   justify-content: center;
   align-self: flex-end;
-  min-width: 76px;
+  min-width: 0;
+  max-width: 100%;
   padding: 4px 10px;
   border: 1px solid transparent;
   border-radius: 999px;
-  font-size: var(--fs-xs);
+  font-size: clamp(10px, 4cqw, var(--fs-xs));
   font-weight: 800;
-  white-space: nowrap;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: normal;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
 }
 
@@ -662,10 +672,11 @@
 }
 
 .kpi-card__value {
+  max-width: 100%;
   margin: 6px 0 0;
   color: var(--heading);
   font-family: var(--sans);
-  font-size: 22px;
+  font-size: clamp(18px, 7cqw, 22px);
   font-weight: 600;
   line-height: 1.1;
   letter-spacing: 0;
@@ -678,15 +689,15 @@
   display: inline-flex;
   align-items: baseline;
   justify-content: flex-start;
+  flex-wrap: wrap;
   gap: 6px;
-  width: auto;
+  max-width: 100%;
   margin-top: 6px;
   padding: 0;
   background: transparent;
   color: var(--muted);
   font-size: var(--fs-xs);
   font-weight: 500;
-  white-space: nowrap;
   line-height: 1.2;
 }
 
@@ -998,6 +1009,9 @@
 .mini-chart {
   padding: 0;
   width: 100%;
+  flex: 0 0 42px;
+  align-self: stretch;
+  min-width: 0;
 }
 
 .mini-chart--empty {
