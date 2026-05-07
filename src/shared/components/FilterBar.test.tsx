@@ -64,7 +64,7 @@ describe('FilterBar date range picker', () => {
     expect(document.querySelector('.date-range-popover')).toBeNull()
   })
 
-  it('offers week-to-date and month-to-date shortcuts', () => {
+  it('offers yesterday, last-3/5/7-day shortcuts', () => {
     renderFilterBar()
 
     const trigger = document.querySelector<HTMLButtonElement>('.date-range-trigger')
@@ -72,11 +72,13 @@ describe('FilterBar date range picker', () => {
       trigger?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(host?.textContent).toContain('本周至今')
-    expect(host?.textContent).toContain('本月至今')
+    expect(host?.textContent).toContain('昨天')
+    expect(host?.textContent).toContain('近3天')
+    expect(host?.textContent).toContain('近5天')
+    expect(host?.textContent).toContain('近一周')
   })
 
-  it('applies week-to-date without expanding it to a future full week', () => {
+  it('applies yesterday preset without expanding to a full week', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 4, 1, 12))
     const { onHistoryRangeChange } = renderFilterBar({ grain: 'week' })
@@ -86,24 +88,24 @@ describe('FilterBar date range picker', () => {
       trigger?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.range-presets button'))
-      .find((item) => item.textContent === '本周至今')
+      .find((item) => item.textContent === '昨天')
 
     act(() => {
       button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
+    // maxDate = data-ready (April 30 at 12:00), "昨天" = April 29
     expect(onHistoryRangeChange).toHaveBeenCalledWith({
-      date_from: '2026-04-27',
-      date_to: '2026-04-30',
+      date_from: '2026-04-29',
+      date_to: '2026-04-29',
     })
   })
 
-  it('can use a caller-provided realtime max date and preset range', () => {
+  it('uses maxDate as the reference point for presets', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 4, 2, 12))
     const { onHistoryRangeChange } = renderFilterBar({
       maxDate: new Date(2026, 4, 2, 12),
-      presetRangeBuilder: () => ({ date_from: '2026-04-26', date_to: '2026-05-02' }),
     })
 
     const trigger = document.querySelector<HTMLButtonElement>('.date-range-trigger')
@@ -111,12 +113,13 @@ describe('FilterBar date range picker', () => {
       trigger?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     const button = Array.from(document.querySelectorAll<HTMLButtonElement>('.range-presets button'))
-      .find((item) => item.textContent === '近 7 天')
+      .find((item) => item.textContent === '近一周')
 
     act(() => {
       button?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
+    // "近一周" (7): maxDate-6 to maxDate = April 26 to May 2
     expect(onHistoryRangeChange).toHaveBeenCalledWith({
       date_from: '2026-04-26',
       date_to: '2026-05-02',

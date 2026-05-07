@@ -13,7 +13,7 @@ import { aggregateFocusMetric, type FocusAggregationMetric, type FocusSelection 
 import { buildDirectionalDelta, type DeltaMode, type MetricPolarity } from '../../shared/utils/delta'
 import {
   getRealtimeCurrentPeriod, getRealtimePreviousPeriod, getRealtimeDefaultHistoryRange,
-  getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel, getRealtimePresetHistoryRange,
+  getRealtimeCurrentPeriodLabel, getRealtimePreviousPeriodLabel,
 } from '../../shared/utils/datePeriod'
 import { resolveDataAsOfLabel } from '../../shared/utils/dataAsOf'
 import { getMetricDescription } from '../../shared/metricDefinitions'
@@ -226,7 +226,6 @@ export default function P1Dashboard() {
           historyRange={historyRange}
           onHistoryRangeChange={setHistoryRange}
           maxDate={today}
-          presetRangeBuilder={(value) => getRealtimePresetHistoryRange(value, today)}
           extras={
             <div className="filter-bar__group">
               <span className="filter-bar__label">客服姓名</span>
