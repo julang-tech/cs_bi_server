@@ -4,16 +4,18 @@ interface FocusSummaryBlockProps {
   metricLabel: string
   selection: FocusSelection
   summary: FocusAggregationResult
+  blockLabel?: string
   onReset?: () => void
 }
 
-export function FocusSummaryBlock({ metricLabel, selection, summary, onReset }: FocusSummaryBlockProps) {
+export function FocusSummaryBlock({ metricLabel, selection, summary, blockLabel, onReset }: FocusSummaryBlockProps) {
   const canReset = selection.type !== 'all'
+  const eyebrow = blockLabel ?? `区块 A · ${metricLabel}`
   return (
-    <section className="focus-summary-block" aria-label="区块 A：焦点范围统计">
+    <section className="focus-summary-block" aria-label={`${eyebrow}：焦点范围统计`}>
       <div className="focus-summary-block__header">
         <div>
-          <span className="focus-summary-block__eyebrow">区块 A · {metricLabel}</span>
+          <span className="focus-summary-block__eyebrow">{eyebrow}</span>
           <h3>{summary.label}</h3>
         </div>
         {canReset ? (

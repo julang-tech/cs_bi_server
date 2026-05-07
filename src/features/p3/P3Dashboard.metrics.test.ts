@@ -38,15 +38,17 @@ describe('P3 overview KPI composition', () => {
     expect(source).toContain('订单时间口径')
   })
 
-  it('uses FocusSummaryBlock aggregation instead of the legacy chart summary map', () => {
-    const summaryStart = source.indexOf('  const activeFocusMetric')
+  it('uses four FocusSummaryBlock aggregations instead of the legacy chart summary map', () => {
+    const summaryStart = source.indexOf('  const focusSummarySelection')
     const summarySource = source.slice(
       summaryStart,
       source.indexOf('  return (', summaryStart),
     )
 
     expect(source).toContain('FocusSummaryBlock')
+    expect(summarySource).toContain('focusSummaryBlocks')
     expect(summarySource).toContain('aggregateFocusMetric')
+    expect(source).toContain('区块 ${String.fromCharCode(65 + index)} · ${metric.label}')
     expect(source).not.toContain('summaryByKey')
     expect(summarySource).not.toContain('previousHistory')
     expect(summarySource).not.toContain('delta,')
