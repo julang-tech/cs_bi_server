@@ -138,12 +138,15 @@ export default function P2Dashboard() {
     }
   })
 
-  const activeFocusMetric = focusMetrics.find((metric) => metric.key === activeMetricKey) ?? focusMetrics[0]
-  const focusSummary = aggregateFocusMetric(
-    activeFocusMetric,
-    focusSelection,
-    (bucket) => formatFocusBucketLabel(bucket, grain),
-  )
+  const focusSummaryBlocks = focusMetrics.map((metric, index) => ({
+    metric,
+    blockLabel: `区块 ${String.fromCharCode(65 + index)} · ${metric.label}`,
+    summary: aggregateFocusMetric(
+      metric,
+      focusSelection,
+      (bucket) => formatFocusBucketLabel(bucket, grain),
+    ),
+  }))
 
   return (
     <DashboardShell
@@ -214,13 +217,19 @@ export default function P2Dashboard() {
             })}
         </KpiSection>
       }
-      focusSummaryBlock={loading || !activeFocusMetric ? null : (
-        <FocusSummaryBlock
-          metricLabel={activeFocusMetric.label}
-          selection={focusSelection}
-          summary={focusSummary}
-          onReset={() => setFocusSelection({ type: 'all' })}
-        />
+      focusSummaryBlock={loading ? null : (
+        <div className="focus-summary-blocks" aria-label="P2 KPI 的焦点范围统计">
+          {focusSummaryBlocks.map(({ metric, blockLabel, summary }) => (
+            <FocusSummaryBlock
+              key={metric.key}
+              metricLabel={metric.label}
+              blockLabel={blockLabel}
+              selection={focusSelection}
+              summary={summary}
+              onReset={metric.key === focusMetrics[0]?.key ? () => setFocusSelection({ type: 'all' }) : undefined}
+            />
+          ))}
+        </div>
       )}
       focusChart={loading ? null : (
         <FocusLineChart

@@ -9,7 +9,7 @@ interface FocusSummaryBlockProps {
 }
 
 export function FocusSummaryBlock({ metricLabel, selection, summary, blockLabel, onReset }: FocusSummaryBlockProps) {
-  const canReset = selection.type !== 'all'
+  const canReset = selection.type !== 'all' && Boolean(onReset)
   const eyebrow = blockLabel ?? `区块 A · ${metricLabel}`
   return (
     <section className="focus-summary-block" aria-label={`${eyebrow}：焦点范围统计`}>

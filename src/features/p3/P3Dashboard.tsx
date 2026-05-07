@@ -151,13 +151,12 @@ export default function P3Dashboard() {
     }
   })
 
-  const focusSummarySelection: FocusSelection = { type: 'all' }
   const focusSummaryBlocks = focusMetrics.map((metric, index) => ({
     metric,
     blockLabel: `区块 ${String.fromCharCode(65 + index)} · ${metric.label}`,
     summary: aggregateFocusMetric(
       metric,
-      focusSummarySelection,
+      focusSelection,
       (bucket) => formatFocusBucketLabel(bucket, grain),
     ),
   }))
@@ -233,8 +232,9 @@ export default function P3Dashboard() {
               key={metric.key}
               metricLabel={metric.label}
               blockLabel={blockLabel}
-              selection={focusSummarySelection}
+              selection={focusSelection}
               summary={summary}
+              onReset={metric.key === focusMetrics[0]?.key ? () => setFocusSelection({ type: 'all' }) : undefined}
             />
           ))}
         </div>
