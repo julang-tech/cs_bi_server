@@ -567,8 +567,8 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 7px;
-  min-width: 0;
-  max-width: min(46%, 116px);
+  min-width: max-content;
+  max-width: 100%;
   padding-top: 2px;
   text-align: right;
 }
@@ -639,17 +639,18 @@
   align-items: center;
   justify-content: center;
   align-self: flex-end;
-  min-width: 0;
-  max-width: 100%;
+  min-width: 76px;
+  max-width: min(100%, 128px);
   padding: 4px 10px;
   border: 1px solid transparent;
   border-radius: 999px;
-  font-size: clamp(10px, 4cqw, var(--fs-xs));
+  font-size: var(--fs-xs);
   font-weight: 800;
   line-height: 1.15;
-  overflow-wrap: anywhere;
+  overflow: hidden;
   text-align: center;
-  white-space: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
 }
 
@@ -682,13 +683,15 @@
   margin: 6px 0 0;
   color: var(--heading);
   font-family: var(--sans);
-  font-size: clamp(18px, 7cqw, 22px);
+  font-size: 22px;
   font-weight: 600;
   line-height: 1.1;
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kpi-card__secondary {
