@@ -175,7 +175,7 @@ export function WorkloadAnalysis({ workloadRows, loading }: WorkloadAnalysisProp
   return (
     <Table<WorkloadTableRow>
       title="坐席工作量"
-      hint="表格底部为「坐席总量」（团队累计）和「坐席均值」（算术平均）。每小时回信均值的总量行 = 总回邮 ÷ 总在席时长；质检结果展示顺序：优秀 / 达标 / 不合格。"
+      hint="跟随筛选器所选历史时间范围。表格底部为「坐席总量」（团队累计）和「坐席均值」（算术平均）。每小时回信均值的总量行 = 总回邮 ÷ 总在席时长；质检结果仅统计已质检回邮，展示顺序：优秀 / 达标 / 不合格。"
       columns={workloadColumns}
       rows={loading ? [] : buildWorkloadTableRows(workloadRows)}
       emptyCopy={loading ? '正在加载坐席数据...' : '暂无坐席工作量数据'}

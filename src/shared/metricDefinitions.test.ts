@@ -46,6 +46,9 @@ describe('metric definitions', () => {
     expect(getMetricDefinition('p3.date_basis')?.short).toContain('客诉登记时间')
     expect(getMetricDefinition('p3.issue_refund_count')?.name).toContain('退款')
     expect(getMetricDefinition('p1.agent_qa_reply_counts')?.short).toContain('优秀')
+    expect(getMetricDefinition('p1.outbound_email_count')?.detail).toContain('KPI 主值和同比使用当前周期')
+    expect(getMetricDefinition('p1.agent_outbound_email_count')?.short).toContain('所选历史时间范围')
+    expect(getMetricDefinition('p1.agent_qa_reply_counts')?.detail).toContain('三档合计不等于总回邮数')
   })
 
   it('does not duplicate definition ids', () => {
