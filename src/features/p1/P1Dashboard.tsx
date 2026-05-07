@@ -228,10 +228,10 @@ export default function P1Dashboard() {
           maxDate={today}
           presetRangeBuilder={(value) => getRealtimePresetHistoryRange(value, today)}
           extras={
-            <div className="filter-bar__group">
-              <span className="filter-bar__label">客服姓名</span>
+            <div className="filter-bar__group p1-agent-filter">
+              <span className="filter-bar__label p1-agent-filter__label">客服姓名</span>
               <select
-                className="select-control"
+                className="select-control p1-agent-filter__select"
                 value={agentName}
                 onChange={(e) => setAgentName(e.target.value)}
               >

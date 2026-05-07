@@ -96,6 +96,98 @@
   font-weight: 700;
 }
 
+/* P1: align agent filter with workload table columns */
+.p1-agent-filter,
+.p1-workload-table {
+  --p1-agent-label-width: 64px;
+  --p1-agent-column-width: 168px;
+  --p1-workload-metric-column-width: 152px;
+  --p1-workload-qa-column-width: 180px;
+  --p1-workload-cell-x: 12px;
+}
+
+.p1-agent-filter {
+  display: grid;
+  grid-template-columns: var(--p1-agent-label-width) var(--p1-agent-column-width);
+  column-gap: var(--space-2);
+  align-items: center;
+}
+
+.p1-agent-filter__label {
+  text-align: left;
+}
+
+.p1-agent-filter__select {
+  width: var(--p1-agent-column-width);
+  min-width: var(--p1-agent-column-width);
+  padding-left: var(--p1-workload-cell-x);
+  padding-right: var(--p1-workload-cell-x);
+}
+
+.p1-workload-table .data-table {
+  table-layout: fixed;
+}
+
+.p1-workload-table .data-table thead th,
+.p1-workload-table .data-table tbody td {
+  padding-left: var(--p1-workload-cell-x);
+  padding-right: var(--p1-workload-cell-x);
+}
+
+.p1-workload-table .data-table thead th:first-child,
+.p1-workload-table .data-table tbody td:first-child {
+  width: var(--p1-agent-column-width);
+  text-align: left;
+}
+
+.p1-workload-table .data-table thead th:nth-child(2),
+.p1-workload-table .data-table tbody td:nth-child(2),
+.p1-workload-table .data-table thead th:nth-child(3),
+.p1-workload-table .data-table tbody td:nth-child(3),
+.p1-workload-table .data-table thead th:nth-child(4),
+.p1-workload-table .data-table tbody td:nth-child(4),
+.p1-workload-table .data-table thead th:nth-child(5),
+.p1-workload-table .data-table tbody td:nth-child(5) {
+  width: var(--p1-workload-metric-column-width);
+}
+
+.p1-workload-table .data-table thead th:last-child,
+.p1-workload-table .data-table tbody td:last-child {
+  width: var(--p1-workload-qa-column-width);
+}
+
+@media (max-width: 760px) {
+  .p1-agent-filter {
+    grid-template-columns: 1fr;
+    row-gap: var(--space-2);
+    width: 100%;
+  }
+
+  .p1-agent-filter__select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .p1-workload-table .data-table {
+    table-layout: auto;
+  }
+
+  .p1-workload-table .data-table thead th:first-child,
+  .p1-workload-table .data-table tbody td:first-child,
+  .p1-workload-table .data-table thead th:nth-child(2),
+  .p1-workload-table .data-table tbody td:nth-child(2),
+  .p1-workload-table .data-table thead th:nth-child(3),
+  .p1-workload-table .data-table tbody td:nth-child(3),
+  .p1-workload-table .data-table thead th:nth-child(4),
+  .p1-workload-table .data-table tbody td:nth-child(4),
+  .p1-workload-table .data-table thead th:nth-child(5),
+  .p1-workload-table .data-table tbody td:nth-child(5),
+  .p1-workload-table .data-table thead th:last-child,
+  .p1-workload-table .data-table tbody td:last-child {
+    width: auto;
+  }
+}
+
 /* Generic trend chart hit/axis helpers used inside P1 workload trend */
 
 .trend-chart__reference-line {
