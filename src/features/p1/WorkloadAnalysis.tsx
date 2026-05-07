@@ -25,6 +25,11 @@ interface WorkloadAnalysisProps {
   onOpenMappingConfig: () => void
 }
 
+export type AgentFilterOption = {
+  value: string
+  label: string
+}
+
 function computeStandardAttendanceHours(outboundCount: number): number | null {
   if (!Number.isFinite(outboundCount) || outboundCount <= 0) return null
   return outboundCount / STANDARD_REPLY_RATE_PER_HOUR
@@ -128,6 +133,23 @@ export function mergeRowsByAgentMailNameMappings(
   })
 
   return [...merged.values()]
+}
+
+export function buildAgentFilterOptions(
+  rows: P1AgentRow[],
+  mappings: P1AgentMailNameMapping[] = [],
+): AgentFilterOption[] {
+  const seen = new Set<string>()
+  const agentOptions = mergeRowsByAgentMailNameMappings(rows, mappings)
+    .map((row) => row.agent_name.trim())
+    .filter((agentName) => {
+      if (!agentName || seen.has(agentName)) return false
+      seen.add(agentName)
+      return true
+    })
+    .map((agentName) => ({ value: agentName, label: agentName }))
+
+  return [{ value: '', label: '全部客服' }, ...agentOptions]
 }
 
 export function buildWorkloadTableRows(

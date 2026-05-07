@@ -23,20 +23,10 @@ import {
 } from '../../shared/utils/datePeriod'
 import { resolveDataAsOfLabel } from '../../shared/utils/dataAsOf'
 import { getMetricDescription } from '../../shared/metricDefinitions'
-import { WorkloadAnalysis } from './WorkloadAnalysis'
+import { WorkloadAnalysis, buildAgentFilterOptions } from './WorkloadAnalysis'
 import { AgentNameMappingModal } from './AgentNameMappingModal'
 import { sortBacklogMailsByWaitDesc } from './backlogMails'
-import type { Grain, P1AgentMailNameMapping, P1BacklogMail, P1Dashboard as P1DashboardData, TrendPoint } from '../../api/types'
-
-const AGENT_OPTIONS = [
-  { value: '', label: '全部客服' },
-  { value: 'Mira', label: 'Mira' },
-  { value: 'Wendy', label: 'Wendy' },
-  { value: 'Lila', label: 'Lila' },
-  { value: 'Chloe', label: 'Chloe' },
-  { value: 'Mia', label: 'Mia' },
-  { value: 'Jovie', label: 'Jovie' },
-]
+import type { Grain, P1AgentMailNameMapping, P1AgentRow, P1BacklogMail, P1Dashboard as P1DashboardData, TrendPoint } from '../../api/types'
 
 function formatBacklogNote(note: string) {
   if (note === 'agent_filter_unsupported') {
@@ -71,6 +61,7 @@ export default function P1Dashboard() {
   const [markingMailId, setMarkingMailId] = useState<number | null>(null)
   const [mappingModalOpen, setMappingModalOpen] = useState(false)
   const [agentMailNameMappings, setAgentMailNameMappings] = useState<P1AgentMailNameMapping[]>([])
+  const [agentOptionSourceRows, setAgentOptionSourceRows] = useState<P1AgentRow[]>([])
   const [mappingLoadingError, setMappingLoadingError] = useState<string | null>(null)
   const [mappingSaving, setMappingSaving] = useState(false)
 
@@ -98,6 +89,21 @@ export default function P1Dashboard() {
     fetcher: (filters, signal) => fetchP1Dashboard(filters as never, signal),
   })
   const dataAsOfLabel = resolveDataAsOfLabel(current?.meta, { cadence: '5min' }) ?? currentPeriod.date_to
+
+  useEffect(() => {
+    if (!agentName && history?.agent_workload?.length) {
+      setAgentOptionSourceRows(history.agent_workload)
+    }
+  }, [agentName, history?.agent_workload])
+
+  const agentOptions = useMemo(() => {
+    const sourceRows = agentOptionSourceRows.length ? agentOptionSourceRows : (history?.agent_workload ?? [])
+    const options = buildAgentFilterOptions(sourceRows, agentMailNameMappings)
+    if (agentName && !options.some((option) => option.value === agentName)) {
+      return [...options, { value: agentName, label: agentName }]
+    }
+    return options
+  }, [agentMailNameMappings, agentName, agentOptionSourceRows, history?.agent_workload])
 
   const loadBacklogMails = useCallback(async (signal?: AbortSignal) => {
     setBacklogLoading(true)
@@ -280,7 +286,7 @@ export default function P1Dashboard() {
                 value={agentName}
                 onChange={(e) => setAgentName(e.target.value)}
               >
-                {AGENT_OPTIONS.map((opt) => (
+                {agentOptions.map((opt) => (
                   <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
