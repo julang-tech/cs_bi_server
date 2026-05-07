@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 
 export interface ProductBreakdownColumn<Row> {
@@ -72,6 +72,7 @@ export function ProductBreakdownTable<Row>({
   const [spuKeyword, setSpuKeyword] = useState('')
   const [skcKeyword, setSkcKeyword] = useState('')
   const [activeTooltip, setActiveTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
+  const productPickerRef = useRef<HTMLDivElement | null>(null)
 
   const skcsBySpu = useMemo(() => {
     const map = new Map<string, string[]>()
@@ -83,6 +84,23 @@ export function ProductBreakdownTable<Row>({
     }
     return map
   }, [filterOptions])
+
+  useEffect(() => {
+    if (!pickerOpen) return
+
+    function closeOnOutsidePointer(event: MouseEvent | TouchEvent) {
+      if (!(event.target instanceof Node)) return
+      if (productPickerRef.current?.contains(event.target)) return
+      setPickerOpen(false)
+    }
+
+    document.addEventListener('mousedown', closeOnOutsidePointer)
+    document.addEventListener('touchstart', closeOnOutsidePointer)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsidePointer)
+      document.removeEventListener('touchstart', closeOnOutsidePointer)
+    }
+  }, [pickerOpen])
 
   const filteredRows = useMemo(() => {
     const hasSpu = tableView === 'spu' && selectedSpus.length > 0
@@ -226,7 +244,7 @@ export function ProductBreakdownTable<Row>({
         </div>
         <div className="table-sort-tools">
           <div className="table-sort-tools-row">
-            <div className="picker-wrap product-picker-wrap">
+            <div className="picker-wrap product-picker-wrap" ref={productPickerRef}>
               <button type="button" className="picker-trigger" onClick={() => setPickerOpen((v) => !v)}>
                 {tableView === 'skc' ? 'SKC 筛选' : '商品筛选'} {filterCount ? `(${filterCount})` : ''}
               </button>

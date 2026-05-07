@@ -15,6 +15,18 @@ describe('ProductComplaintRanking pagination', () => {
     expect(sharedSource).not.toContain('useState(5)')
   })
 
+  it('closes the shared product picker when clicking outside', () => {
+    expect(sharedSource).toContain('useRef')
+    expect(sharedSource).toContain('productPickerRef')
+    expect(sharedSource).toContain("document.addEventListener('mousedown', closeOnOutsidePointer)")
+    expect(sharedSource).toContain("document.addEventListener('touchstart', closeOnOutsidePointer)")
+    expect(sharedSource).toContain('productPickerRef.current?.contains(event.target)')
+    expect(sharedSource).toContain('setPickerOpen(false)')
+    expect(sharedSource).toContain("document.removeEventListener('mousedown', closeOnOutsidePointer)")
+    expect(sharedSource).toContain("document.removeEventListener('touchstart', closeOnOutsidePointer)")
+    expect(sharedSource).toContain('ref={productPickerRef}')
+  })
+
   it('renders sortable column headers for sales/complaint metrics with default 客诉率倒序', () => {
     expect(source).toContain('defaultSortKey="complaint_rate"')
     expect(source).toContain('defaultSortDirection="desc"')

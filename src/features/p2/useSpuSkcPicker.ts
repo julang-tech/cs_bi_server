@@ -26,7 +26,7 @@ interface UseSpuSkcPickerResult {
 }
 
 export function useSpuSkcPicker({
-  spuOptions, skcOptions, pairs,
+  spuOptions, skcOptions,
 }: UseSpuSkcPickerArgs): UseSpuSkcPickerResult {
   const [pendingSpus, setPendingSpus] = useState<string[]>([])
   const [pendingSkcs, setPendingSkcs] = useState<string[]>([])
@@ -34,28 +34,6 @@ export function useSpuSkcPicker({
   const [selectedSkcs, setSelectedSkcs] = useState<string[]>([])
   const [spuKeyword, setSpuKeyword] = useState('')
   const [skcKeyword, setSkcKeyword] = useState('')
-
-  const skcsBySpu = useMemo(() => {
-    const map = new Map<string, string[]>()
-    for (const p of pairs) {
-      if (!p.spu || !p.skc) continue
-      const list = map.get(p.spu) ?? []
-      list.push(p.skc)
-      map.set(p.spu, list)
-    }
-    return map
-  }, [pairs])
-
-  const spusBySkc = useMemo(() => {
-    const map = new Map<string, string[]>()
-    for (const p of pairs) {
-      if (!p.spu || !p.skc) continue
-      const list = map.get(p.skc) ?? []
-      list.push(p.spu)
-      map.set(p.skc, list)
-    }
-    return map
-  }, [pairs])
 
   const filteredSpuOptions = useMemo(
     () => spuOptions.filter((o) => o.toLowerCase().includes(spuKeyword.trim().toLowerCase())),
@@ -76,35 +54,18 @@ export function useSpuSkcPicker({
   }, [skcOptions])
 
   function toggleSpuPending(spu: string, checked: boolean) {
-    const related = skcsBySpu.get(spu) ?? []
     setPendingSpus((prevSpus) => {
-      const nextSpus = checked
+      return checked
         ? [...new Set([...prevSpus, spu])]
         : prevSpus.filter((v) => v !== spu)
-      setPendingSkcs((prevSkcs) => {
-        if (checked) return [...new Set([...prevSkcs, ...related])]
-        const nextSpuSet = new Set(nextSpus)
-        return prevSkcs.filter((skc) => {
-          if (!related.includes(skc)) return true
-          const parents = spusBySkc.get(skc) ?? []
-          return parents.some((s) => nextSpuSet.has(s))
-        })
-      })
-      return nextSpus
     })
   }
 
   function toggleSkcPending(skc: string, checked: boolean) {
     setPendingSkcs((prevSkcs) => {
-      const nextSkcs = checked
+      return checked
         ? [...new Set([...prevSkcs, skc])]
         : prevSkcs.filter((v) => v !== skc)
-      const nextSpuSet = new Set<string>()
-      for (const s of nextSkcs) {
-        for (const sp of spusBySkc.get(s) ?? []) nextSpuSet.add(sp)
-      }
-      setPendingSpus([...nextSpuSet])
-      return nextSkcs
     })
   }
 
