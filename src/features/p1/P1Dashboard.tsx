@@ -261,6 +261,7 @@ export default function P1Dashboard() {
       (bucket) => formatFocusBucketLabel(bucket, grain),
     ),
   }))
+  const focusSummaryRangeLabel = focusSummaryBlocks[0]?.summary.label ?? '完整范围'
 
   return (
     <>
@@ -353,18 +354,30 @@ export default function P1Dashboard() {
         </KpiSection>
       }
       focusSummaryBlock={loading ? null : (
-        <div className="focus-summary-blocks" aria-label="P1 KPI 的焦点范围统计">
-          {focusSummaryBlocks.map(({ metric, blockLabel, summary }) => (
-            <FocusSummaryBlock
-              key={metric.key}
-              metricLabel={metric.label}
-              blockLabel={blockLabel}
-              selection={focusSelection}
-              summary={summary}
-              onReset={metric.key === focusMetrics[0]?.key ? () => setFocusSelection({ type: 'all' }) : undefined}
-            />
-          ))}
-        </div>
+        <section className="focus-summary-panel" aria-label="P1 KPI 的焦点范围统计">
+          <header className="focus-summary-panel__header">
+            <div>
+              <span className="focus-summary-panel__eyebrow">焦点范围统计</span>
+              <h2>{focusSummaryRangeLabel}</h2>
+            </div>
+            {focusSelection.type !== 'all' ? (
+              <button type="button" className="focus-summary-panel__reset" onClick={() => setFocusSelection({ type: 'all' })}>
+                重置为完整范围
+              </button>
+            ) : null}
+          </header>
+          <div className="focus-summary-blocks">
+            {focusSummaryBlocks.map(({ metric, blockLabel, summary }) => (
+              <FocusSummaryBlock
+                key={metric.key}
+                metricLabel={metric.label}
+                blockLabel={blockLabel}
+                selection={focusSelection}
+                summary={summary}
+              />
+            ))}
+          </div>
+        </section>
       )}
       focusChart={loading ? null : (
         <FocusLineChart
