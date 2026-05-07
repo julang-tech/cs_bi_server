@@ -39,6 +39,26 @@ const VIEW_HIT_MAP: Record<string, string> = {
 }
 const VIEW_HIT_FALLBACK = '1-1待跟进表-退款'
 
+const REFUND_REASON_ALIASES: Record<string, keyof typeof COMPLAINT_TYPE_MAP> = {
+  券折扣问题: '券/折扣问题',
+  折扣问题: '券/折扣问题',
+  coupon: '券/折扣问题',
+  discount: '券/折扣问题',
+  订单异常: '订单异常/取消/修改订单',
+  取消订单: '订单异常/取消/修改订单',
+  修改订单: '订单异常/取消/修改订单',
+  缺货: '缺货问题',
+  物流: '物流问题',
+  错漏发: '错漏发',
+  错发: '错漏发',
+  漏发: '错漏发',
+  '错/漏发': '错漏发',
+  瑕疵: '瑕疵问题',
+  高风险: '高风险订单',
+  highrisk: '高风险订单',
+  其他: '其他',
+}
+
 const VIEW_PRODUCT_DEFECT = '1-3待跟进表-货品瑕疵'
 const VIEW_WRONG_SEND = '1-2待跟进表-漏发、发错'
 const VIEW_LOGISTICS = '1-4待跟进表-物流问题'
@@ -359,14 +379,41 @@ function primaryRefundReason(value: unknown) {
   if (!text) {
     return ''
   }
-  return text.split(',').find((part) => part.trim())?.trim() ?? text
+  const rawParts = text
+    .split(/[,，、;；]/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+  const parts = rawParts.length ? rawParts : [text]
+  const normalizedParts = parts.map((part) => normalizeRefundReason(part))
+  const actionable = normalizedParts.find((part) => part && part !== '其他')
+  return actionable ?? normalizedParts.find(Boolean) ?? parts[0] ?? text
+}
+
+function normalizeRefundReason(reason: string) {
+  const trimmed = reason.trim()
+  if (!trimmed) return ''
+  if (trimmed in COMPLAINT_TYPE_MAP) return trimmed
+  const compact = trimmed
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[／/]/g, '')
+    .replace(/[()（）-]/g, '')
+  if (compact in REFUND_REASON_ALIASES) {
+    return REFUND_REASON_ALIASES[compact]
+  }
+  for (const [needle, canonical] of Object.entries(REFUND_REASON_ALIASES)) {
+    if (compact.includes(needle)) {
+      return canonical
+    }
+  }
+  return trimmed
 }
 
 function mapRefundComplaintType(refundReason: string) {
   if (!refundReason) {
     return COMPLAINT_TYPE_FALLBACK
   }
-  return COMPLAINT_TYPE_MAP[refundReason] ?? COMPLAINT_TYPE_FALLBACK
+  return COMPLAINT_TYPE_MAP[normalizeRefundReason(refundReason)] ?? COMPLAINT_TYPE_FALLBACK
 }
 
 function inferSolutionFromOperation(operationText: string) {
@@ -374,13 +421,13 @@ function inferSolutionFromOperation(operationText: string) {
   if (!text) {
     return []
   }
-  if (text.includes('补发')) {
+  if (/补发|重发|resend|reissue|replacement/i.test(text)) {
     return ['补发']
   }
-  if (text.includes('退全款') || text.includes('全额退款')) {
+  if (/退全款|全额退款|full\s*refund/i.test(text)) {
     return ['全额退款']
   }
-  if (text.includes('退款') || text.includes('退')) {
+  if (/退款|退|refund/i.test(text)) {
     return ['部分退款']
   }
   return ['退款跟进']
@@ -407,10 +454,10 @@ function inferSolutionFromNegotiation(value: string, fallback: string[]) {
 }
 
 function inferRefundViewHit(refundReason: string, operationText: string) {
-  if (operationText.includes('补发')) {
+  if (/补发|重发|resend|reissue|replacement/i.test(operationText)) {
     return [VIEW_REISSUE]
   }
-  return [VIEW_HIT_MAP[refundReason] ?? VIEW_HIT_FALLBACK]
+  return [VIEW_HIT_MAP[normalizeRefundReason(refundReason)] ?? VIEW_HIT_FALLBACK]
 }
 
 /**

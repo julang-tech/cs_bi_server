@@ -37,6 +37,17 @@ const VIEW_TO_MAJOR_TYPE = {
   '3-客诉争议表': 'other',
 } as const
 
+function normalizeIssueLabel(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s，,、／/\-—–_]+/g, '')
+}
+
+const NORMALIZED_VIEW_TO_MAJOR_TYPE = Object.fromEntries(
+  Object.entries(VIEW_TO_MAJOR_TYPE).map(([view, type]) => [normalizeIssueLabel(view), type]),
+) as Record<string, (typeof VIEW_TO_MAJOR_TYPE)[keyof typeof VIEW_TO_MAJOR_TYPE]>
+
 const COMPLAINT_TYPE_PREFIX_MAP: Array<[string, 'product' | 'warehouse' | 'logistics' | 'refund' | 'other']> = [
   ['仓库-', 'warehouse'],
   ['货品瑕疵-', 'product'],
@@ -77,12 +88,17 @@ function inferMajorIssueType(
     if (view in VIEW_TO_MAJOR_TYPE) {
       return VIEW_TO_MAJOR_TYPE[view as keyof typeof VIEW_TO_MAJOR_TYPE]
     }
+    const normalizedView = NORMALIZED_VIEW_TO_MAJOR_TYPE[normalizeIssueLabel(view)]
+    if (normalizedView) {
+      return normalizedView
+    }
   }
 
   const complaintType = normalizeText(fields['客诉类型'])
   if (complaintType) {
+    const normalizedComplaintType = complaintType.trim()
     for (const [prefix, type] of COMPLAINT_TYPE_PREFIX_MAP) {
-      if (complaintType.startsWith(prefix) || complaintType === prefix) {
+      if (normalizedComplaintType.startsWith(prefix) || normalizedComplaintType === prefix) {
         return type
       }
     }

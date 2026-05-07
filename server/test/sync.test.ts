@@ -12,7 +12,7 @@ import {
   transformSourceRecord,
 } from '../domain/sync/transform.js'
 import type { FeishuField, FeishuRecord } from '../integrations/feishu.js'
-import { SqliteMirrorRepository, SqliteP3BigQueryCacheRepository } from '../integrations/sqlite.js'
+import { normalizeSqliteMirroredRecord, SqliteMirrorRepository, SqliteP3BigQueryCacheRepository } from '../integrations/sqlite.js'
 import {
   inferLogisticsStatusFromShopify,
   matchSkuAmount,
@@ -3277,6 +3277,69 @@ function testTransformRefundLogFallbacks() {
   assert.equal(record['待跟进客诉备注'], '客户表示款式不合心意')
 }
 
+function testTransformRefundReasonNormalization() {
+  const orderAbnormal = transformSourceRecord(
+    'src-refund-normalized-1',
+    {
+      记录日期: '2026/05/01',
+      订单号: 'LC401',
+      退款原因分类: '其他, 订单异常/取消/修改订单',
+      具体操作要求: '退整单',
+      备注: '测试订单',
+    },
+    'refund_log',
+  )
+  assert.equal(orderAbnormal.errors.length, 0)
+  assert.equal(orderAbnormal.records[0]?.['客诉类型'], '客户原因-重复下单/下错单取消')
+  assert.deepEqual(orderAbnormal.records[0]?.['命中视图'], ['1-1待跟进表-退款'])
+
+  const wrongSend = transformSourceRecord(
+    'src-refund-normalized-2',
+    {
+      记录日期: '2026/05/01',
+      订单号: 'LC402',
+      退款原因分类: '错/漏发',
+      具体操作要求: 'refund one item',
+      备注: 'wrong item received',
+    },
+    'refund_log',
+  )
+  assert.equal(wrongSend.errors.length, 0)
+  assert.equal(wrongSend.records[0]?.['客诉类型'], '仓库-漏发')
+  assert.deepEqual(wrongSend.records[0]?.['命中视图'], ['1-2待跟进表-漏发、发错'])
+
+  const reissue = transformSourceRecord(
+    'src-refund-normalized-3',
+    {
+      记录日期: '2026/05/01',
+      订单号: 'LC403',
+      退款原因分类: '物流',
+      具体操作要求: 'replacement needed',
+      备注: 'package lost',
+    },
+    'refund_log',
+  )
+  assert.equal(reissue.errors.length, 0)
+  assert.deepEqual(reissue.records[0]?.['命中视图'], ['1-5待跟进表-补发'])
+  assert.deepEqual(reissue.records[0]?.['跟进组'], ['仓库组'])
+}
+
+function testSqliteIssueViewNormalization() {
+  const normalized = normalizeSqliteMirroredRecord({
+    record_id: 'local-1',
+    source_record_id: 'src-1',
+    source_record_index: 0,
+    synced_at: '2026-05-07T00:00:00.000Z',
+    fields: {
+      订单号: 'LC404',
+      记录日期: '2026/05/01',
+      命中视图: [' 1-2 待跟进表-漏发 / 发错 '],
+      客诉类型: '客户原因-其他',
+    },
+  })
+  assert.equal(normalized?.major_issue_type, 'warehouse')
+}
+
 function testTransformReissue6Usd() {
   const result = transformSourceRecord(
     'src-reissue-1',
@@ -3679,6 +3742,8 @@ async function run() {
   testTransformRefundProductProblemMapsToCustomerReason()
   testTransformMissingRequiredFields()
   testTransformRefundLogFallbacks()
+  testTransformRefundReasonNormalization()
+  testSqliteIssueViewNormalization()
   testTransformReissue6Usd()
   testTransformReissue6UsdSplitsMultiSkuField()
   testTransformManualReturn()

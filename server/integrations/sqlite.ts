@@ -96,6 +96,17 @@ const ISSUE_VIEW_TO_MAJOR_TYPE = {
   '3-客诉争议表': 'other',
 } as const
 
+function normalizeIssueLabel(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s，,、／/\-—–_]+/g, '')
+}
+
+const NORMALIZED_ISSUE_VIEW_TO_MAJOR_TYPE = Object.fromEntries(
+  Object.entries(ISSUE_VIEW_TO_MAJOR_TYPE).map(([view, type]) => [normalizeIssueLabel(view), type]),
+) as Record<string, (typeof ISSUE_VIEW_TO_MAJOR_TYPE)[keyof typeof ISSUE_VIEW_TO_MAJOR_TYPE]>
+
 // 客诉类型 (singleSelect) prefix → major type, used when 命中视图 is empty.
 const COMPLAINT_TYPE_PREFIX_MAP: Array<[string, 'product' | 'warehouse' | 'logistics' | 'refund' | 'other']> = [
   ['仓库-', 'warehouse'],
@@ -144,13 +155,18 @@ function inferMajorIssueType(
     if (view in ISSUE_VIEW_TO_MAJOR_TYPE) {
       return ISSUE_VIEW_TO_MAJOR_TYPE[view as keyof typeof ISSUE_VIEW_TO_MAJOR_TYPE]
     }
+    const normalizedView = NORMALIZED_ISSUE_VIEW_TO_MAJOR_TYPE[normalizeIssueLabel(view)]
+    if (normalizedView) {
+      return normalizedView
+    }
   }
 
   // 2. Fall back to 客诉类型 prefix (single-select).
   const complaintType = normalizeText(fields['客诉类型'])
   if (complaintType) {
+    const normalizedComplaintType = complaintType.trim()
     for (const [prefix, type] of COMPLAINT_TYPE_PREFIX_MAP) {
-      if (complaintType.startsWith(prefix) || complaintType === prefix) {
+      if (normalizedComplaintType.startsWith(prefix) || normalizedComplaintType === prefix) {
         return type
       }
     }
