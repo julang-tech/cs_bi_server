@@ -112,6 +112,14 @@ describe('P1 overview KPI composition', () => {
     expect(summarySource).not.toContain('delta,')
   })
 
+  it('builds customer service filter options from workload data instead of a hardcoded list', () => {
+    expect(source).not.toContain('const AGENT_OPTIONS')
+    expect(source).not.toContain("value: 'Jovie'")
+    expect(source).toContain('buildAgentFilterOptions')
+    expect(source).toContain('history?.agent_workload')
+    expect(source).toContain('agentOptions.map')
+  })
+
   it('hides the internal schedule-table missing note from the dashboard banner', () => {
     expect(source).toContain('visibleP1Note')
     expect(source).toContain('工时表暂未接入')

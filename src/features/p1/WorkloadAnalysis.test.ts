@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   WorkloadAnalysis,
+  buildAgentFilterOptions,
   buildWorkloadTableRows,
   getAttendanceHours,
   getStandardAttendanceHours,
@@ -106,7 +107,51 @@ describe('WorkloadAnalysis table rows', () => {
     expect(totalRow.avg_outbound_emails_per_hour_by_span).toBeCloseTo(4.5)
   })
 
+  it('builds agent filter options from workload rows and mapping-merged display order', () => {
+    const options = buildAgentFilterOptions([
+      {
+        agent_name: 'Mia',
+        outbound_email_count: 8,
+        avg_outbound_emails_per_hour_by_span: 4,
+        avg_outbound_emails_per_hour_by_schedule: 0,
+        qa_reply_counts: { excellent: 0, pass: 0, fail: 0 },
+      },
+      {
+        agent_name: 'Choe',
+        outbound_email_count: 5,
+        avg_outbound_emails_per_hour_by_span: 5,
+        avg_outbound_emails_per_hour_by_schedule: 0,
+        qa_reply_counts: { excellent: 0, pass: 0, fail: 0 },
+      },
+      {
+        agent_name: '未识别',
+        outbound_email_count: 3,
+        avg_outbound_emails_per_hour_by_span: 3,
+        avg_outbound_emails_per_hour_by_schedule: 0,
+        qa_reply_counts: { excellent: 0, pass: 0, fail: 0 },
+      },
+      {
+        agent_name: 'Bell',
+        outbound_email_count: 2,
+        avg_outbound_emails_per_hour_by_span: 2,
+        avg_outbound_emails_per_hour_by_schedule: 0,
+        qa_reply_counts: { excellent: 0, pass: 0, fail: 0 },
+      },
+    ], [
+      { agent_name: 'Chloe', mail_names: ['Choe'] },
+      { agent_name: 'Bella', mail_names: ['Bell', '未识别'] },
+    ])
 
+    expect(options).toEqual([
+      { value: '', label: '全部客服' },
+      { value: 'Mia', label: 'Mia' },
+      { value: 'Chloe', label: 'Chloe' },
+      { value: '未识别', label: '未识别' },
+      { value: 'Bella', label: 'Bella' },
+    ])
+    expect(options.map((option) => option.label)).not.toContain('坐席均值')
+    expect(options.map((option) => option.label)).not.toContain('坐席总量')
+  })
 
   it('merges mail signature rows into configured customer service agent rows', () => {
     const merged = mergeRowsByAgentMailNameMappings([
