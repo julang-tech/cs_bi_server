@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  fetchP1AgentMailNameMappings,
   fetchP1BacklogMails,
   fetchP1Dashboard,
   markP1BacklogMailNeedsReply,
+  saveP1AgentMailNameMappings,
 } from './p1'
 
 describe('fetchP1Dashboard', () => {
@@ -53,6 +55,27 @@ describe('fetchP1Dashboard', () => {
     expect(url.searchParams.get('date_from')).toBe('2026-05-03')
     expect(url.searchParams.get('tz_offset_minutes')).toBe('480')
     expect(url.searchParams.get('limit')).toBe('100')
+  })
+
+  it('loads and saves agent mail name mappings', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => ({
+      ok: true,
+      json: async () => ({ mappings: [{ agent_name: 'Mira', mail_names: ['Mia'] }] }),
+    } as Response))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchP1AgentMailNameMappings()
+    await saveP1AgentMailNameMappings({ mappings: [{ agent_name: 'Mira', mail_names: ['Mia'] }] })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/bi/p1/agent-mail-name-mappings')
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/api/bi/p1/agent-mail-name-mappings',
+      expect.objectContaining({
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mappings: [{ agent_name: 'Mira', mail_names: ['Mia'] }] }),
+      }),
+    )
   })
 
   it('marks a backlog mail needs-reply state', async () => {

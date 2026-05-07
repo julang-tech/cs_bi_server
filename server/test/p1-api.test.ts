@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { buildApp } from '../entrypoints/app.js'
 import {
   P1Service,
@@ -115,6 +118,55 @@ async function testP1BacklogMailRoutesProxyService() {
   assert.deepEqual(receivedMark, { mailId: 12345, needsReply: false })
 
   await app.close()
+}
+
+
+async function testP1AgentMailNameMappingRoutesPersistConfigFile() {
+  const previousCwd = process.cwd()
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'p1-agent-mapping-'))
+  process.chdir(tempDir)
+  try {
+    const { app } = await buildApp({
+      p1Service: {
+        async getDashboard(filters: P1Filters) {
+          return createP1Payload(filters)
+        },
+      },
+    })
+
+    const emptyResponse = await app.inject({
+      method: 'GET',
+      url: '/api/bi/p1/agent-mail-name-mappings',
+    })
+    assert.equal(emptyResponse.statusCode, 200)
+    assert.deepEqual(emptyResponse.json(), { mappings: [] })
+
+    const saveResponse = await app.inject({
+      method: 'PUT',
+      url: '/api/bi/p1/agent-mail-name-mappings',
+      payload: {
+        mappings: [
+          { agent_name: ' Mira ', mail_names: ['Mia', 'Mia', ''] },
+          { agent_name: '', mail_names: ['Nobody'] },
+        ],
+      },
+    })
+    assert.equal(saveResponse.statusCode, 200)
+    assert.deepEqual(saveResponse.json(), {
+      mappings: [{ agent_name: 'Mira', mail_names: ['Mia'] }],
+    })
+
+    const persisted = JSON.parse(fs.readFileSync(
+      path.join(tempDir, 'config', 'data', 'p1-agent-mail-name-mapping.json'),
+      'utf8',
+    ))
+    assert.deepEqual(persisted, saveResponse.json())
+
+    await app.close()
+  } finally {
+    process.chdir(previousCwd)
+    fs.rmSync(tempDir, { recursive: true, force: true })
+  }
 }
 
 async function testP1RouteRejectsInvalidDateRange() {
@@ -318,6 +370,7 @@ async function testP1ServiceBackfillsDataAsOfFromResponseDate() {
 
 await testP1RouteReturnsServicePayload()
 await testP1BacklogMailRoutesProxyService()
+await testP1AgentMailNameMappingRoutesPersistConfigFile()
 await testP1RouteRejectsInvalidDateRange()
 await testP1RouteMapsUpstreamFailure()
 await testP1ServiceForwardsApiKeyHeader()

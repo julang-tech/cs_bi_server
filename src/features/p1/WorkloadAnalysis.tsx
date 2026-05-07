@@ -1,12 +1,14 @@
 import { Table } from '../../shared/components/Table'
 import { formatDecimal, formatHours, formatInteger } from '../../shared/utils/format'
 import { getMetricDescription } from '../../shared/metricDefinitions'
-import type { P1AgentRow } from '../../api/types'
+import { getPeriodLengthDays } from '../../shared/utils/datePeriod'
+import type { P1AgentMailNameMapping, P1AgentRow, PeriodWindow } from '../../api/types'
 
 // "标准在席时长"假设客服按 30 封/小时的标准节奏处理，反映"如果按标准
 // 产出，这堆回邮量应该花多少小时处理完"。和"在席时长"（首封到末封实际
 // 跨度）对照看，可以判断客服比标准节奏快还是慢。
 const STANDARD_REPLY_RATE_PER_HOUR = 30
+const UNRECOGNIZED_AGENT_NAME = '未识别'
 
 type WorkloadTableRow = P1AgentRow & {
   isAverage?: boolean
@@ -15,14 +17,17 @@ type WorkloadTableRow = P1AgentRow & {
   standard_attendance_hours?: number | null // 标准在席时长（总回邮数 ÷ 30）
 }
 
-function computeStandardAttendanceHours(outboundCount: number): number | null {
-  if (!Number.isFinite(outboundCount) || outboundCount <= 0) return null
-  return outboundCount / STANDARD_REPLY_RATE_PER_HOUR
-}
-
 interface WorkloadAnalysisProps {
   workloadRows: P1AgentRow[]
   loading: boolean
+  historyRange: PeriodWindow
+  mappings: P1AgentMailNameMapping[]
+  onOpenMappingConfig: () => void
+}
+
+function computeStandardAttendanceHours(outboundCount: number): number | null {
+  if (!Number.isFinite(outboundCount) || outboundCount <= 0) return null
+  return outboundCount / STANDARD_REPLY_RATE_PER_HOUR
 }
 
 function sum(values: number[]): number {
@@ -64,14 +69,74 @@ export function getStandardAttendanceHours(row: Pick<
   return computeStandardAttendanceHours(row.outbound_email_count)
 }
 
-export function buildWorkloadTableRows(rows: P1AgentRow[]): WorkloadTableRow[] {
+function buildMailNameToAgentName(mappings: P1AgentMailNameMapping[]) {
+  const result = new Map<string, string>()
+  mappings.forEach((mapping) => {
+    const agentName = mapping.agent_name.trim()
+    if (!agentName) return
+    mapping.mail_names.forEach((mailName) => {
+      const normalizedMailName = mailName.trim()
+      if (normalizedMailName && normalizedMailName !== UNRECOGNIZED_AGENT_NAME) {
+        result.set(normalizedMailName, agentName)
+      }
+    })
+  })
+  return result
+}
+
+export function mergeRowsByAgentMailNameMappings(
+  rows: P1AgentRow[],
+  mappings: P1AgentMailNameMapping[],
+): WorkloadTableRow[] {
+  const mailNameToAgentName = buildMailNameToAgentName(mappings)
+  const merged = new Map<string, WorkloadTableRow>()
+
+  rows.forEach((row) => {
+    const targetName = row.agent_name === UNRECOGNIZED_AGENT_NAME
+      ? row.agent_name
+      : mailNameToAgentName.get(row.agent_name) ?? row.agent_name
+    const attendanceHours = getAttendanceHours(row)
+    const existing = merged.get(targetName)
+
+    if (!existing) {
+      const outbound = row.outbound_email_count
+      merged.set(targetName, {
+        ...row,
+        agent_name: targetName,
+        attendance_hours: attendanceHours,
+        standard_attendance_hours: computeStandardAttendanceHours(outbound),
+        avg_outbound_emails_per_hour_by_span:
+          attendanceHours && attendanceHours > 0 ? outbound / attendanceHours : 0,
+        qa_reply_counts: { ...row.qa_reply_counts },
+      })
+      return
+    }
+
+    const nextOutbound = existing.outbound_email_count + row.outbound_email_count
+    const nextAttendance = sumNullable([existing.attendance_hours, attendanceHours])
+    existing.outbound_email_count = nextOutbound
+    existing.reply_span_hours = nextAttendance
+    existing.attendance_hours = nextAttendance
+    existing.standard_attendance_hours = computeStandardAttendanceHours(nextOutbound)
+    existing.avg_outbound_emails_per_hour_by_span =
+      nextAttendance && nextAttendance > 0 ? nextOutbound / nextAttendance : 0
+    existing.qa_reply_counts = {
+      excellent: (existing.qa_reply_counts?.excellent ?? 0) + (row.qa_reply_counts?.excellent ?? 0),
+      pass: (existing.qa_reply_counts?.pass ?? 0) + (row.qa_reply_counts?.pass ?? 0),
+      fail: (existing.qa_reply_counts?.fail ?? 0) + (row.qa_reply_counts?.fail ?? 0),
+    }
+  })
+
+  return [...merged.values()]
+}
+
+export function buildWorkloadTableRows(
+  rows: P1AgentRow[],
+  mappings: P1AgentMailNameMapping[] = [],
+): WorkloadTableRow[] {
   if (!rows.length) return []
 
-  const normalizedRows = rows.map((row) => ({
-    ...row,
-    attendance_hours: getAttendanceHours(row),
-    standard_attendance_hours: computeStandardAttendanceHours(row.outbound_email_count),
-  }))
+  const normalizedRows = mergeRowsByAgentMailNameMappings(rows, mappings)
 
   // 坐席总量：累加各客服的回邮数 / 在席时长 / 标准在席时长 / 质检结果。
   // 每小时回信均值这一列改用"团队整体节奏"= 总回邮 ÷ 总在席时长，比对
@@ -131,7 +196,31 @@ function formatNullableHours(value: number | null | undefined): string {
   return typeof value === 'number' && Number.isFinite(value) ? formatHours(value, 1) : '-'
 }
 
-export function WorkloadAnalysis({ workloadRows, loading }: WorkloadAnalysisProps) {
+function formatDailyPair(
+  total: string,
+  daily: string,
+  dayCount: number,
+): string {
+  return dayCount > 1 ? `${total} / ${daily}` : total
+}
+
+function formatCountWithDaily(row: WorkloadTableRow, value: number, dayCount: number): string {
+  return formatDailyPair(formatCount(row, value), formatCount(row, value / dayCount), dayCount)
+}
+
+function formatHoursWithDaily(value: number | null | undefined, dayCount: number): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-'
+  return formatDailyPair(formatNullableHours(value), formatNullableHours(value / dayCount), dayCount)
+}
+
+export function WorkloadAnalysis({
+  workloadRows,
+  loading,
+  historyRange,
+  mappings,
+  onOpenMappingConfig,
+}: WorkloadAnalysisProps) {
+  const dayCount = getPeriodLengthDays(historyRange)
   const workloadColumns = [
     {
       key: 'agent_name',
@@ -144,19 +233,19 @@ export function WorkloadAnalysis({ workloadRows, loading }: WorkloadAnalysisProp
       key: 'outbound_email_count',
       label: '总回邮数',
       tooltip: getMetricDescription('p1.agent_outbound_email_count'),
-      render: (row: WorkloadTableRow) => formatCount(row, row.outbound_email_count),
+      render: (row: WorkloadTableRow) => formatCountWithDaily(row, row.outbound_email_count, dayCount),
     },
     {
       key: 'attendance_hours',
       label: '在席时长',
       tooltip: getMetricDescription('p1.agent_reply_span_hours'),
-      render: (row: WorkloadTableRow) => formatNullableHours(row.attendance_hours),
+      render: (row: WorkloadTableRow) => formatHoursWithDaily(row.attendance_hours, dayCount),
     },
     {
       key: 'standard_attendance_hours',
       label: '标准在席时长',
       tooltip: getMetricDescription('p1.agent_standard_attendance_hours'),
-      render: (row: WorkloadTableRow) => formatNullableHours(row.standard_attendance_hours),
+      render: (row: WorkloadTableRow) => formatHoursWithDaily(row.standard_attendance_hours, dayCount),
     },
     {
       key: 'avg_outbound_emails_per_hour_by_span',
@@ -182,10 +271,15 @@ export function WorkloadAnalysis({ workloadRows, loading }: WorkloadAnalysisProp
     <div className="p1-workload-table">
       <Table<WorkloadTableRow>
         title="坐席工作量"
-        hint="跟随筛选器所选历史时间范围。表格底部为「坐席总量」（团队累计）和「坐席均值」（算术平均）。每小时回信均值的总量行 = 总回邮 ÷ 总在席时长；质检结果仅统计已质检回邮，展示顺序：优秀 / 达标 / 不合格。"
+        hint="跟随筛选器所选历史时间范围。范围超过 1 天时，总回邮数 / 在席时长 / 标准在席时长展示为「总值 / 日均」。表格底部为「坐席总量」（团队累计）和「坐席均值」（算术平均）。每小时回信均值的总量行 = 总回邮 ÷ 总在席时长；质检结果仅统计已质检回邮，展示顺序：优秀 / 达标 / 不合格。"
         columns={workloadColumns}
-        rows={loading ? [] : buildWorkloadTableRows(workloadRows)}
+        rows={loading ? [] : buildWorkloadTableRows(workloadRows, mappings)}
         emptyCopy={loading ? '正在加载坐席数据...' : '暂无坐席工作量数据'}
+        headerActions={(
+          <button type="button" className="p1-mapping-config-button" onClick={onOpenMappingConfig}>
+            映射配置
+          </button>
+        )}
       />
     </div>
   )

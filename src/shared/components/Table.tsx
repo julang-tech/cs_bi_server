@@ -19,11 +19,12 @@ interface TableProps<T> {
   onRowClick?: (row: T) => void
   rowTone?: (row: T) => string
   children?: ReactNode
+  headerActions?: ReactNode
 }
 
 export function Table<T>({
   title, hint, columns, rows, emptyCopy, loading, error,
-  onRowClick, rowTone, children,
+  onRowClick, rowTone, children, headerActions,
 }: TableProps<T>) {
   const [activeTooltip, setActiveTooltip] = useState<{ text: string; x: number; y: number } | null>(null)
 
@@ -58,6 +59,7 @@ export function Table<T>({
         <header className="data-table-card__header">
           {title ? <h3>{title}</h3> : null}
           {hint ? <p className="data-table-card__hint">{hint}</p> : null}
+          {headerActions ? <div className="data-table-card__actions">{headerActions}</div> : null}
         </header>
       ) : null}
       {children ? <div className="data-table-card__content">{children}</div> : null}
