@@ -6,6 +6,11 @@ const repoRoot = process.cwd()
 const readStyle = (file: string) =>
   fs.readFileSync(path.join(repoRoot, 'src', 'styles', file), 'utf8')
 
+function cssBlock(styles: string, selector: string) {
+  const match = styles.match(new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`))
+  return match?.[1] ?? ''
+}
+
 describe('dashboard visual density contract', () => {
   const styles = [
     'tokens.css',
@@ -42,5 +47,22 @@ describe('dashboard visual density contract', () => {
     expect(styles).toContain('.dashboard-shell__sticky-filter')
     expect(styles).toContain('position: sticky')
     expect(styles).toContain('top: 0')
+  })
+
+  it('keeps normal KPI percentage badges on one natural-width line', () => {
+    const delta = cssBlock(styles, '.kpi-card__delta')
+    const side = cssBlock(styles, '.kpi-card__side')
+    const value = cssBlock(styles, '.kpi-card__value')
+
+    expect(delta).toContain('min-width: 76px')
+    expect(delta).toContain('font-size: var(--fs-xs)')
+    expect(delta).toContain('white-space: nowrap')
+    expect(delta).toContain('text-overflow: ellipsis')
+    expect(delta).not.toContain('overflow-wrap: anywhere')
+    expect(delta).not.toContain('font-size: clamp')
+    expect(side).toContain('min-width: max-content')
+    expect(side).not.toContain('max-width: min(46%, 116px)')
+    expect(value).toContain('white-space: nowrap')
+    expect(value).not.toContain('overflow-wrap: anywhere')
   })
 })
