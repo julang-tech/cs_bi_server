@@ -39,7 +39,7 @@ describe('P3 overview KPI composition', () => {
   })
 
   it('uses four FocusSummaryBlock aggregations instead of the legacy chart summary map', () => {
-    const summaryStart = source.indexOf('  const focusSummarySelection')
+    const summaryStart = source.indexOf('  const focusSummaryBlocks')
     const summarySource = source.slice(
       summaryStart,
       source.indexOf('  return (', summaryStart),
@@ -49,6 +49,8 @@ describe('P3 overview KPI composition', () => {
     expect(summarySource).toContain('focusSummaryBlocks')
     expect(summarySource).toContain('aggregateFocusMetric')
     expect(source).toContain('区块 ${String.fromCharCode(65 + index)} · ${metric.label}')
+    expect(summarySource).toContain('focusSelection')
+    expect(summarySource).not.toContain('focusSummarySelection')
     expect(source).not.toContain('summaryByKey')
     expect(summarySource).not.toContain('previousHistory')
     expect(summarySource).not.toContain('delta,')
