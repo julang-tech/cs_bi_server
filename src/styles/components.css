@@ -1641,7 +1641,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-2);
-  margin-bottom: 9px;
+  margin-bottom: 7px;
 }
 
 .focus-summary-block__eyebrow {
@@ -1651,17 +1651,6 @@
   font-size: 11px;
   font-weight: 750;
   letter-spacing: 0.025em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.focus-summary-block h3 {
-  margin: 0;
-  color: var(--muted-strong);
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1708,9 +1697,10 @@
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 @media (max-width: 1100px) {
