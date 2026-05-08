@@ -731,76 +731,127 @@
 }
 
 .p1-backlog-snapshot {
-  display: flex;
+  display: grid;
   width: 100%;
   min-height: 132px;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px 9px;
-  border: 1px solid rgba(11, 110, 79, 0.18);
+  grid-template-rows: auto 1fr auto;
+  gap: 9px;
+  padding: 11px 12px 10px;
+  border: 1px solid rgba(15, 35, 27, 0.10);
   border-radius: var(--radius-md);
-  background: #f7fbf9;
+  background:
+    linear-gradient(135deg, rgba(11, 110, 79, 0.055), rgba(11, 110, 79, 0.015) 48%, transparent),
+    rgba(255, 255, 255, 0.72);
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .p1-backlog-snapshot:hover {
-  border-color: rgba(11, 110, 79, 0.42);
-  background: #f2faf6;
+  border-color: rgba(11, 110, 79, 0.34);
+  background:
+    linear-gradient(135deg, rgba(11, 110, 79, 0.075), rgba(11, 110, 79, 0.02) 48%, transparent),
+    #f8fcfa;
 }
 
 .p1-backlog-snapshot__header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  min-width: 0;
+}
+
+.p1-backlog-snapshot__eyebrow {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.025em;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .p1-backlog-snapshot__header h3 {
   margin: 0;
-  color: var(--muted-strong);
+  color: var(--heading);
   font-family: var(--sans);
-  font-size: var(--fs-sm);
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.1;
   letter-spacing: 0;
+  white-space: nowrap;
+  word-break: keep-all;
 }
 
-.p1-backlog-snapshot__header span {
-  color: var(--accent);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  white-space: nowrap;
+.p1-backlog-snapshot__scope {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: normal;
 }
 
 .p1-backlog-snapshot__items {
   display: grid;
-  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: end;
+  gap: 0;
   margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid rgba(15, 35, 27, 0.08);
 }
 
 .p1-backlog-snapshot__items div {
   display: grid;
   gap: 3px;
+  min-width: 0;
+  padding: 0 7px;
+  border-left: 1px solid rgba(15, 35, 27, 0.08);
+}
+
+.p1-backlog-snapshot__items div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.p1-backlog-snapshot__items div:last-child {
+  padding-right: 0;
 }
 
 .p1-backlog-snapshot__items dt {
   color: var(--muted);
-  font-size: var(--fs-xs);
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .p1-backlog-snapshot__items dd {
   margin: 0;
   color: var(--heading);
   font-family: var(--sans);
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1.1;
+  font-size: clamp(16px, 1.35vw, 20px);
+  font-weight: 800;
+  line-height: 1.05;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.p1-backlog-snapshot__entry {
+  justify-self: start;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .p1-backlog-modal {
@@ -1641,7 +1692,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-2);
-  margin-bottom: 9px;
+  margin-bottom: 7px;
 }
 
 .focus-summary-block__eyebrow {
@@ -1651,17 +1702,6 @@
   font-size: 11px;
   font-weight: 750;
   letter-spacing: 0.025em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.focus-summary-block h3 {
-  margin: 0;
-  color: var(--muted-strong);
-  font-size: 12px;
-  font-weight: 650;
-  line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1708,9 +1748,10 @@
   line-height: 1.15;
   font-variant-numeric: tabular-nums;
   font-feature-settings: 'tnum';
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 @media (max-width: 1100px) {

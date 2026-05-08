@@ -27,14 +27,14 @@ describe('P1 overview KPI composition', () => {
 
   it('renders backlog fields as a current snapshot outside focus chart metrics', () => {
     expect(source).toContain('backlogSnapshot')
-    expect(source).toContain('<dt>当前积压未回</dt>')
-    expect(source).toContain('<dt>当前积压平均等待</dt>')
+    expect(source).toContain('<dt>未回</dt>')
+    expect(source).toContain('<dt>平均等待</dt>')
     expect(source).toContain('backlogModalOpen')
     expect(source).toContain('fetchP1BacklogMails')
     expect(source).toContain('markP1BacklogMailNeedsReply')
     expect(source).toContain('p1-backlog-modal')
-    expect(source).toContain('待 review')
-    expect(source).toContain('当前快照，不受历史范围影响')
+    expect(source).toContain('查看待处理邮件')
+    expect(source).toContain('不受历史范围影响')
     expect(source).toContain('当前快照，不受历史时间范围影响')
     expect(source).toContain('customer_email')
     expect(source).toContain('客户邮箱')

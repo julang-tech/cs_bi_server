@@ -16,7 +16,6 @@ export function FocusSummaryBlock({ metricLabel, selection, summary, blockLabel,
       <div className="focus-summary-block__header">
         <div>
           <span className="focus-summary-block__eyebrow">{eyebrow}</span>
-          <h3>{summary.label}</h3>
         </div>
         {canReset ? (
           <button type="button" className="focus-summary-block__reset" onClick={onReset}>
