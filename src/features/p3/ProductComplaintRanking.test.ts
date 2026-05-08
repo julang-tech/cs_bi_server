@@ -27,6 +27,14 @@ describe('ProductComplaintRanking pagination', () => {
     expect(sharedSource).toContain('ref={productPickerRef}')
   })
 
+  it('keeps the SPU column in the flat SKC detail view', () => {
+    expect(sharedSource).toContain('<th className="th-center">{renderHeaderLabel(\'spu\', \'SPU\')}</th>')
+    expect(sharedSource).not.toContain("tableView === 'spu' ? <th className=\"th-center\">{renderHeaderLabel('spu', 'SPU')}</th> : null")
+    expect(sharedSource).toContain('className="skc-row skc-row--flat"')
+    expect(sharedSource).toContain('<td className="spu-click-cell skc-spu-cell"><span>{child.spu}</span></td>')
+    expect(sharedSource).toContain('<td className="skc-cell">{child.skc}</td>')
+  })
+
   it('renders sortable column headers for sales/complaint metrics with default 客诉率倒序', () => {
     expect(source).toContain('defaultSortKey="complaint_rate"')
     expect(source).toContain('defaultSortDirection="desc"')
