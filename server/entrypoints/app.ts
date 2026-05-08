@@ -4,6 +4,7 @@ import Fastify from 'fastify'
 import fastifyStatic from '@fastify/static'
 import { z } from 'zod'
 import { loadEnv } from '../config/env.js'
+import { registerAuth } from '../auth.js'
 import {
   createP1Service,
   P1ConfigError,
@@ -113,7 +114,14 @@ export async function buildApp(overrides?: {
     p2Service.close()
   })
 
-  app.get('/healthz', async () => ({ status: 'ok' }))
+  await registerAuth(app, env)
+
+  app.get('/healthz', async () => ({
+    status: 'ok',
+    auth_required: env.feishuAuth.authRequired,
+    auth_enabled: env.feishuAuth.enabled,
+    auth_configured: env.feishuAuth.configured,
+  }))
 
   app.get('/api/bi/cache-status', async () => getSyncCacheStatus(env.syncConfigPath))
 

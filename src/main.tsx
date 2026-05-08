@@ -6,12 +6,15 @@ import './styles/layout.css'
 import './styles/components.css'
 import './styles/extensions.css'
 import App from './App'
+import { AuthGate } from './features/auth/AuthGate'
 
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('#root not found')
 
 createRoot(rootEl).render(
   <StrictMode>
-    <App />
+    <AuthGate>
+      <App />
+    </AuthGate>
   </StrictMode>,
 )
