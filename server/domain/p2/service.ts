@@ -597,6 +597,7 @@ GROUP BY bucket_date
     if (cachedFallback) {
       return cachedFallback
     }
+
     const dateBasis = resolveP2DateBasis(filters)
     const refundEventDatePredicate =
       dateBasis === 'refund_date'
@@ -619,219 +620,266 @@ GROUP BY bucket_date
     const rows = extractRows(
       await this.client.query({
         query: `
-WITH parsed_lines AS (
-  SELECT
-    li.order_id,
-    li.sku,
-    li.quantity,
-    li.discounted_total,
-    o.processed_date,
-    o.usd_fx_rate,
-    CASE
-      WHEN li.sku IS NULL OR TRIM(li.sku) = '' THEN 'N/A'
-      WHEN STRPOS(TRIM(li.sku), '-') > 0 THEN REGEXP_REPLACE(TRIM(li.sku), r'-[^-]+$', '')
-      ELSE TRIM(li.sku)
-    END AS parsed_skc
-  FROM \`julang-dev-database.shopify_intermediate.int_line_items_classified\` li
-  JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
-    ON o.order_id = li.order_id
-  WHERE NOT COALESCE(o.is_gift_card_order, FALSE)
-    AND COALESCE(o.is_regular_order, FALSE) = TRUE
-    AND NOT COALESCE(li.is_insurance_item, FALSE)
-    AND NOT COALESCE(li.is_price_adjustment, FALSE)
-    AND NOT COALESCE(li.is_shipping_cost, FALSE)
-    AND (@category = '' OR o.primary_product_type = @category)
-    AND (@channel = '' OR o.shop_domain = @channel)
-    AND (
-      @listing_date_from = ''
-      OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from)
-    )
-    AND (
-      @listing_date_to = ''
-      OR DATE(o.first_published_at_in_order) <= DATE(@listing_date_to)
-    )
-),
-line_dim AS (
-  SELECT
-    *,
-    CASE
-      WHEN parsed_skc = 'N/A' THEN 'N/A'
-      WHEN REGEXP_CONTAINS(REGEXP_EXTRACT(parsed_skc, r'([^-]+)$'), r'\\d') THEN
-        CASE
-          WHEN (
-            CASE
-              WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
-              ELSE ''
-            END
-          ) != '' THEN CONCAT(
-            CASE
-              WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
-              ELSE ''
-            END,
-            '-',
-            COALESCE(
+  WITH parsed_lines AS (
+    SELECT
+      li.order_id,
+      li.sku,
+      li.quantity,
+      li.discounted_total,
+      o.processed_date,
+      o.usd_fx_rate,
+      CASE
+        WHEN li.sku IS NULL OR TRIM(li.sku) = '' THEN 'N/A'
+        WHEN STRPOS(TRIM(li.sku), '-') > 0 THEN REGEXP_REPLACE(TRIM(li.sku), r'-[^-]+$', '')
+        ELSE TRIM(li.sku)
+      END AS parsed_skc
+    FROM \`julang-dev-database.shopify_intermediate.int_line_items_classified\` li
+    JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
+      ON o.order_id = li.order_id
+    WHERE NOT COALESCE(o.is_gift_card_order, FALSE)
+      AND COALESCE(o.is_regular_order, FALSE) = TRUE
+      AND NOT COALESCE(li.is_insurance_item, FALSE)
+      AND NOT COALESCE(li.is_price_adjustment, FALSE)
+      AND NOT COALESCE(li.is_shipping_cost, FALSE)
+      AND (@category = '' OR o.primary_product_type = @category)
+      AND (@channel = '' OR o.shop_domain = @channel)
+      AND (
+        @listing_date_from = ''
+        OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from)
+      )
+      AND (
+        @listing_date_to = ''
+        OR DATE(o.first_published_at_in_order) <= DATE(@listing_date_to)
+      )
+  ),
+  line_dim AS (
+    SELECT
+      *,
+      CASE
+        WHEN parsed_skc = 'N/A' THEN 'N/A'
+        WHEN REGEXP_CONTAINS(REGEXP_EXTRACT(parsed_skc, r'([^-]+)$'), r'\\d') THEN
+          CASE
+            WHEN (
+              CASE
+                WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+                ELSE ''
+              END
+            ) != '' THEN CONCAT(
+              CASE
+                WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+                ELSE ''
+              END,
+              '-',
+              COALESCE(
+                REGEXP_EXTRACT(REGEXP_EXTRACT(parsed_skc, r'([^-]+)$'), r'^([a-zA-Z]*\\d+)'),
+                REGEXP_EXTRACT(parsed_skc, r'([^-]+)$')
+              )
+            )
+            ELSE COALESCE(
               REGEXP_EXTRACT(REGEXP_EXTRACT(parsed_skc, r'([^-]+)$'), r'^([a-zA-Z]*\\d+)'),
               REGEXP_EXTRACT(parsed_skc, r'([^-]+)$')
             )
-          )
-          ELSE COALESCE(
-            REGEXP_EXTRACT(REGEXP_EXTRACT(parsed_skc, r'([^-]+)$'), r'^([a-zA-Z]*\\d+)'),
-            REGEXP_EXTRACT(parsed_skc, r'([^-]+)$')
-          )
-        END
-      ELSE
-        CASE
-          WHEN (
-            CASE
-              WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
-              ELSE ''
-            END
-          ) != '' THEN
-            CASE
-              WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
-              ELSE ''
-            END
-          ELSE REGEXP_EXTRACT(parsed_skc, r'([^-]+)$')
-        END
-    END AS parsed_spu
-  FROM parsed_lines
-),
-sales_lines AS (
+          END
+        ELSE
+          CASE
+            WHEN (
+              CASE
+                WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+                ELSE ''
+              END
+            ) != '' THEN
+              CASE
+                WHEN STRPOS(parsed_skc, '-') > 0 THEN REGEXP_REPLACE(parsed_skc, r'-[^-]+$', '')
+                ELSE ''
+              END
+            ELSE REGEXP_EXTRACT(parsed_skc, r'([^-]+)$')
+          END
+      END AS parsed_spu
+    FROM parsed_lines
+  ),
+
+  -- 修改点 1：refund_date 模式下，先找退款时间段内发生退款的订单，并拿到这些订单的订单时间
+  refund_orders AS (
+    SELECT DISTINCT
+      o.order_id,
+      o.processed_date
+    FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
+    JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
+      ON o.order_id = re.order_id
+    WHERE re.refund_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+      AND NOT COALESCE(o.is_gift_card_order, FALSE)
+      AND COALESCE(o.is_regular_order, FALSE) = TRUE
+      AND (@category = '' OR o.primary_product_type = @category)
+      AND (@channel = '' OR o.shop_domain = @channel)
+      AND (
+        @listing_date_from = ''
+        OR DATE(o.first_published_at_in_order) >= DATE(@listing_date_from)
+      )
+      AND (
+        @listing_date_to = ''
+        OR DATE(o.first_published_at_in_order) <= DATE(@listing_date_to)
+      )
+  ),
+
+  -- 修改点 2：用退款订单里的最早订单时间，推导销售查询窗口
+  derived_order_window AS (
+    SELECT
+      COALESCE(MIN(processed_date), DATE(@date_from)) AS order_date_from,
+      DATE(@date_to) AS order_date_to
+    FROM refund_orders
+  ),
+
+  sales_lines AS (
+    SELECT
+      order_id,
+      parsed_skc,
+      parsed_spu,
+      parsed_skc AS skc,
+      COALESCE(quantity, 0) AS quantity,
+      COALESCE(CAST(discounted_total AS NUMERIC) * COALESCE(CAST(usd_fx_rate AS NUMERIC), 1), 0) AS sales_amount
+    FROM line_dim
+    CROSS JOIN derived_order_window w
+    WHERE (
+        (
+          @date_basis = 'order_date'
+          AND processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
+        )
+        OR (
+          -- 修改点 3：refund_date 模式下，用推导出来的订单时间窗口查销售
+          @date_basis = 'refund_date'
+          AND processed_date BETWEEN w.order_date_from AND w.order_date_to
+        )
+      )
+      AND (@skc_filter_on = 0 OR parsed_skc IN UNNEST(@skc_list))
+      AND (@spu_filter_on = 0 OR parsed_spu IN UNNEST(@spu_list))
+  ),
+  sales_agg AS (
+    SELECT
+      parsed_spu AS spu,
+      skc,
+      SUM(quantity) AS sales_qty,
+      SUM(sales_amount) AS sales_amount
+    FROM sales_lines
+    GROUP BY 1, 2
+  ),
+  refund_event_agg AS (
+    SELECT
+      re.order_id,
+      re.sku,
+      SUM(COALESCE(re.quantity, 0)) AS refund_qty,
+      SUM(CAST(re.refund_subtotal AS NUMERIC) * COALESCE(CAST(o.usd_fx_rate AS NUMERIC), 1)) AS refund_amount
+    FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
+    JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
+      ON o.order_id = re.order_id
+    WHERE ${refundEventDatePredicate}
+    GROUP BY 1, 2
+  ),
+  refund_line_dim AS (
+    SELECT
+      order_id,
+      sku,
+      MIN(parsed_skc) AS skc,
+      MIN(parsed_spu) AS spu
+    FROM line_dim
+    WHERE (@skc_filter_on = 0 OR parsed_skc IN UNNEST(@skc_list))
+      AND (@spu_filter_on = 0 OR parsed_spu IN UNNEST(@spu_list))
+    GROUP BY 1, 2
+  ),
+  refund_agg AS (
+    SELECT
+      d.spu,
+      d.skc,
+      SUM(r.refund_qty) AS refund_qty,
+      SUM(r.refund_amount) AS refund_amount
+    FROM refund_event_agg r
+    JOIN refund_line_dim d
+      ON d.order_id = r.order_id
+    AND d.sku = r.sku
+    GROUP BY 1, 2
+  ),
+  product_keys AS (
+    SELECT spu, skc FROM sales_agg
+    UNION DISTINCT
+    SELECT spu, skc FROM refund_agg
+  ),
+  product_metrics AS (
+    SELECT
+      k.spu,
+      k.skc,
+      COALESCE(sa.sales_qty, 0) AS sales_qty,
+      COALESCE(sa.sales_amount, 0) AS sales_amount,
+      COALESCE(ra.refund_qty, 0) AS refund_qty,
+      COALESCE(ra.refund_amount, 0) AS refund_amount
+    FROM product_keys k
+    LEFT JOIN sales_agg sa
+      ON sa.spu = k.spu
+    AND sa.skc = k.skc
+    LEFT JOIN refund_agg ra
+      ON ra.spu = k.spu
+    AND ra.skc = k.skc
+  ),
+  spu_rank AS (
+    SELECT
+      spu,
+      SUM(refund_amount) AS refund_amount
+    FROM product_metrics
+    GROUP BY 1
+    QUALIFY ROW_NUMBER() OVER (ORDER BY refund_amount DESC, spu) <= @top_n
+  ),
+  spu_agg AS (
+    SELECT
+      pm.spu,
+      SUM(pm.sales_qty) AS sales_qty,
+      SUM(pm.sales_amount) AS sales_amount,
+      SUM(pm.refund_qty) AS refund_qty,
+      SUM(pm.refund_amount) AS refund_amount
+    FROM product_metrics pm
+    JOIN spu_rank sr ON sr.spu = pm.spu
+    GROUP BY 1
+  ),
+  skc_agg AS (
+    SELECT
+      pm.spu,
+      pm.skc,
+      SUM(pm.sales_qty) AS sales_qty,
+      SUM(pm.sales_amount) AS sales_amount,
+      SUM(pm.refund_qty) AS refund_qty,
+      SUM(pm.refund_amount) AS refund_amount
+    FROM product_metrics pm
+    JOIN spu_rank sr ON sr.spu = pm.spu
+    GROUP BY 1, 2
+  )
   SELECT
-    order_id,
-    parsed_skc,
-    parsed_spu,
-    parsed_skc AS skc,
-    COALESCE(quantity, 0) AS quantity,
-    COALESCE(CAST(discounted_total AS NUMERIC) * COALESCE(CAST(usd_fx_rate AS NUMERIC), 1), 0) AS sales_amount
-  FROM line_dim
-  WHERE processed_date BETWEEN DATE(@date_from) AND DATE(@date_to)
-    AND (@skc_filter_on = 0 OR parsed_skc IN UNNEST(@skc_list))
-    AND (@spu_filter_on = 0 OR parsed_spu IN UNNEST(@spu_list))
-),
-sales_agg AS (
+    'SPU' AS row_type,
+    sa.spu,
+    CAST(NULL AS STRING) AS skc,
+    sa.sales_qty,
+    sa.sales_amount,
+    sa.refund_qty,
+    sa.refund_amount,
+    SAFE_DIVIDE(sa.refund_qty, sa.sales_qty) AS refund_qty_ratio,
+    SAFE_DIVIDE(sa.refund_amount, sa.sales_amount) AS refund_amount_ratio
+  FROM spu_agg sa
+  UNION ALL
   SELECT
-    parsed_spu AS spu,
-    skc,
-    SUM(quantity) AS sales_qty,
-    SUM(sales_amount) AS sales_amount
-  FROM sales_lines
-  GROUP BY 1, 2
-),
-refund_event_agg AS (
-  SELECT
-    re.order_id,
-    re.sku,
-    SUM(COALESCE(re.quantity, 0)) AS refund_qty,
-    SUM(CAST(re.refund_subtotal AS NUMERIC) * COALESCE(CAST(o.usd_fx_rate AS NUMERIC), 1)) AS refund_amount
-  FROM \`julang-dev-database.shopify_dwd.dwd_refund_events\` re
-  JOIN \`julang-dev-database.shopify_dwd.dwd_orders_fact_usd\` o
-    ON o.order_id = re.order_id
-  WHERE ${refundEventDatePredicate}
-  GROUP BY 1, 2
-),
-refund_line_dim AS (
-  SELECT
-    order_id,
-    sku,
-    MIN(parsed_skc) AS skc,
-    MIN(parsed_spu) AS spu
-  FROM line_dim
-  WHERE (@skc_filter_on = 0 OR parsed_skc IN UNNEST(@skc_list))
-    AND (@spu_filter_on = 0 OR parsed_spu IN UNNEST(@spu_list))
-  GROUP BY 1, 2
-),
-refund_agg AS (
-  SELECT
-    d.spu,
-    d.skc,
-    SUM(r.refund_qty) AS refund_qty,
-    SUM(r.refund_amount) AS refund_amount
-  FROM refund_event_agg r
-  JOIN refund_line_dim d
-    ON d.order_id = r.order_id
-   AND d.sku = r.sku
-  GROUP BY 1, 2
-),
-product_keys AS (
-  SELECT spu, skc FROM sales_agg
-  UNION DISTINCT
-  SELECT spu, skc FROM refund_agg
-),
-product_metrics AS (
-  SELECT
-    k.spu,
-    k.skc,
-    COALESCE(sa.sales_qty, 0) AS sales_qty,
-    COALESCE(sa.sales_amount, 0) AS sales_amount,
-    COALESCE(ra.refund_qty, 0) AS refund_qty,
-    COALESCE(ra.refund_amount, 0) AS refund_amount
-  FROM product_keys k
-  LEFT JOIN sales_agg sa
-    ON sa.spu = k.spu
-   AND sa.skc = k.skc
-  LEFT JOIN refund_agg ra
-    ON ra.spu = k.spu
-   AND ra.skc = k.skc
-),
-spu_rank AS (
-  SELECT
-    spu,
-    SUM(refund_amount) AS refund_amount
-  FROM product_metrics
-  GROUP BY 1
-  QUALIFY ROW_NUMBER() OVER (ORDER BY refund_amount DESC, spu) <= @top_n
-),
-spu_agg AS (
-  SELECT
-    pm.spu,
-    SUM(pm.sales_qty) AS sales_qty,
-    SUM(pm.sales_amount) AS sales_amount,
-    SUM(pm.refund_qty) AS refund_qty,
-    SUM(pm.refund_amount) AS refund_amount
-  FROM product_metrics pm
-  JOIN spu_rank sr ON sr.spu = pm.spu
-  GROUP BY 1
-),
-skc_agg AS (
-  SELECT
-    pm.spu,
-    pm.skc,
-    SUM(pm.sales_qty) AS sales_qty,
-    SUM(pm.sales_amount) AS sales_amount,
-    SUM(pm.refund_qty) AS refund_qty,
-    SUM(pm.refund_amount) AS refund_amount
-  FROM product_metrics pm
-  JOIN spu_rank sr ON sr.spu = pm.spu
-  GROUP BY 1, 2
-)
-SELECT
-  'SPU' AS row_type,
-  sa.spu,
-  CAST(NULL AS STRING) AS skc,
-  sa.sales_qty,
-  sa.sales_amount,
-  sa.refund_qty,
-  sa.refund_amount,
-  SAFE_DIVIDE(sa.refund_qty, sa.sales_qty) AS refund_qty_ratio,
-  SAFE_DIVIDE(sa.refund_amount, sa.sales_amount) AS refund_amount_ratio
-FROM spu_agg sa
-UNION ALL
-SELECT
-  'SKC' AS row_type,
-  ka.spu,
-  ka.skc,
-  ka.sales_qty,
-  ka.sales_amount,
-  ka.refund_qty,
-  ka.refund_amount,
-  SAFE_DIVIDE(ka.refund_qty, ka.sales_qty) AS refund_qty_ratio,
-  SAFE_DIVIDE(ka.refund_amount, ka.sales_amount) AS refund_amount_ratio
-FROM skc_agg ka
-ORDER BY spu, row_type DESC, refund_amount DESC
-        `,
+    'SKC' AS row_type,
+    ka.spu,
+    ka.skc,
+    ka.sales_qty,
+    ka.sales_amount,
+    ka.refund_qty,
+    ka.refund_amount,
+    SAFE_DIVIDE(ka.refund_qty, ka.sales_qty) AS refund_qty_ratio,
+    SAFE_DIVIDE(ka.refund_amount, ka.sales_amount) AS refund_amount_ratio
+  FROM skc_agg ka
+  ORDER BY spu, row_type DESC, refund_amount DESC
+          `,
         params: {
           ...this.buildParams(filters),
+
+          // 修改点 4：新增 date_basis 参数，SQL 里用于区分 order_date / refund_date
+          date_basis: dateBasis,
+
           spu_filter_on: spuFilterOn ? 1 : 0,
           skc_filter_on: skcFilterOn ? 1 : 0,
           spu_list: effectiveSpuList,
