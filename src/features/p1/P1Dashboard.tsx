@@ -343,19 +343,23 @@ export default function P1Dashboard() {
             onClick={() => setBacklogModalOpen(true)}
           >
             <div className="p1-backlog-snapshot__header">
-              <h3>当前积压</h3>
-              <span>当前快照，不受历史范围影响 · 待 review &gt;</span>
+              <div>
+                <span className="p1-backlog-snapshot__eyebrow">当前快照</span>
+                <h3>当前积压</h3>
+              </div>
+              <span className="p1-backlog-snapshot__scope">不受历史范围影响</span>
             </div>
             <dl className="p1-backlog-snapshot__items">
               <div>
-                <dt>当前积压未回</dt>
+                <dt>未回</dt>
                 <dd>{backlogSnapshot.unrepliedCount}</dd>
               </div>
               <div>
-                <dt>当前积压平均等待</dt>
+                <dt>平均等待</dt>
                 <dd>{backlogSnapshot.avgUnrepliedWait}</dd>
               </div>
             </dl>
+            <span className="p1-backlog-snapshot__entry">查看待处理邮件 &gt;</span>
           </button>
         </KpiSection>
       }
