@@ -160,19 +160,18 @@ export function buildWorkloadTableRows(
 
   const normalizedRows = mergeRowsByAgentMailNameMappings(rows, mappings)
 
-  // 坐席总量：累加各客服的回邮数 / 在席时长 / 标准在席时长 / 质检结果。
-  // 每小时回信均值这一列改用"团队整体节奏"= 总回邮 ÷ 总在席时长，比对
-  // 每个客服 rate 的算术平均更有业务意义。
+  // 坐席总量：累加各客服的回邮数 / 在席时长 / 标准在席时长 / 每小时回信均值 / 质检结果。
   const totalOutbound = sum(normalizedRows.map((row) => row.outbound_email_count))
   const totalAttendance = sumNullable(normalizedRows.map((row) => row.attendance_hours))
-  const teamHourlyBySpan = totalAttendance && totalAttendance > 0 ? totalOutbound / totalAttendance : 0
   const totalRow: WorkloadTableRow = {
     agent_name: '坐席总量',
     isTotal: true,
     outbound_email_count: totalOutbound,
     attendance_hours: totalAttendance,
     standard_attendance_hours: sumNullable(normalizedRows.map((row) => row.standard_attendance_hours)),
-    avg_outbound_emails_per_hour_by_span: teamHourlyBySpan,
+    avg_outbound_emails_per_hour_by_span: sum(
+      normalizedRows.map((row) => row.avg_outbound_emails_per_hour_by_span),
+    ),
     avg_outbound_emails_per_hour_by_schedule: 0,
     qa_reply_counts: {
       excellent: sum(normalizedRows.map((row) => row.qa_reply_counts?.excellent ?? 0)),
@@ -293,7 +292,7 @@ export function WorkloadAnalysis({
     <div className="p1-workload-table">
       <Table<WorkloadTableRow>
         title="坐席工作量"
-        hint="跟随筛选器所选历史时间范围。范围超过 1 天时，总回邮数 / 在席时长 / 标准在席时长展示为「总值 / 日均」。表格底部为「坐席总量」（团队累计）和「坐席均值」（算术平均）。每小时回信均值的总量行 = 总回邮 ÷ 总在席时长；质检结果仅统计已质检回邮，展示顺序：优秀 / 达标 / 不合格。"
+        hint="跟随筛选器所选历史时间范围。范围超过 1 天时，总回邮数 / 在席时长 / 标准在席时长展示为「总值 / 日均」。表格底部为「坐席总量」（团队累计）和「坐席均值」（算术平均）。每小时回信均值的总量行 = 各坐席每小时回信均值之和；质检结果仅统计已质检回邮，展示顺序：优秀 / 达标 / 不合格。"
         columns={workloadColumns}
         rows={loading ? [] : buildWorkloadTableRows(workloadRows, mappings)}
         emptyCopy={loading ? '正在加载坐席数据...' : '暂无坐席工作量数据'}

@@ -103,8 +103,8 @@ describe('WorkloadAnalysis table rows', () => {
     })
     expect(totalRow.attendance_hours).toBe(8)      // 2 + 6
     expect(totalRow.standard_attendance_hours).toBeCloseTo(1.2) // 0.4 + 0.8
-    // 团队节奏 = 36 / 8 = 4.5 (NOT mean of 6 and 4 = 5)
-    expect(totalRow.avg_outbound_emails_per_hour_by_span).toBeCloseTo(4.5)
+    // 总量行的每小时回信均值 = 各坐席每小时回信均值之和 = 6 + 4
+    expect(totalRow.avg_outbound_emails_per_hour_by_span).toBeCloseTo(10)
   })
 
   it('builds agent filter options from workload rows and mapping-merged display order', () => {
@@ -205,6 +205,7 @@ describe('WorkloadAnalysis table rows', () => {
     expect(host?.textContent).toContain('坐席总量')
     expect(host?.textContent).toContain('坐席均值')
     expect(host?.textContent).toContain('跟随筛选器所选历史时间范围')
+    expect(host?.textContent).toContain('每小时回信均值的总量行 = 各坐席每小时回信均值之和')
     expect(host?.textContent).toContain('质检结果仅统计已质检回邮')
     expect(host?.textContent).toContain('映射配置')
     expect(host?.textContent).toContain('12 / 4')
