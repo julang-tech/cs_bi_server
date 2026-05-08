@@ -223,7 +223,7 @@ export default function P2Dashboard() {
           <header className="focus-summary-panel__header">
             <div>
               <span className="focus-summary-panel__eyebrow">焦点范围统计</span>
-              <h2>{focusSummaryRangeLabel}</h2>
+              <h2>焦点范围：{focusSummaryRangeLabel}</h2>
             </div>
             {focusSelection.type !== 'all' ? (
               <button type="button" className="focus-summary-panel__reset" onClick={() => setFocusSelection({ type: 'all' })}>
