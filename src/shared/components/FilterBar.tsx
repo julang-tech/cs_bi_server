@@ -16,7 +16,9 @@ const PRESET_OPTIONS = [
   { label: '昨天', value: 1 },
   { label: '近3天', value: 3 },
   { label: '近5天', value: 5 },
-  { label: '近一周', value: 7 },
+  { label: '近7天', value: 7 },
+  { label: '近30天', value: 30 },
+  { label: '近90天', value: 90 },
 ]
 
 const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
