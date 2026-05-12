@@ -350,7 +350,7 @@ export function ProductBreakdownTable<Row>({
           <table>
             <thead>
               <tr>
-                {tableView === 'spu' ? <th className="th-center">{renderHeaderLabel('spu', 'SPU')}</th> : null}
+                <th className="th-center">{renderHeaderLabel('spu', 'SPU')}</th>
                 <th className="th-center">
                   <button type="button" className={`sort-header-btn ${sortState.key === 'skc' ? 'sort-header-btn--active' : ''}`} onClick={() => toggleSort('skc')}>
                     {renderHeaderLabel('skc', 'SKC', sortState.key === 'skc' ? (sortState.direction === 'desc' ? ' ↓' : ' ↑') : '')}
@@ -368,6 +368,7 @@ export function ProductBreakdownTable<Row>({
             <tbody>
               {tableView === 'skc' ? visibleSkcs.map((child) => (
                 <tr key={`${child.id}-flat`} className="skc-row skc-row--flat">
+                  <td className="spu-click-cell skc-spu-cell"><span>{child.spu}</span></td>
                   <td className="skc-cell">{child.skc}</td>
                   {columns.map((col) => <td key={col.key} className="refund-metric-cell">{col.render(child.row, { parent: child.parent })}</td>)}
                 </tr>
